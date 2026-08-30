@@ -208,8 +208,8 @@ var sizeZeroF32 = Size[float32]{Width: 0, Height: 0}
 // sizeNone is a Size[optF32] with both components undefined.
 var sizeNone = Size[optF32]{Width: none(), Height: none()}
 
-// sizeMaxContent is a Size[availableSpace] filled with MaxContent.
-var sizeMaxContent = Size[availableSpace]{Width: maxContent, Height: maxContent}
+// sizeMaxContent is a Size[AvailableSpace] filled with MaxContent.
+var sizeMaxContent = Size[AvailableSpace]{Width: maxContent, Height: maxContent}
 
 // sizeF32Max applies max component-wise.
 func sizeF32Max(a, b Size[float32]) Size[float32] {
@@ -292,14 +292,14 @@ func sizeOptBothAxisDefined(s Size[optF32]) bool {
 	return s.Width.isSome() && s.Height.isSome()
 }
 
-// sizeAvailIntoOptions converts a Size[availableSpace] into a Size[optF32].
-func sizeAvailIntoOptions(s Size[availableSpace]) Size[optF32] {
+// sizeAvailIntoOptions converts a Size[AvailableSpace] into a Size[optF32].
+func sizeAvailIntoOptions(s Size[AvailableSpace]) Size[optF32] {
 	return Size[optF32]{Width: s.Width.intoOption(), Height: s.Height.intoOption()}
 }
 
 // sizeAvailMaybeSet returns a definite value when v is defined, else self.
-func sizeAvailMaybeSet(s Size[availableSpace], v Size[optF32]) Size[availableSpace] {
-	return Size[availableSpace]{
+func sizeAvailMaybeSet(s Size[AvailableSpace], v Size[optF32]) Size[AvailableSpace] {
+	return Size[AvailableSpace]{
 		Width:  s.Width.maybeSet(v.Width),
 		Height: s.Height.maybeSet(v.Height),
 	}
