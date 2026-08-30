@@ -53,14 +53,22 @@
 //
 // The UI runs on one goroutine. A context used from another goroutine panics
 // with a message naming the mistake rather than corrupting state quietly.
-// Every exported entry point that touches entity state, the effect queue or
-// the subscriber sets enforces the invariant. The check costs about 6µs
-// (runtime.Stack to read the goroutine header); reducing the per-frame cost
-// is a separate concern, addressed in the code. The entity map is
-// single-goroutine by design and has no mutex; adding one to make it safe
-// from other goroutines would remove the reason the rest of the design works.
-// Background work returns to the foreground to touch state through AsyncApp,
-// which dispatches onto the UI goroutine.
+// Two mechanisms enforce the invariant, each placed where it is cheap:
+//
+//   - checkUI (goroutine identity, ~6µs) runs at update boundaries and on
+//     every exported App method. A frame opens a few update boundaries, so a
+//     few 6µs checks per frame is affordable. Direct calls to App methods
+//     from a background goroutine are caught here.
+//   - A generation counter (integer compare, ~1ns) runs at every Context
+//     accessor. A Context records the generation at creation; after its
+//     update ends, the generation has moved on and any escaped context
+//     panics. This catches the realistic mistake — a context stored and used
+//     after its update — at every accessor, cheaply.
+//
+// The entity map is single-goroutine by design and has no mutex; adding one
+// to make it safe from other goroutines would remove the reason the rest of
+// the design works. Background work returns to the foreground to touch state
+// through AsyncApp, which dispatches onto the UI goroutine.
 //
 // # Scope
 //

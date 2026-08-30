@@ -17,10 +17,16 @@ import (
 // The buffer is small: runtime.Stack fills it with the header line and
 // truncates the rest, so the stack is not walked in full. Even so, the call
 // costs about 6µs (measured 6167 ns/op on an Intel Core Ultra 5 125U). That
-// is too expensive to pay at every accessor on a frame that touches a
-// thousand entities, so checkUI is called at update boundaries and public
-// entry points rather than at every method. See the comment on checkUI in
-// app.go for the boundary policy.
+// is too expensive for the per-frame path, where a thousand entities may be
+// touched. Two mechanisms share the work:
+//
+//   - checkUI (this function) runs at update boundaries and on exported App
+//     methods. A frame opens a few update boundaries, so a few 6µs checks
+//     per frame is affordable.
+//   - A generation counter (Context.checkGeneration, an integer compare at
+//     ~1ns) runs at every Context accessor. It catches the realistic
+//     mistake — a context stored and used after its update has ended —
+//     cheaply.
 var gidPool = sync.Pool{
 	New: func() any {
 		buf := make([]byte, 128)

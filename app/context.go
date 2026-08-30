@@ -16,8 +16,19 @@ import "reflect"
 // Go does not permit methods to declare type parameters of their own. They
 // take the Context as their first argument.
 type Context[T any] struct {
-	app  *App
-	self WeakEntity[T]
+	app        *App
+	self       WeakEntity[T]
+	generation int64
+}
+
+// checkGeneration panics if the context has escaped the update it was created
+// in. The generation is an integer compare (~1ns), so it is cheap enough to
+// run at every accessor on the per-frame path. The full goroutine check
+// (checkUI, ~6µs) runs at update boundaries and on exported App methods.
+func (c *Context[T]) checkGeneration() {
+	if c.app.generation != c.generation {
+		panic("app: context used after its update has ended")
+	}
 }
 
 // App returns the underlying App. Every App method is reachable through a
@@ -45,15 +56,17 @@ func (c *Context[T]) EntityID() entityID { return c.self.id }
 
 // Notify marks this entity dirty and schedules its observers.
 func (c *Context[T]) Notify() {
-	c.app.Notify(c.self.id)
+	c.checkGeneration()
+	c.app.notify(c.self.id)
 }
 
 // OnRelease registers a callback to run when this entity is dropped. It is the
 // place to Release handles the entity owns and to Close subscriptions it
 // holds. The callback receives a pointer to the value and the App.
 func (c *Context[T]) OnRelease(onRelease func(v *T, app *App)) Subscription {
+	c.checkGeneration()
 	id := c.self.id
-	return c.app.OnRelease(anyEntity{id: id}, func(value any, app *App) {
+	return c.app.onRelease(anyEntity{id: id}, func(value any, app *App) {
 		t, ok := value.(T)
 		if !ok {
 			return
@@ -66,8 +79,9 @@ func (c *Context[T]) OnRelease(onRelease func(v *T, app *App)) Subscription {
 // this entity. Use it to run after entities currently on the stack have been
 // returned to the map.
 func (c *Context[T]) Defer(f func(v *T, cx *Context[T])) {
+	c.checkGeneration()
 	self := c.self
-	c.app.Defer(func(app *App) {
+	c.app.deferFn(func(app *App) {
 		s, ok := self.Upgrade()
 		if !ok {
 			return
@@ -85,7 +99,8 @@ func (c *Context[T]) Defer(f func(v *T, cx *Context[T])) {
 // It is a top-level function because Go does not permit methods to declare
 // type parameters.
 func Emit[T any, Evt any](cx *Context[T], event Evt) {
-	cx.app.Emit(cx.self.id, &event, reflect.TypeOf((*Evt)(nil)))
+	cx.checkGeneration()
+	cx.app.emit(cx.self.id, &event, reflect.TypeOf((*Evt)(nil)))
 }
 
 // Observe registers a callback to run when entity notifies. The callback
@@ -101,10 +116,11 @@ func Emit[T any, Evt any](cx *Context[T], event Evt) {
 // It is a top-level function because Go does not permit methods to declare
 // type parameters.
 func Observe[T any, W any](cx *Context[T], entity Entity[W], onNotify func(v *T, e Entity[W], cx *Context[T])) Subscription {
+	cx.checkGeneration()
 	observer := cx.self
 	observedWeak := entity.Downgrade()
 	observedID := entity.id
-	return cx.app.Observe(anyEntity{id: observedID}, func(app *App) bool {
+	return cx.app.observe(anyEntity{id: observedID}, func(app *App) bool {
 		obs, ok := observedWeak.Upgrade()
 		if !ok {
 			return false
@@ -135,10 +151,11 @@ func Observe[T any, W any](cx *Context[T], entity Entity[W], onNotify func(v *T,
 // It is a top-level function because Go does not permit methods to declare
 // type parameters.
 func Subscribe[T any, E any, Evt any](cx *Context[T], entity Entity[E], onEvent func(v *T, e Entity[E], evt *Evt, cx *Context[T])) Subscription {
+	cx.checkGeneration()
 	observer := cx.self
 	emitterWeak := entity.Downgrade()
 	emitterID := entity.id
-	return cx.app.Subscribe(anyEntity{id: emitterID}, reflect.TypeOf((*Evt)(nil)), func(app *App, event any) bool {
+	return cx.app.subscribe(anyEntity{id: emitterID}, reflect.TypeOf((*Evt)(nil)), func(app *App, event any) bool {
 		em, ok := emitterWeak.Upgrade()
 		if !ok {
 			return false

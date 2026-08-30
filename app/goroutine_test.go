@@ -186,6 +186,29 @@ func TestReadFromWrongGoroutinePanics(t *testing.T) {
 	<-done
 }
 
+func TestContextUsedAfterUpdatePanics(t *testing.T) {
+	// A Context that escapes its update must panic when used. The generation
+	// counter catches this: after the update ends, the generation has moved
+	// on, and the context's generation no longer matches.
+	app := NewApp()
+	defer app.Close()
+
+	c := newCounter(t, app, 0)
+	defer c.Release()
+
+	var escaped *Context[counter]
+	UpdateEntity(app, c, func(v *counter, cx *Context[counter]) {
+		escaped = cx // store the context for later use
+	})
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("using a context after its update did not panic")
+		}
+	}()
+	escaped.Notify()
+}
+
 func TestAsyncAppReachesStateFromBackground(t *testing.T) {
 	// A background task reaches entity state through AsyncApp, which marshals
 	// onto the UI goroutine. This must not panic and must see the live value.
@@ -248,5 +271,19 @@ func BenchmarkCheckUI(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		app.checkUI()
+	}
+}
+
+func BenchmarkCheckGeneration(b *testing.B) {
+	app := NewApp()
+	defer app.Close()
+	c := New(app, func(cx *Context[counter]) counter { return counter{} })
+	defer c.Release()
+	// Construct a context with a matching generation directly, to measure
+	// just the integer compare without the update boundary overhead.
+	cx := &Context[counter]{app: app, self: c.Downgrade(), generation: app.generation}
+	b.ResetTimer()
+	for b.Loop() {
+		cx.checkGeneration()
 	}
 }

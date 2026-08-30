@@ -40,6 +40,16 @@ type App struct {
 	flushingEffects bool
 	pendingUpdates  int
 
+	// generation is incremented at the start and end of each outermost
+	// update. A Context records the generation at creation and checks it at
+	// every accessor: if the generation has moved on, the context has
+	// escaped its update and must not be used. The check is an integer
+	// compare (~1ns), so it is cheap enough to run at every Context accessor
+	// on the per-frame path. The full goroutine check (checkUI, ~6µs) runs
+	// at update boundaries and on exported App methods, where a few
+	// microseconds a few times per frame is affordable.
+	generation int64
+
 	fg *ForegroundExecutor
 	bg *BackgroundExecutor
 
@@ -103,8 +113,16 @@ func (app *App) checkUI() {
 // update runs f against the App inside an update boundary: effects raised
 // inside f (and any they cause) flush once f returns. Updates nest; only the
 // outermost flushes, so a burst of mutations produces one frame.
+//
+// The generation is incremented at the start of the outermost update and at
+// the end of the outermost update. Contexts created during the update record
+// the start generation; after the update ends, the generation has moved on
+// and any escaped context fails the generation check.
 func (app *App) update(f func(*App)) {
 	app.checkUI()
+	if app.pendingUpdates == 0 {
+		app.generation++
+	}
 	app.pendingUpdates++
 	f(app)
 	app.finishUpdate()
@@ -117,6 +135,9 @@ func (app *App) finishUpdate() {
 		app.flushingEffects = false
 	}
 	app.pendingUpdates--
+	if app.pendingUpdates == 0 {
+		app.generation++
+	}
 }
 
 // Flush reaps dropped entities and processes any queued effects without opening
@@ -197,7 +218,7 @@ func New[T any](app *App, build func(cx *Context[T]) T) Entity[T] {
 	app.update(func(cx *App) {
 		id := cx.entities.reserveID(cx.rc)
 		handle = Entity[T]{id: id, rc: cx.rc}
-		ctx := &Context[T]{app: cx, self: handle.Downgrade()}
+		ctx := &Context[T]{app: cx, self: handle.Downgrade(), generation: cx.generation}
 		value := build(ctx)
 		cx.entities.insert(id, value)
 	})
@@ -234,10 +255,16 @@ func UpdateEntity[T any](app *App, handle Entity[T], f func(v *T, cx *Context[T]
 			cx.entities.endLease(handle.id, v)
 			panic(fmt.Sprintf("app: entity %d is not of type %T", handle.id, *new(T)))
 		}
-		ctx := &Context[T]{app: cx, self: handle.Downgrade()}
+		ctx := &Context[T]{app: cx, self: handle.Downgrade(), generation: cx.generation}
 		f(&t, ctx)
 		cx.entities.endLease(handle.id, t)
 	})
+}
+
+// notify is the unexported inner of Notify. It does not checkUI; callers
+// must have verified the goroutine (App.Notify) or the generation (Context).
+func (app *App) notify(id entityID) {
+	app.pushEffect(notifyEffect{emitter: id})
 }
 
 // Notify marks the entity dirty and schedules its observers. Deduplicated per
@@ -245,7 +272,14 @@ func UpdateEntity[T any](app *App, handle Entity[T], f func(v *T, cx *Context[T]
 // single observer run.
 func (app *App) Notify(id entityID) {
 	app.checkUI()
-	app.pushEffect(notifyEffect{emitter: id})
+	app.notify(id)
+}
+
+// observe is the unexported inner of Observe.
+func (app *App) observe(entity anyEntity, onNotify func(cx *App) bool) Subscription {
+	sub, activate := app.observers.insert(entity.id, observerHandler(onNotify))
+	app.deferFn(func(*App) { activate() })
+	return sub
 }
 
 // Observe registers a callback to run when the entity notify is called on
@@ -258,8 +292,13 @@ func (app *App) Notify(id entityID) {
 // kept alive by what it watches.
 func (app *App) Observe(entity anyEntity, onNotify func(cx *App) bool) Subscription {
 	app.checkUI()
-	sub, activate := app.observers.insert(entity.id, observerHandler(onNotify))
-	app.Defer(func(*App) { activate() })
+	return app.observe(entity, onNotify)
+}
+
+// subscribe is the unexported inner of Subscribe.
+func (app *App) subscribe(entity anyEntity, eventType reflect.Type, onEvent func(cx *App, event any) bool) Subscription {
+	sub, activate := app.subscribers.insert(entity.id, subscriberEntry{eventType: eventType, handler: onEvent})
+	app.deferFn(func(*App) { activate() })
 	return sub
 }
 
@@ -267,16 +306,24 @@ func (app *App) Observe(entity anyEntity, onNotify func(cx *App) bool) Subscript
 // registration is activated at the end of the current flush.
 func (app *App) Subscribe(entity anyEntity, eventType reflect.Type, onEvent func(cx *App, event any) bool) Subscription {
 	app.checkUI()
-	sub, activate := app.subscribers.insert(entity.id, subscriberEntry{eventType: eventType, handler: onEvent})
-	app.Defer(func(*App) { activate() })
-	return sub
+	return app.subscribe(entity, eventType, onEvent)
+}
+
+// emit is the unexported inner of Emit.
+func (app *App) emit(id entityID, event any, eventType reflect.Type) {
+	app.pushEffect(emitEffect{emitter: id, eventType: eventType, event: event})
 }
 
 // Emit queues delivery of event to the entity's subscribers of its type. The
 // event is delivered during the flush, after the update returns.
 func (app *App) Emit(id entityID, event any, eventType reflect.Type) {
 	app.checkUI()
-	app.pushEffect(emitEffect{emitter: id, eventType: eventType, event: event})
+	app.emit(id, event, eventType)
+}
+
+// deferFn is the unexported inner of Defer.
+func (app *App) deferFn(f func(*App)) {
+	app.pushEffect(deferEffect{callback: f})
 }
 
 // Defer schedules f to run at the end of the current flush. It is how the
@@ -285,7 +332,14 @@ func (app *App) Emit(id entityID, event any, eventType reflect.Type) {
 // been returned to the map.
 func (app *App) Defer(f func(*App)) {
 	app.checkUI()
-	app.pushEffect(deferEffect{callback: f})
+	app.deferFn(f)
+}
+
+// onRelease is the unexported inner of OnRelease.
+func (app *App) onRelease(entity anyEntity, onRelease func(value any, app *App)) Subscription {
+	sub, activate := app.releases.insert(entity.id, releaseHandler(onRelease))
+	app.deferFn(func(*App) { activate() })
+	return sub
 }
 
 // OnRelease registers a callback to run when the entity is dropped. The
@@ -294,9 +348,7 @@ func (app *App) Defer(f func(*App)) {
 // registration is activated at the end of the current flush.
 func (app *App) OnRelease(entity anyEntity, onRelease func(value any, app *App)) Subscription {
 	app.checkUI()
-	sub, activate := app.releases.insert(entity.id, releaseHandler(onRelease))
-	app.Defer(func(*App) { activate() })
-	return sub
+	return app.onRelease(entity, onRelease)
 }
 
 // anyEntity is the type-erased view of a handle that the App needs to register
