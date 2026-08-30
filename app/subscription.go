@@ -1,7 +1,5 @@
 package app
 
-import "sort"
-
 // subscriberSet is a multi-map from a key to a set of subscribers, where each
 // subscriber may be inert (not yet activated), active, or dropped.
 //
@@ -11,19 +9,29 @@ import "sort"
 // to the end of the flush. A subscriber may drop itself (or be dropped by an
 // earlier subscriber) during a retain pass; the set copes by re-merging any
 // subscribers added while the pass was running.
+//
+// Subscribers are held in a slice per key, in registration order. Dispatch
+// walks the slice directly — no sort, no map iteration, no allocation. GPUI
+// gets the same property from BTreeMap; a slice gets it without the tree.
 type subscriberSet[K comparable, C any] struct {
-	byKey map[K]map[uint64]*subscriber[C]
+	byKey map[K]*subscriberBucket[C]
 	next  uint64
 }
 
+// subscriberBucket holds the subscribers for one key in registration order.
+type subscriberBucket[C any] struct {
+	subs []*subscriber[C]
+}
+
 type subscriber[C any] struct {
+	id      uint64
 	active  bool
 	dropped bool
 	cb      C
 }
 
 func newSubscriberSet[K comparable, C any]() *subscriberSet[K, C] {
-	return &subscriberSet[K, C]{byKey: make(map[K]map[uint64]*subscriber[C])}
+	return &subscriberSet[K, C]{byKey: make(map[K]*subscriberBucket[C])}
 }
 
 // insert adds an inert subscriber for key and returns a Subscription that
@@ -34,21 +42,21 @@ func newSubscriberSet[K comparable, C any]() *subscriberSet[K, C] {
 func (s *subscriberSet[K, C]) insert(key K, cb C) (Subscription, func()) {
 	s.next++
 	id := s.next
-	sub := &subscriber[C]{cb: cb}
-	if s.byKey[key] == nil {
-		s.byKey[key] = make(map[uint64]*subscriber[C])
+	sub := &subscriber[C]{id: id, cb: cb}
+	bucket := s.byKey[key]
+	if bucket == nil {
+		bucket = &subscriberBucket[C]{}
+		s.byKey[key] = bucket
 	}
-	s.byKey[key][id] = sub
+	bucket.subs = append(bucket.subs, sub)
 
 	activate := func() { sub.active = true }
 	unsubscribe := func() {
 		sub.dropped = true
-		if subs, ok := s.byKey[key]; ok {
-			delete(subs, id)
-			if len(subs) == 0 {
-				delete(s.byKey, key)
-			}
-		}
+		// Do not remove from the slice here; retain and remove compact
+		// dropped entries when they next walk the slice. This keeps
+		// unsubscribe O(1) and avoids shifting slice elements on the
+		// uncommon path.
 	}
 	return Subscription{state: &subscriptionState{unsubscribe: unsubscribe}}, activate
 }
@@ -57,16 +65,13 @@ func (s *subscriberSet[K, C]) insert(key K, cb C) (Subscription, func()) {
 // them, in registration order. Used when an entity is dropped: its observers
 // and subscribers go with it.
 func (s *subscriberSet[K, C]) remove(key K) []C {
-	subs := s.byKey[key]
+	bucket := s.byKey[key]
 	delete(s.byKey, key)
-	ids := make([]uint64, 0, len(subs))
-	for id := range subs {
-		ids = append(ids, id)
+	if bucket == nil {
+		return nil
 	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	var out []C
-	for _, id := range ids {
-		sub := subs[id]
+	for _, sub := range bucket.subs {
 		if sub.active && !sub.dropped {
 			out = append(out, sub.cb)
 		}
@@ -74,55 +79,52 @@ func (s *subscriberSet[K, C]) remove(key K) []C {
 	return out
 }
 
-// retain calls f for each active, non-dropped subscriber for key. If f returns
-// false the subscriber is removed. Subscribers dropped during the pass (by f
-// itself or by an earlier subscriber) are removed. New subscribers inserted
-// during the pass are preserved: they are merged back afterwards, so an
-// observer that registers another observer mid-flush does not lose it.
+// retain calls f for each active, non-dropped subscriber for key, in
+// registration order. If f returns false the subscriber is removed. Subscribers
+// dropped during the pass (by f itself or by an earlier subscriber) are
+// removed. New subscribers inserted during the pass are preserved: they land in
+// a fresh bucket and are merged back afterwards, so an observer that registers
+// another observer mid-flush does not lose it.
+//
+// Dispatch walks the slice directly and filters in place. It allocates
+// nothing when no subscribers are added or removed during the pass.
 func (s *subscriberSet[K, C]) retain(key K, f func(*C) bool) {
-	subs := s.byKey[key]
-	if subs == nil {
+	bucket := s.byKey[key]
+	if bucket == nil {
 		return
 	}
-	// Take the bucket out so inserts during the pass land in a fresh one and
-	// are merged back at the end.
+	// Take the bucket out so inserts during the pass land in a fresh one
+	// and are merged back at the end.
 	delete(s.byKey, key)
 
-	// Dispatch in registration order (by monotonic id), not map iteration
-	// order. Map iteration is nondeterministic in Go; pinning to id makes
-	// observer dispatch reproducible across runs.
-	ids := make([]uint64, 0, len(subs))
-	for id := range subs {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-
-	for _, id := range ids {
-		sub := subs[id]
-		if sub == nil {
-			continue
-		}
-		if !sub.active {
-			continue
-		}
-		if sub.dropped {
-			delete(subs, id)
+	// Walk in registration order. Filter in place: compact surviving
+	// subscribers to the front of the slice, then truncate.
+	write := 0
+	for _, sub := range bucket.subs {
+		if !sub.active || sub.dropped {
 			continue
 		}
 		keep := f(&sub.cb) && !sub.dropped
-		if !keep {
-			delete(subs, id)
+		if keep {
+			bucket.subs[write] = sub
+			write++
 		}
 	}
-	// Merge any subscribers inserted during the pass into the bucket.
+	// Nil out the tail so dropped subscribers are not pinned by the
+	// underlying array.
+	for i := write; i < len(bucket.subs); i++ {
+		bucket.subs[i] = nil
+	}
+	bucket.subs = bucket.subs[:write]
+
+	// Merge any subscribers inserted during the pass.
 	if fresh, ok := s.byKey[key]; ok {
-		for id, sub := range fresh {
-			subs[id] = sub
-		}
+		bucket.subs = append(bucket.subs, fresh.subs...)
 		delete(s.byKey, key)
 	}
-	if len(subs) > 0 {
-		s.byKey[key] = subs
+
+	if len(bucket.subs) > 0 {
+		s.byKey[key] = bucket
 	}
 }
 
