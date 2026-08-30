@@ -37,6 +37,9 @@ Several agents may be working here at the same time, each on a different package
   editing a list somewhere else.
 - One concept per file. Small files collide less.
 - Tests live beside the code they test. No cross-package fixtures.
+- Write a test when the logic is non-obvious, or to pin a bug as it is fixed. A
+  test that restates the implementation is noise, and a change is not incomplete
+  for lacking one.
 - Adding a dependency to `go.mod` requires saying which package needs it and why.
 
 ## Language
