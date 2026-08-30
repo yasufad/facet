@@ -1,0 +1,160 @@
+package platform
+
+import (
+	"github.com/yasufad/facet/colour"
+	"github.com/yasufad/facet/geometry"
+)
+
+// WindowOptions configures a window at creation. The zero value is a hidden,
+// decorated, opaque, non-resizable 800×600 window with a black background and
+// no title — the least surprising starting point that a caller then overrides.
+//
+// Sizes and positions are in device pixels. A caller that thinks in logical
+// pixels converts with the display's scale factor before constructing the
+// options.
+type WindowOptions struct {
+	// Title is the window title shown in the title bar and the taskbar.
+	Title string
+
+	// Size is the initial client-area size. The client area excludes the
+	// title bar and borders; the full window is larger.
+	Size geometry.Size[geometry.DevicePixels]
+
+	// Position is the initial window position in display coordinates. The
+	// zero value lets the platform choose — typically cascading from the last
+	// created window. A non-zero value pins the top-left corner.
+	Position geometry.Point[geometry.DevicePixels]
+
+	// MinSize is the smallest the user can resize the window to. The zero
+	// value means no minimum.
+	MinSize geometry.Size[geometry.DevicePixels]
+
+	// MaxSize is the largest the user can resize the window to. The zero
+	// value means no maximum.
+	MaxSize geometry.Size[geometry.DevicePixels]
+
+	// Background is the colour the client area is cleared to before the
+	// renderer draws. It is the colour seen through transparent content or
+	// during the first frame.
+	Background colour.Rgba
+
+	// Resizable controls whether the user can drag the window borders to
+	// resize.
+	Resizable bool
+
+	// Decorated controls whether the window has a platform title bar and
+	// border. An undecorated window is a borderless client area; the
+	// framework is responsible for any custom title bar.
+	Decorated bool
+
+	// Transparent makes the window's background composited with the desktop
+	// rather than opaque. Support and restrictions are platform-dependent;
+	// a backend documents what it permits.
+	Transparent bool
+
+	// AlwaysOnTop keeps the window above non-always-on-top windows.
+	AlwaysOnTop bool
+
+	// Visible controls whether the window is shown on creation. false (the
+	// zero value) creates a hidden window; the caller shows it with
+	// [Window.Show]. This lets the caller set up event handlers and content
+	// before the window appears.
+	Visible bool
+}
+
+// Window is a native window whose client area belongs to Facet. The platform
+// creates it, owns its native handle, and delivers input events to it; the
+// renderer takes the handle and draws into the client area.
+//
+// Window is a layer boundary. Methods change by explicit decision, never as a
+// side effect of a backend. A new backend implements this interface; it does
+// not alter it.
+type Window interface {
+	// Show makes the window visible if it was hidden.
+	Show()
+
+	// Hide makes the window invisible without closing it.
+	Hide()
+
+	// Close destroys the window. The [Window.SetCloseHandler] handler, if set,
+	// is called first and may veto the close. After Close returns the window
+	// is unusable.
+	Close()
+
+	// SetTitle sets the title bar and taskbar text.
+	SetTitle(title string)
+
+	// SetSize sets the client-area size in device pixels. The full window is
+	// larger by the title bar and border.
+	SetSize(size geometry.Size[geometry.DevicePixels])
+
+	// Size returns the current client-area size in device pixels.
+	Size() geometry.Size[geometry.DevicePixels]
+
+	// SetPosition sets the window's top-left corner in display coordinates.
+	SetPosition(pos geometry.Point[geometry.DevicePixels])
+
+	// Position returns the window's top-left corner in display coordinates.
+	Position() geometry.Point[geometry.DevicePixels]
+
+	// SetMinSize sets the minimum resizable size. The zero value removes the
+	// minimum.
+	SetMinSize(size geometry.Size[geometry.DevicePixels])
+
+	// SetMaxSize sets the maximum resizable size. The zero value removes the
+	// maximum.
+	SetMaxSize(size geometry.Size[geometry.DevicePixels])
+
+	// SetResizable controls whether the user can resize the window by
+	// dragging its borders.
+	SetResizable(resizable bool)
+
+	// SetAlwaysOnTop controls whether the window stays above other windows.
+	SetAlwaysOnTop(onTop bool)
+
+	// SetBackground sets the colour the client area is cleared to.
+	SetBackground(c colour.Rgba)
+
+	// ScaleFactor returns the display scale factor for the display this
+	// window is currently on. It changes when the window moves between
+	// displays or the user changes the DPI setting; a [ScaleChangedEvent]
+	// is delivered when it does.
+	ScaleFactor() float32
+
+	// NativeHandle returns the platform's native window handle — an HWND on
+	// Windows, an NSWindow* on macOS, a GtkWidget* on Linux — as a uintptr.
+	// The render backend casts it to the platform-specific type. platform
+	// does not know D3D, Metal or Vulkan exist; it hands out the handle and
+	// stops.
+	//
+	// The value is valid only while the window is open. A caller that stores
+	// it must release the window before using the handle.
+	NativeHandle() uintptr
+
+	// Focus makes this window the focused, foreground window.
+	Focus()
+
+	// IsFocused reports whether this window currently has keyboard focus.
+	IsFocused() bool
+
+	// IsVisible reports whether the window is currently shown.
+	IsVisible() bool
+
+	// SetEventHandler sets the handler that receives input events — pointer,
+	// wheel, key, text, IME, focus, resize and scale-change. Events are
+	// delivered synchronously on the platform thread, in arrival order.
+	// Setting a handler replaces any previous one.
+	SetEventHandler(handler func(Event))
+
+	// SetCloseHandler sets a handler called when the user requests the window
+	// to close — by clicking the close button, pressing Alt+F4, or choosing
+	// Close from the taskbar. Returning false prevents the close; returning
+	// true or nil allows it. The handler is called on the platform thread.
+	SetCloseHandler(handler func() bool)
+
+	// SetDisplayChangeHandler sets a handler called when the window moves to
+	// a different display, or the display configuration changes. The handler
+	// queries [Window.ScaleFactor] for the new value. It is called on the
+	// platform thread.
+	SetDisplayChangeHandler(handler func())
+}
