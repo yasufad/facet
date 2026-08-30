@@ -118,6 +118,12 @@ Conventional commits, one file per commit.
 Scope is the package. The body explains why when the subject cannot. No file lists
 in the body — the diff already says that.
 
+Stage by path: `git add <file>`. Never `git add -A`, `git add .` or `git commit -a`.
+Other agents have work in progress in the same tree, and a blanket stage commits
+their unfinished files under your subject line. Check `git status` before you
+commit and `git show --name-only` after; a commit should contain exactly the file
+its message describes.
+
 ## Documentation
 
 Prose lives in `docs/`, lower-case filenames. State what we do. Explain why only
