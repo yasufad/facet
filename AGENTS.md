@@ -5,7 +5,8 @@ follows GPUI, the framework behind the Zed editor.
 
 `docs/architecture.md` defines the layer stack, the seams between layers, and which
 decisions are still open. Read it before structural changes, and link to it rather
-than restating it.
+than restating it. It is not loaded automatically, so small changes do not pay for
+it.
 
 ## Commands
 
@@ -21,7 +22,9 @@ than restating it.
     ../gpui     Zed's GPUI — the conceptual source
     ../wails    Wails v3 — the platform layer we borrow from
 
-Prefer borrowing working code from `../wails` over writing new platform code.
+Both sit outside the working directory and need to be granted before they can be
+read; in Claude Code, start with `--add-dir ../gpui --add-dir ../wails`. Prefer
+borrowing working code from `../wails` over writing new platform code.
 
 ## Working alongside other agents
 
@@ -31,7 +34,8 @@ Several agents may be working here at the same time, each on a different package
   package's exported API, stop and say so rather than editing it.
 - Interfaces at layer boundaries are contracts. `render.Renderer`,
   `platform.Platform` and `element.Element` change by explicit decision, never as a
-  side effect of an implementation.
+  side effect of an implementation. Plan a change that crosses a layer boundary or
+  alters one of these before writing it.
 - Do not create files that many packages append to — no central `types.go`, no
   widget registry, no enum-plus-switch dispatch. Adding a feature must not require
   editing a list somewhere else.
@@ -81,3 +85,13 @@ in the body — the diff already says that.
 Prose lives in `docs/`, lower-case filenames. State what we do. Explain why only
 where the reasoning is not recoverable from the result, and do not justify decisions
 against alternatives that were never taken.
+
+## Instruction files
+
+This file is the only place instructions live. `CLAUDE.md` exists solely because
+Claude Code does not read `AGENTS.md`; it imports this file and holds nothing of its
+own.
+
+Instructions that apply to one package go in `.claude/rules/`, scoped with `paths:`
+frontmatter so they load only when the matching files are touched. Add one there
+rather than growing this file.
