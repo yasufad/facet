@@ -10,6 +10,17 @@ before it can compile. If they are not there yet, wait — do not stub them. A
 placeholder gets imported, drifts from the real API, and turns the merge into a
 rewrite.
 
+## Prerequisites
+
+`geometry` and `colour` must be merged before this package can compile — the
+primitives are almost entirely bounds and colours, and there is no useful subset to
+write without them. If they are not in yet, wait. Do not stub them: a placeholder
+gets imported, drifts from the real API, and turns the merge into a rewrite.
+
+Reading GPUI's scene and working out the ordering and batching design is useful in
+the meantime, since that is the substance of this package rather than the six
+structs.
+
 ## Read first
 
 1. `AGENTS.md` — conventions, commit style, GB English
