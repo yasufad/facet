@@ -14,19 +14,27 @@ it.
     go build ./...
     go test ./...
     go vet ./...
-    gofmt -l .
+    gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-`gofmt -l .` must print nothing. There is no linter configured yet.
+The format check must print nothing. Scope it through `go list` rather than running
+`gofmt -l .`, which walks into `_upstream/` and reports every upstream file. There
+is no linter configured yet.
 
 ## Upstream projects
+
+    go run ./tools/upstream            sync the checkouts to their pinned commits
+    go run ./tools/upstream -update    move the pins to their branch heads
+
+`upstream.pins` records the exact commit of each project we read. The checkouts land
+in `_upstream/`, which is gitignored and invisible to the Go build tools, and are
+shallow, blobless and sparse — reading `crates/gpui` costs 15 MB rather than all of
+Zed. Moving to a newer upstream is a one-line diff to `upstream.pins`, not something
+that happens quietly when someone re-clones.
 
     GPUI          https://github.com/zed-industries/zed — crates/gpui
     Taffy         https://github.com/DioxusLabs/taffy
     Wails v3      https://github.com/wailsapp/wails — v3/ on master
     typesetting   https://github.com/go-text/typesetting
-
-Clone them wherever suits you and grant your agent access to that location; nothing
-here assumes a path.
 
 `docs/sources.md` says which layer draws on which, and which parts none of them
 provide. Read it before assuming something has to be written from scratch.
