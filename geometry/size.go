@@ -76,6 +76,12 @@ func ScaleSize(s Size[Pixels], factor float32) Size[ScaledPixels] {
 
 // SizeToDevicePixels converts a logical-pixel size to device pixels, rounding
 // each dimension to the nearest device pixel.
+//
+// A size converted alone will not always match the size of the same rectangle
+// converted as a Bounds. BoundsToDevicePixels snaps both edges and derives the
+// size so that adjacent rectangles stay adjacent; a bare size has no origin to
+// snap against, so it rounds each dimension independently. Callers who care
+// about adjacency must convert the bounds, not the size.
 func SizeToDevicePixels(s Size[Pixels], factor float32) Size[DevicePixels] {
 	return Size[DevicePixels]{
 		Width:  s.Width.ToDevicePixels(factor),

@@ -264,26 +264,36 @@ func ScaleBounds(b Bounds[Pixels], factor float32) Bounds[ScaledPixels] {
 	}
 }
 
-// BoundsToDevicePixels converts a logical-pixel Bounds to device pixels,
-// rounding the origin and size to the nearest device pixel.
+// BoundsToDevicePixels converts a logical-pixel Bounds to device pixels by
+// snapping both edges to the nearest device pixel and deriving the size from
+// them. Two rectangles that share an edge in logical pixels share the same
+// device edge, because a neighbour's near edge is the same expression as this
+// rectangle's far edge. Rounding origin and size independently would not give
+// that: a one-pixel gap or overlap appears along the seam at fractional scales.
 func BoundsToDevicePixels(b Bounds[Pixels], factor float32) Bounds[DevicePixels] {
+	x0 := b.Origin.X.ToDevicePixels(factor)
+	x1 := (b.Origin.X + b.Size.Width).ToDevicePixels(factor)
+	y0 := b.Origin.Y.ToDevicePixels(factor)
+	y1 := (b.Origin.Y + b.Size.Height).ToDevicePixels(factor)
 	return Bounds[DevicePixels]{
-		Origin: Point[DevicePixels]{
-			X: b.Origin.X.ToDevicePixels(factor),
-			Y: b.Origin.Y.ToDevicePixels(factor),
-		},
-		Size: SizeToDevicePixels(b.Size, factor),
+		Origin: Point[DevicePixels]{X: x0, Y: y0},
+		Size:   Size[DevicePixels]{Width: x1 - x0, Height: y1 - y0},
 	}
 }
 
 // DeviceBoundsToPixels converts a device-pixel Bounds to logical pixels by
-// dividing by the display scale factor.
+// dividing both edges by the display scale factor and deriving the size from
+// them, the inverse of BoundsToDevicePixels. Deriving the size from the edges
+// rather than converting it independently keeps a rectangle's far edge equal
+// to a neighbour's near edge in logical space, so adjacency survives a
+// logical-device-logical round trip.
 func DeviceBoundsToPixels(b Bounds[DevicePixels], factor float32) Bounds[Pixels] {
+	x0 := b.Origin.X.ToPixels(factor)
+	x1 := (b.Origin.X + b.Size.Width).ToPixels(factor)
+	y0 := b.Origin.Y.ToPixels(factor)
+	y1 := (b.Origin.Y + b.Size.Height).ToPixels(factor)
 	return Bounds[Pixels]{
-		Origin: Point[Pixels]{
-			X: b.Origin.X.ToPixels(factor),
-			Y: b.Origin.Y.ToPixels(factor),
-		},
-		Size: DeviceSizeToPixels(b.Size, factor),
+		Origin: Point[Pixels]{X: x0, Y: y0},
+		Size:   Size[Pixels]{Width: x1 - x0, Height: y1 - y0},
 	}
 }
