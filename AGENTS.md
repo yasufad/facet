@@ -1,29 +1,31 @@
-# AGENTS.md
+# gpui-go
 
-Instructions for AI coding agents working in this repository. Human contributors
-should read it too.
+A GUI framework for Go: pure Go in, native desktop application out. The design
+follows GPUI, the framework behind the Zed editor.
 
-## Project
+`docs/architecture.md` defines the layer stack, the seams between layers, and which
+decisions are still open. Read it before structural changes, and link to it rather
+than restating it.
 
-gpui-go is a GUI framework for Go: pure Go in, native desktop application out. The
-design follows GPUI, the framework behind the Zed editor.
+## Commands
 
-Read `docs/architecture.md` before making structural changes. It defines the layer
-stack, the seams between layers, and which decisions are still open. Do not restate
-its content elsewhere — link to it.
+    go build ./...
+    go test ./...
+    go vet ./...
+    gofmt -l .
 
-Reference checkouts live outside this repository:
+`gofmt -l .` must print nothing. There is no linter configured yet.
+
+## Reference checkouts
 
     ../gpui     Zed's GPUI — the conceptual source
     ../wails    Wails v3 — the platform layer we borrow from
 
-Read them. Prefer borrowing working code from `../wails` over writing new platform
-code.
+Prefer borrowing working code from `../wails` over writing new platform code.
 
 ## Working alongside other agents
 
-Several agents may be working in this repository at the same time, each on a
-different package.
+Several agents may be working here at the same time, each on a different package.
 
 - Stay inside the package you were given. If your change requires touching another
   package's exported API, stop and say so rather than editing it.
@@ -40,12 +42,12 @@ different package.
 ## Language
 
 International (GB) English, in prose and in code: `colour`, `centre`, `behaviour`,
-`initialise`, `serialise`. This applies to package names, identifiers, comments and
+`initialise`, `serialise`. This covers package names, identifiers, comments and
 documentation alike.
 
-## Code
+## Code style
 
-Go 1.26. `gofmt` is not optional.
+Go 1.26.
 
 - Exported identifiers carry doc comments. Unexported ones do when the reason for
   their existence is not obvious from the name.
@@ -70,12 +72,6 @@ Conventional commits, one file per commit.
 
 Scope is the package. The body explains why when the subject cannot. No file lists
 in the body — the diff already says that.
-
-## Commands
-
-    go build ./...
-    go test ./...
-    gofmt -l .
 
 ## Documentation
 
