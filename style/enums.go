@@ -62,8 +62,8 @@ const (
 	AlignItemsFlexStart
 	// AlignItemsFlexEnd aligns items to the flex-relative end.
 	AlignItemsFlexEnd
-	// AlignItemsCenter centers items along the cross axis.
-	AlignItemsCenter
+	// AlignItemsCentre centres items along the cross axis.
+	AlignItemsCentre
 	// AlignItemsBaseline aligns items along their text baseline.
 	AlignItemsBaseline
 	// AlignItemsStretch stretches items to fill the cross axis.
@@ -85,8 +85,8 @@ const (
 	AlignContentFlexStart
 	// AlignContentFlexEnd packs items toward the flex end.
 	AlignContentFlexEnd
-	// AlignContentCenter centers items within the container.
-	AlignContentCenter
+	// AlignContentCentre centres items within the container.
+	AlignContentCentre
 	// AlignContentStretch stretches lines to fill available space.
 	AlignContentStretch
 	// AlignContentSpaceBetween distributes lines evenly with flush ends.
@@ -176,8 +176,8 @@ type TextAlign uint8
 const (
 	// TextAlignLeft aligns text to the left.
 	TextAlignLeft TextAlign = iota
-	// TextAlignCenter centers text horizontally.
-	TextAlignCenter
+	// TextAlignCentre centres text horizontally.
+	TextAlignCentre
 	// TextAlignRight aligns text to the right.
 	TextAlignRight
 )
@@ -261,8 +261,8 @@ func (a AlignItems) toLayout() layout.AlignItems {
 		return layout.AlignItemsFlexStart
 	case AlignItemsFlexEnd:
 		return layout.AlignItemsFlexEnd
-	case AlignItemsCenter:
-		return layout.AlignItemsCenter
+	case AlignItemsCentre:
+		return layout.AlignItemsCentre
 	case AlignItemsBaseline:
 		return layout.AlignItemsBaseline
 	case AlignItemsStretch:
@@ -282,8 +282,8 @@ func (a AlignContent) toLayout() layout.AlignContent {
 		return layout.AlignContentFlexStart
 	case AlignContentFlexEnd:
 		return layout.AlignContentFlexEnd
-	case AlignContentCenter:
-		return layout.AlignContentCenter
+	case AlignContentCentre:
+		return layout.AlignContentCentre
 	case AlignContentStretch:
 		return layout.AlignContentStretch
 	case AlignContentSpaceBetween:
@@ -301,8 +301,8 @@ func (t TextAlign) toLayout() layout.TextAlign {
 	switch t {
 	case TextAlignLeft:
 		return layout.TextAlignLeft
-	case TextAlignCenter:
-		return layout.TextAlignCenter
+	case TextAlignCentre:
+		return layout.TextAlignCentre
 	case TextAlignRight:
 		return layout.TextAlignRight
 	default:
