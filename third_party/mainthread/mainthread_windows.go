@@ -29,6 +29,7 @@
 package mainthread
 
 import (
+	"fmt"
 	"runtime"
 	"sort"
 	"sync"
@@ -74,8 +75,13 @@ type Dispatcher struct {
 // thread that created it and GetMessage only pumps that thread's queue.
 // Run must later be called from the same goroutine.
 //
+// Returns an error if the hidden window cannot be created. A panic is right
+// for Run on the wrong goroutine — that is a programmer error with no
+// recovery. A failed syscall is not; it is a condition the caller can be
+// told about.
+//
 // The class name should be unique to the application.
-func New(className string) *Dispatcher {
+func New(className string) (*Dispatcher, error) {
 	runtime.LockOSThread()
 
 	cn := w32.MustStringToUTF16Ptr(className)
@@ -103,7 +109,7 @@ func New(className string) *Dispatcher {
 		nil,
 	)
 	if hwnd == 0 {
-		panic("mainthread: CreateWindowEx failed for hidden window")
+		return nil, fmt.Errorf("mainthread: CreateWindowEx failed for hidden window")
 	}
 
 	threadID, _ := w32.GetWindowThreadProcessId(hwnd)
@@ -113,7 +119,7 @@ func New(className string) *Dispatcher {
 		threadID:  threadID,
 		className: cn,
 		fns:       make(map[uint32]func()),
-	}
+	}, nil
 }
 
 // dispatchWndProc is the window procedure for the hidden window. It handles

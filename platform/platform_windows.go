@@ -53,12 +53,23 @@ type windowsPlatform struct {
 // through the hidden window, which already exists. Methods that touch
 // native handles marshal onto the platform thread through the dispatcher.
 func New(opts Options) (Platform, error) {
+	// Default the application name so New(Options{}) works. The name
+	// becomes the Win32 window class name, which must be non-empty.
+	if opts.Name == "" {
+		opts.Name = "Facet"
+	}
+
 	// Make this process DPI-aware so window sizes are in physical pixels.
 	w32.SetProcessDpiAwarenessContext(w32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 
+	dispatcher, err := mainthread.New(opts.Name)
+	if err != nil {
+		return nil, fmt.Errorf("initialise platform: %w", err)
+	}
+
 	p := &windowsPlatform{
 		options:    opts,
-		dispatcher: mainthread.New(opts.Name),
+		dispatcher: dispatcher,
 		windows:    make(map[w32.HWND]*windowsWindow),
 	}
 
