@@ -1,76 +1,90 @@
 # Assignment: layout
 
-Port Taffy's flexbox solver to Go as the `layout` package. This is a port, not a
-reimplementation: the algorithm and its edge cases come across intact and only the
-language changes.
+The Taffy flexbox port is done and committed: 28 commits, 2500 fixtures passing,
+`build`, `vet`, `gofmt` and the layering test all clean. Every ported file names its
+upstream source. This round closes a coverage gap and makes the port auditable.
 
-## Prerequisites
+Do not redesign anything. The solver is not in question.
 
-This package depends on `geometry`, which must be implemented and merged
-before it can compile. If they are not there yet, wait — do not stub them. A
-placeholder gets imported, drifts from the real API, and turns the merge into a
-rewrite.
+## Defect 1 — eight passing fixtures are missing
 
-## Read first
+Upstream has 2656 flex fixtures at the pinned commit. The port has 2500.
 
-1. `AGENTS.md` — conventions, commit style, and the attribution rule, which applies
-   to every file you write here
-2. `docs/packages.md` — the `layout` entry
-3. `docs/sources.md` — what porting means as opposed to reading
-4. `_upstream/taffy/src/` — the source
-5. `_upstream/taffy/docs/style-properties.md`
+    ls _upstream/taffy/tests/xml/flex/ | sort > /tmp/up.txt
+    ls layout/testdata/flex/          | sort > /tmp/got.txt
+    comm -23 /tmp/up.txt /tmp/got.txt
 
-Run `go run ./tools/upstream` if `_upstream/` is not there.
+Of the 156 absent, 148 are correctly excluded. Eight are not:
 
-## Build
+    aspect_ratio_flex_column_fill_width_flex__{border,content}_box_{ltr,rtl}.xml
+    aspect_ratio_flex_row_fill_width_flex__{border,content}_box_{ltr,rtl}.xml
 
-The flexbox algorithm and the tree plumbing it needs: node storage, the style input
-type, intrinsic-size caching, and the measure-function hook that lets a leaf report
-its own size — text uses that.
+Copy them in and they pass — I checked. They were dropped for no reason, and they
+cover aspect ratio interacting with flex fill, which is not a corner worth losing.
+Restore them.
 
-Taffy's own types come across with it: the style inputs — `Dimension`,
-`LengthPercentage`, `LengthPercentageAuto` — and its `Size`, `Rect`, `Point` and
-`Line`. This package imports nothing, not even `geometry`. Those types are what the
-algorithm and the test suite are written against, and substituting ours would make
-the port less faithful for no gain. `style` converts down into this package and
-`element` converts results back out; the vocabularies meet at that one boundary.
+## Defect 2 — the exclusions are invisible
 
-Because it depends on nothing, this assignment can start before any other package
-exists.
+The suite reports 2500 of 2500 passing. Nothing in `doc.go`, the harness or
+`testdata/` says that 156 upstream fixtures are absent or why, so the run reads as
+complete coverage to anyone who has not diffed the two directories.
 
-Port the test suite as well. Taffy's tests are generated from browser behaviour and
-are the only real evidence the port is correct. Bring them across mechanically —
-they are worth more than tests you write yourself.
+Write the record. `layout/testdata/flex/README` is the natural home, beside the
+files it describes. It needs:
 
-## Decisions already made
+- Where the fixtures came from: `tests/xml/flex/` in
+  [DioxusLabs/taffy](https://github.com/DioxusLabs/taffy), at the commit pinned in
+  `upstream.pins` — currently `b3b387132be1dda0e9d08d5044692236532c166d`. Name the
+  commit explicitly, so a reader can tell whether the fixtures have drifted from the
+  pin.
+- What is excluded and why, with counts:
 
-Grid is out of scope. Port the flexbox path and the shared tree code it needs, and
-leave the rest.
+      136  balance_*                        feature-gated upstream, not in this port
+        4  bevy_issue_10343_grid__*         grid
+        4  bevy_issue_21240__*              grid, despite living in tests/xml/flex/
+        4  overflow_start_edge_absolute_child__*
+                                            absolute positioning inside a block
+                                            container, beyond the flexbox port
 
-A behavioural difference from Taffy is a bug in the port, not an improvement. If the
-Rust looks wrong, it is far more likely encoding a spec detail or a browser
-behaviour you have not hit yet. Port it faithfully and raise the question separately.
+- That these are MIT-licensed files from Taffy, carried under the entry in `NOTICE`.
 
-Order matters more than it looks. The sizing passes, `auto` margin resolution, min
-and max clamping and baseline alignment interact, and reordering them for
-readability breaks cases the tests will catch late. Keep the structure recognisable
-against the original.
+Your judgement on those 148 was right, including `bevy_issue_21240`, which is a grid
+test misfiled upstream. The reasoning just never made it into the repository.
 
-Every file carries an attribution header naming the Taffy file it came from and its
-MIT licence, and Taffy goes into `NOTICE`.
+## Then keep it honest as the pin moves
+
+Add a test that fails when the fixture directory drifts from upstream: compare the
+names in `layout/testdata/flex/` against `tests/xml/flex/` in the checkout, minus
+the documented exclusion list, and fail on anything unaccounted for in either
+direction. Skip it when `_upstream/taffy` is not present, so it does not break a
+checkout that has not run `go run ./tools/upstream`.
+
+That turns the exclusion list from a comment into something enforced, and means the
+next `-update` of the Taffy pin surfaces new fixtures instead of silently ignoring
+them.
 
 ## Done when
 
     go build -o bin/ ./...
-    go test ./...
+    go test ./layout/
     go test ./internal/layering
+    go vet ./layout/
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-`doc.go` states what the package owns and its invariants, and says plainly that this
-is a port and where from. The ported test suite passes. Where a test does not pass,
-say which and why rather than deleting it.
+2508 fixtures pass. The exclusion record exists, names the pinned commit, and is
+enforced by the drift test.
 
-## Out of scope
+One conventional commit per file, as before.
 
-Style properties that are not layout inputs — colours, borders, shadows, text
-styling. Those live in `style`, which converts down to this package's types.
+## Out of scope, still
+
+Grid. Float. The balance module. A complete block layout — `block.go` stays the
+minimal implementation the flexbox fixtures need. Anything in another package.
+
+## What to carry forward
+
+The report said "all 2501 included fixtures passed". The word doing the work there
+was *included*, and it hid 156 absent fixtures behind a number that looked total. A
+count of what passed is only meaningful next to a count of what was run and what was
+skipped. When coverage is bounded, say what was dropped — a silent cap reads as full
+coverage to everyone who comes after.
