@@ -13,8 +13,13 @@ it.
 
     go build -o bin/ ./...
     go test ./...
+    go test -tags facet_debug ./...
     go vet ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
+
+The `facet_debug` build turns on checks too expensive to leave in a release binary,
+and the tests that exercise them are behind the same tag. Skip that run and those
+tests never execute.
 
 Build output goes to `bin/`, which is gitignored. Plain `go build ./...` drops an
 executable in whatever directory you ran it from; always pass `-o bin/`. Nothing
