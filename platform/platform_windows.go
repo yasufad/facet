@@ -55,14 +55,6 @@ func New(opts Options) (Platform, error) {
 	return p, nil
 }
 
-// Run starts the native event loop and blocks until Quit is called.
-func (p *windowsPlatform) Run() error {
-	return nil // placeholder; the loop runs below
-}
-
-// Run is implemented in run_windows.go to keep the loop separate from the
-// constructor and shell methods.
-
 // Quit stops the event loop.
 func (p *windowsPlatform) Quit() {
 	p.dispatcher.Quit()
