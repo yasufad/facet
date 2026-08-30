@@ -12,4 +12,3 @@
 - Per-package instructions go in `.claude/rules/`, scoped with `paths:` frontmatter
   so they load only when the matching files are touched. Add one there rather than
   growing this file.
-- Do not spawn subagents unless asked to.
