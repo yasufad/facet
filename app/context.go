@@ -21,16 +21,6 @@ type Context[T any] struct {
 	generation int64
 }
 
-// checkGeneration panics if the context has escaped the update it was created
-// in. The generation is an integer compare (~1ns), so it is cheap enough to
-// run at every accessor on the per-frame path. The full goroutine check
-// (checkUI, ~6µs) runs at update boundaries and on exported App methods.
-func (c *Context[T]) checkGeneration() {
-	if c.app.generation != c.generation {
-		panic("app: context used after its update has ended")
-	}
-}
-
 // App returns the underlying App. Every App method is reachable through a
 // Context.
 func (c *Context[T]) App() *App { return c.app }

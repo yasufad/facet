@@ -18,15 +18,20 @@ import (
 // truncates the rest, so the stack is not walked in full. Even so, the call
 // costs about 6µs (measured 6167 ns/op on an Intel Core Ultra 5 125U). That
 // is too expensive for the per-frame path, where a thousand entities may be
-// touched. Two mechanisms share the work:
+// touched. Three mechanisms share the work, each placed where it is cheap:
 //
 //   - checkUI (this function) runs at update boundaries and on exported App
 //     methods. A frame opens a few update boundaries, so a few 6µs checks
-//     per frame is affordable.
+//     per frame is affordable. This catches direct calls to App methods from
+//     a background goroutine.
 //   - A generation counter (Context.checkGeneration, an integer compare at
-//     ~1ns) runs at every Context accessor. It catches the realistic
-//     mistake — a context stored and used after its update has ended —
-//     cheaply.
+//     ~1ns) runs at every Context accessor in a release build. It catches a
+//     context stored and used after its update has ended.
+//   - In a facet_debug build, checkGeneration also calls checkUI. This
+//     catches a context used from another goroutine while its update is still
+//     running — the case the generation compare alone cannot see, because the
+//     generation still matches. The 6µs cost is acceptable in a debug or race
+//     build, where it does not matter.
 var gidPool = sync.Pool{
 	New: func() any {
 		buf := make([]byte, 128)

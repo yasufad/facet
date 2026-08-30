@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"reflect"
+	"sync"
 	"testing"
 )
 
@@ -207,6 +208,38 @@ func TestContextUsedAfterUpdatePanics(t *testing.T) {
 		}
 	}()
 	escaped.Notify()
+}
+
+func TestConcurrentContextUseDuringUpdatePanics(t *testing.T) {
+	// A Context used from another goroutine while its update is still running
+	// must panic. The generation counter alone cannot see this (the generation
+	// still matches), so the full goroutine check is needed. That check runs
+	// in a facet_debug build; in a release build the case is not caught at
+	// the accessor, so the test skips.
+	if !debugChecks {
+		t.Skip("concurrent context detection requires -tags facet_debug")
+	}
+
+	app := NewApp()
+	defer app.Close()
+
+	c := newCounter(t, app, 0)
+	defer c.Release()
+
+	UpdateEntity(app, c, func(v *counter, cx *Context[counter]) {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r == nil {
+					t.Error("concurrent context use did not panic")
+				}
+			}()
+			cx.Notify()
+		}()
+		wg.Wait()
+	})
 }
 
 func TestAsyncAppReachesStateFromBackground(t *testing.T) {
