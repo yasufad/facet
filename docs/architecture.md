@@ -1,9 +1,10 @@
 # Architecture
 
-Status: implementation. Five packages are built — geometry, colour, app,
-layout, text — and the layering test enforces their imports. The remaining
-packages (scene, platform, render, style, input, element, window, ui) are
-not yet started.
+Status: implementation. The lower layers are built and the layering test enforces
+their imports; nothing yet puts a window on screen. For what is finished rather
+than what is designed, run `go list ./...` and read `prompts/`, where an assignment
+is retired once its package is done. A list of package names here would be wrong
+within the day.
 
 ## Overview
 
