@@ -102,11 +102,11 @@ type algoConstants struct {
 }
 
 // computeFlexboxLayout computes the layout of a box according to the flexbox algorithm.
-func computeFlexboxLayout(t FlexboxTree, node NodeID, in LayoutInput) LayoutOutput {
+func computeFlexboxLayout(t flexboxTree, node NodeID, in LayoutInput) LayoutOutput {
 	known := in.KnownDimensions
 	parentSize := in.ParentSize
 	runMode := in.RunMode
-	style := t.FlexboxContainerStyle(node)
+	style := t.flexboxContainerStyle(node)
 
 	contain := style.containVal()
 	aspectRatio := style.aspectRatioVal()
@@ -175,13 +175,13 @@ func computeFlexboxLayout(t FlexboxTree, node NodeID, in LayoutInput) LayoutOutp
 }
 
 // computePreliminary computes a preliminary size for an item.
-func computePreliminary(t FlexboxTree, node NodeID, in LayoutInput) LayoutOutput {
+func computePreliminary(t flexboxTree, node NodeID, in LayoutInput) LayoutOutput {
 	known := in.KnownDimensions
 	parentSize := in.ParentSize
 	avail := in.AvailableSpace
 	runMode := in.RunMode
 
-	constants := computeConstants(t, t.FlexboxContainerStyle(node), known, in.KnownDimensionsAreDefinite, parentSize, avail)
+	constants := computeConstants(t, t.flexboxContainerStyle(node), known, in.KnownDimensionsAreDefinite, parentSize, avail)
 
 	// 9.1. Generate anonymous flex items.
 	flexItems := generateAnonymousFlexItems(t, node, &constants)
@@ -206,7 +206,7 @@ func computePreliminary(t FlexboxTree, node NodeID, in LayoutInput) LayoutOutput
 		sizeSetMain(&constants.nodeInnerSize, constants.dir, some(sizeMain(constants.innerContainerSize, constants.dir)))
 		sizeSetMain(&constants.nodeOuterSize, constants.dir, some(sizeMain(constants.containerSize, constants.dir)))
 		// Re-resolve percentage gaps.
-		style := t.FlexboxContainerStyle(node)
+		style := t.flexboxContainerStyle(node)
 		innerMain := sizeMain(constants.innerContainerSize, constants.dir)
 		newGap := lpMaybeResolve(sizeMain(style.gapVal(), constants.dir), some(innerMain))
 		sizeSetMain(&constants.gap, constants.dir, newGap.unwrapOr(0))
@@ -260,12 +260,12 @@ func computePreliminary(t FlexboxTree, node NodeID, in LayoutInput) LayoutOutput
 	absoluteOverflowRect := performAbsoluteLayoutOnAbsoluteChildren(t, node, &constants)
 
 	// Hidden layout for display:none children.
-	childCount := t.ChildCount(node)
+	childCount := t.childCount(node)
 	for order := 0; order < childCount; order++ {
-		child := t.ChildID(node, order)
-		if t.FlexboxChildStyle(child).boxGenerationMode() == boxGenNone {
-			t.SetUnroundedLayout(child, newLayoutWithOrder(uint32(order)))
-			t.ComputeChildLayout(child, layoutInputHidden)
+		child := t.childID(node, order)
+		if t.flexboxChildStyle(child).boxGenerationMode() == boxGenNone {
+			t.setUnroundedLayout(child, newLayoutWithOrder(uint32(order)))
+			t.computeChildLayout(child, layoutInputHidden)
 		}
 	}
 
@@ -322,12 +322,12 @@ func computePreliminary(t FlexboxTree, node NodeID, in LayoutInput) LayoutOutput
 
 // computeConstants computes constants that can be reused during the algorithm.
 func computeConstants(
-	t FlexboxTree,
+	t flexboxTree,
 	style *Style,
 	known Size[optF32],
 	knownAreDefinite Size[bool],
 	parentSize Size[optF32],
-	avail Size[availableSpace],
+	avail Size[AvailableSpace],
 ) algoConstants {
 	dir := style.flexDirectionVal()
 	isRow := dir.isRow()
@@ -416,7 +416,7 @@ func computeConstants(
 }
 
 // generateAnonymousFlexItems generates anonymous flex items.
-func generateAnonymousFlexItems(t FlexboxTree, node NodeID, constants *algoConstants) []*flexItem {
+func generateAnonymousFlexItems(t flexboxTree, node NodeID, constants *algoConstants) []*flexItem {
 	var percentResolutionSize Size[optF32]
 	if constants.knownMainSizeIsDefinite {
 		percentResolutionSize = constants.nodeInnerSize
@@ -425,10 +425,10 @@ func generateAnonymousFlexItems(t FlexboxTree, node NodeID, constants *algoConst
 	}
 
 	var items []*flexItem
-	childCount := t.ChildCount(node)
+	childCount := t.childCount(node)
 	for index := 0; index < childCount; index++ {
-		child := t.ChildID(node, index)
-		childStyle := t.FlexboxChildStyle(child)
+		child := t.childID(node, index)
+		childStyle := t.flexboxChildStyle(child)
 		if childStyle.positionVal() == positionAbsolute {
 			continue
 		}
@@ -478,8 +478,8 @@ func generateAnonymousFlexItems(t FlexboxTree, node NodeID, constants *algoConst
 }
 
 // determineAvailableSpace determines the available main and cross space.
-func determineAvailableSpace(known Size[optF32], outerAvail Size[availableSpace], c *algoConstants) Size[availableSpace] {
-	var width, height availableSpace
+func determineAvailableSpace(known Size[optF32], outerAvail Size[AvailableSpace], c *algoConstants) Size[AvailableSpace] {
+	var width, height AvailableSpace
 	if known.Width.isSome() {
 		width = definiteAvail(known.Width.v - rectF32HorizontalAxisSum(c.contentBoxInset))
 	} else {
@@ -490,15 +490,15 @@ func determineAvailableSpace(known Size[optF32], outerAvail Size[availableSpace]
 	} else {
 		height = outerAvail.Height.maybeSubF32(rectF32VerticalAxisSum(c.margin)).maybeSubF32(rectF32VerticalAxisSum(c.contentBoxInset))
 	}
-	return Size[availableSpace]{Width: width, Height: height}
+	return Size[AvailableSpace]{Width: width, Height: height}
 }
 
 // determineFlexBaseSize determines the flex base size and hypothetical main size.
-func determineFlexBaseSize(t FlexboxTree, c *algoConstants, avail Size[availableSpace], items []*flexItem) {
+func determineFlexBaseSize(t flexboxTree, c *algoConstants, avail Size[AvailableSpace], items []*flexItem) {
 	dir := c.dir
 
 	for _, child := range items {
-		childStyle := t.FlexboxChildStyle(child.node)
+		childStyle := t.flexboxChildStyle(child.node)
 
 		crossAxisParentSize := sizeCross(c.nodeInnerSize, dir)
 		childParentSize := sizeFromCross(dir, crossAxisParentSize)
@@ -510,7 +510,7 @@ func determineFlexBaseSize(t FlexboxTree, c *algoConstants, avail Size[available
 		childMaxCross := optMaybeAdd(sizeCross(transferredMaxSize, dir), some(crossAxisMarginSum))
 
 		// Clamp available space by min/max.
-		var crossAxisAvail availableSpace
+		var crossAxisAvail AvailableSpace
 		switch crossAvail := sizeCross(avail, dir); crossAvail.kind {
 		case availableDefinite:
 			val := c.dividedCrossSpace(crossAxisParentSize.unwrapOr(crossAvail.val))
@@ -566,7 +566,7 @@ func determineFlexBaseSize(t FlexboxTree, c *algoConstants, avail Size[available
 			mainSize := sizeMain(child.size, dir)
 			mainStretchSize := optMaybeSub(percentResolutionMainSize, some(rectF32MainAxisSum(child.margin, dir)))
 
-			var keywordMainAvail *availableSpace
+			var keywordMainAvail *AvailableSpace
 			if flexBasisStyle.isContent() {
 				keywordMainAvail = nil
 			} else if flexBasisStyle.isSizingKeyword() {
@@ -657,7 +657,7 @@ func determineFlexBaseSize(t FlexboxTree, c *algoConstants, avail Size[available
 }
 
 // collectFlexLines collects flex items into flex lines.
-func collectFlexLines(c *algoConstants, avail Size[availableSpace], items []*flexItem) []flexLine {
+func collectFlexLines(c *algoConstants, avail Size[AvailableSpace], items []*flexItem) []flexLine {
 	if !c.isWrap || !c.knownMainSizeIsDefinite {
 		return []flexLine{{items: items, crossSize: 0, offsetCross: 0}}
 	}
@@ -727,7 +727,7 @@ func itemKnownDimensionDefiniteness(c *algoConstants, item *flexItem) Size[bool]
 }
 
 // determineContainerMainSize determines the container's main size.
-func determineContainerMainSize(t FlexboxTree, avail Size[availableSpace], lines []flexLine, c *algoConstants) {
+func determineContainerMainSize(t flexboxTree, avail Size[AvailableSpace], lines []flexLine, c *algoConstants) {
 	dir := c.dir
 	mainContentBoxInset := rectF32MainAxisSum(c.contentBoxInset, c.dir)
 
@@ -1049,7 +1049,7 @@ func resolveFlexibleLengths(line *flexLine, c *algoConstants) {
 }
 
 // determineHypotheticalCrossSize determines the hypothetical cross size of each item.
-func determineHypotheticalCrossSize(t FlexboxTree, line *flexLine, c *algoConstants, avail Size[availableSpace]) {
+func determineHypotheticalCrossSize(t flexboxTree, line *flexLine, c *algoConstants, avail Size[AvailableSpace]) {
 	for _, child := range line.items {
 		pbCrossSum := rectF32CrossAxisSum(rectF32Add(child.padding, child.border), c.dir)
 
@@ -1093,13 +1093,13 @@ func determineHypotheticalCrossSize(t FlexboxTree, line *flexLine, c *algoConsta
 			} else {
 				knownDims = Size[optF32]{Width: childCross, Height: some(child.targetSize.Height)}
 			}
-			var childAvailSize Size[availableSpace]
+			var childAvailSize Size[AvailableSpace]
 			if c.isRow {
-				childAvailSize = Size[availableSpace]{Width: fromOptF32(childKnownMain), Height: childAvailCross}
+				childAvailSize = Size[AvailableSpace]{Width: fromOptF32(childKnownMain), Height: childAvailCross}
 			} else {
-				childAvailSize = Size[availableSpace]{Width: childAvailCross, Height: fromOptF32(childKnownMain)}
+				childAvailSize = Size[AvailableSpace]{Width: childAvailCross, Height: fromOptF32(childKnownMain)}
 			}
-			out := t.ComputeChildLayout(child.node, LayoutInput{
+			out := t.computeChildLayout(child.node, LayoutInput{
 				RunMode:                       runComputeSize,
 				SizingMode:                    sizingContentSize,
 				Axis:                          fromAbsoluteAxis(c.dir.crossAxis()),
@@ -1122,7 +1122,7 @@ func determineHypotheticalCrossSize(t FlexboxTree, line *flexLine, c *algoConsta
 }
 
 // calculateChildrenBaseLines calculates the baselines of children.
-func calculateChildrenBaseLines(t FlexboxTree, nodeSize Size[optF32], avail Size[availableSpace], lines []flexLine, c *algoConstants) {
+func calculateChildrenBaseLines(t flexboxTree, nodeSize Size[optF32], avail Size[AvailableSpace], lines []flexLine, c *algoConstants) {
 	if !c.isRow {
 		return
 	}
@@ -1146,19 +1146,19 @@ func calculateChildrenBaseLines(t FlexboxTree, nodeSize Size[optF32], avail Size
 			} else {
 				knownDims = Size[optF32]{Width: some(child.hypotheticalInnerSize.Width), Height: some(child.targetSize.Height)}
 			}
-			var childAvail Size[availableSpace]
+			var childAvail Size[AvailableSpace]
 			if c.isRow {
-				childAvail = Size[availableSpace]{
+				childAvail = Size[AvailableSpace]{
 					Width:  fromOptF32(some(c.containerSize.Width)),
 					Height: avail.Height.maybeSet(nodeSize.Height),
 				}
 			} else {
-				childAvail = Size[availableSpace]{
+				childAvail = Size[AvailableSpace]{
 					Width:  avail.Width.maybeSet(nodeSize.Width),
 					Height: fromOptF32(some(c.containerSize.Height)),
 				}
 			}
-			out := t.ComputeChildLayout(child.node, LayoutInput{
+			out := t.computeChildLayout(child.node, LayoutInput{
 				RunMode:                       runPerformLayout,
 				SizingMode:                    sizingContentSize,
 				Axis:                          requestedBoth,
@@ -1259,11 +1259,11 @@ func handleAlignContentStretch(lines []flexLine, nodeSize Size[optF32], c *algoC
 }
 
 // determineUsedCrossSize determines the used cross size of each flex item.
-func determineUsedCrossSize(t FlexboxTree, lines []flexLine, c *algoConstants) {
+func determineUsedCrossSize(t flexboxTree, lines []flexLine, c *algoConstants) {
 	for _, line := range lines {
 		lineCrossSize := line.crossSize
 		for _, child := range line.items {
-			childStyle := t.FlexboxChildStyle(child.node)
+			childStyle := t.flexboxChildStyle(child.node)
 			crossIsStretch := sizeCross(child.sizeStyle, c.dir).isStretch()
 			var crossTarget float32
 			if !rectBoolCrossStart(child.marginIsAuto, c.dir) &&
@@ -1438,7 +1438,7 @@ func alignFlexItemsAlongCrossAxis(child *flexItem, freeSpace, maxBaseline, maxBa
 			return 0
 		}
 		return freeSpace
-	case alignItemsCenter:
+	case alignItemsCentre:
 		return freeSpace / 2
 	case alignItemsBaseline:
 		if c.isRow {
@@ -1511,7 +1511,7 @@ func alignFlexLinesPerAlignContent(lines []flexLine, c *algoConstants, totalCros
 }
 
 // finalLayoutPass does a final layout pass and collects the resulting layouts.
-func finalLayoutPass(t FlexboxTree, lines []flexLine, c *algoConstants) Rect[float32] {
+func finalLayoutPass(t flexboxTree, lines []flexLine, c *algoConstants) Rect[float32] {
 	var totalOffsetCross float32
 	if c.isColumn && c.layoutDirection == directionRtl {
 		totalOffsetCross = c.containerSize.Width - rectCrossEnd(c.contentBoxInset, c.dir)
@@ -1548,7 +1548,7 @@ func finalLayoutPass(t FlexboxTree, lines []flexLine, c *algoConstants) Rect[flo
 }
 
 // calculateLayoutLine calculates the layout for a flex line.
-func calculateLayoutLine(t FlexboxTree, line *flexLine, totalOffsetCross *float32, overflowRect *Rect[float32], c *algoConstants) {
+func calculateLayoutLine(t flexboxTree, line *flexLine, totalOffsetCross *float32, overflowRect *Rect[float32], c *algoConstants) {
 	var totalOffsetMain float32
 	if c.layoutDirection == directionRtl && c.dir.isRow() {
 		totalOffsetMain = c.containerSize.Width - rectMainEnd(c.contentBoxInset, c.dir)
@@ -1582,16 +1582,16 @@ func calculateLayoutLine(t FlexboxTree, line *flexLine, totalOffsetCross *float3
 }
 
 // calculateFlexItem calculates the layout for a flex item.
-func calculateFlexItem(t FlexboxTree, item *flexItem, totalOffsetMain *float32, totalOffsetCross, lineOffsetCross float32, overflowRect *Rect[float32], c *algoConstants) {
+func calculateFlexItem(t flexboxTree, item *flexItem, totalOffsetMain *float32, totalOffsetCross, lineOffsetCross float32, overflowRect *Rect[float32], c *algoConstants) {
 	itemKnownDefiniteness := itemKnownDimensionDefiniteness(c, item)
-	layoutOutput := t.ComputeChildLayout(item.node, LayoutInput{
+	layoutOutput := t.computeChildLayout(item.node, LayoutInput{
 		RunMode:                       runPerformLayout,
 		SizingMode:                    sizingContentSize,
 		Axis:                          requestedBoth,
 		KnownDimensions:               sizeMap(item.targetSize, func(v float32) optF32 { return some(v) }),
 		KnownDimensionsAreDefinite:    itemKnownDefiniteness,
 		ParentSize:                    c.nodeInnerSize,
-		AvailableSpace:                sizeMap(c.containerSize, func(v float32) availableSpace { return definiteAvail(v) }),
+		AvailableSpace:                sizeMap(c.containerSize, func(v float32) AvailableSpace { return definiteAvail(v) }),
 		VerticalMarginsAreCollapsible: lineBoolFalse,
 	})
 	size := layoutOutput.Size
@@ -1672,7 +1672,7 @@ func calculateFlexItem(t FlexboxTree, item *flexItem, totalOffsetMain *float32, 
 		Height: scrollWidthFor(item.overflow.X, item.scrollbarWidth),
 	}
 
-	t.SetUnroundedLayout(item.node, Layout{
+	t.setUnroundedLayout(item.node, Layout{
 		Order:                  item.order,
 		Size:                   size,
 		ScrollableOverflowRect: layoutOutput.ScrollableOverflowRect,
@@ -1708,7 +1708,7 @@ func calculateFlexItem(t FlexboxTree, item *flexItem, totalOffsetMain *float32, 
 
 // performAbsoluteLayoutOnAbsoluteChildren performs absolute layout on all
 // absolutely positioned children.
-func performAbsoluteLayoutOnAbsoluteChildren(t FlexboxTree, node NodeID, c *algoConstants) Rect[float32] {
+func performAbsoluteLayoutOnAbsoluteChildren(t flexboxTree, node NodeID, c *algoConstants) Rect[float32] {
 	containerWidth := c.containerSize.Width
 	containerHeight := c.containerSize.Height
 	insetRelativeSize := Size[float32]{
@@ -1718,10 +1718,10 @@ func performAbsoluteLayoutOnAbsoluteChildren(t FlexboxTree, node NodeID, c *algo
 
 	var overflowRect Rect[float32]
 
-	childCount := t.ChildCount(node)
+	childCount := t.childCount(node)
 	for order := 0; order < childCount; order++ {
-		child := t.ChildID(node, order)
-		childStyle := t.FlexboxChildStyle(child)
+		child := t.childID(node, order)
+		childStyle := t.flexboxChildStyle(child)
 		if childStyle.boxGenerationMode() == boxGenNone || childStyle.positionVal() != positionAbsolute {
 			continue
 		}
@@ -1797,7 +1797,7 @@ func performAbsoluteLayoutOnAbsoluteChildren(t FlexboxTree, node NodeID, c *algo
 			finalSize = Size[float32]{Width: known.Width.v, Height: known.Height.v}
 		} else {
 			measured := measureChildSizeBoth(t, child, known, c.nodeInnerSize,
-				Size[availableSpace]{
+				Size[AvailableSpace]{
 					Width:  definiteAvail(f32MaybeClamp(containerWidth, minSize.Width, maxSize.Width)),
 					Height: definiteAvail(f32MaybeClamp(containerHeight, minSize.Height, maxSize.Height)),
 				}, sizingContentSize, lineBoolFalse)
@@ -1807,7 +1807,7 @@ func performAbsoluteLayoutOnAbsoluteChildren(t FlexboxTree, node NodeID, c *algo
 
 		layoutOutput := performChildLayout(t, child,
 			sizeF32ToOpt(finalSize), c.nodeInnerSize,
-			Size[availableSpace]{
+			Size[AvailableSpace]{
 				Width:  definiteAvail(f32MaybeClamp(containerWidth, minSize.Width, maxSize.Width)),
 				Height: definiteAvail(f32MaybeClamp(containerHeight, minSize.Height, maxSize.Height)),
 			}, sizingContentSize, lineBoolFalse)
@@ -1924,7 +1924,7 @@ func performAbsoluteLayoutOnAbsoluteChildren(t FlexboxTree, node NodeID, c *algo
 				} else {
 					offsetMain = rectMainStart(c.contentBoxInset, c.dir) + rectMainStart(resolvedMargin, c.dir)
 				}
-			case alignContentSpaceEvenly, alignContentSpaceAround, alignContentCenter:
+			case alignContentSpaceEvenly, alignContentSpaceAround, alignContentCentre:
 				offsetMain = (sizeMain(c.containerSize, c.dir) + rectMainStart(c.contentBoxInset, c.dir) - rectMainEnd(c.contentBoxInset, c.dir) -
 					sizeMain(finalSize, c.dir) + rectMainStart(resolvedMargin, c.dir) - rectMainEnd(resolvedMargin, c.dir)) / 2
 			}
@@ -1972,7 +1972,7 @@ func performAbsoluteLayoutOnAbsoluteChildren(t FlexboxTree, node NodeID, c *algo
 				} else {
 					offsetCross = rectCrossStart(c.contentBoxInset, c.dir) + rectCrossStart(resolvedMargin, c.dir)
 				}
-			case alignItemsCenter:
+			case alignItemsCentre:
 				offsetCross = (sizeCross(c.containerSize, c.dir) + rectCrossStart(c.contentBoxInset, c.dir) - rectCrossEnd(c.contentBoxInset, c.dir) -
 					sizeCross(finalSize, c.dir) + rectCrossStart(resolvedMargin, c.dir) - rectCrossEnd(resolvedMargin, c.dir)) / 2
 			}
@@ -1988,7 +1988,7 @@ func performAbsoluteLayoutOnAbsoluteChildren(t FlexboxTree, node NodeID, c *algo
 			Width:  scrollWidthFor(overflow.Y, scrollbarWidth),
 			Height: scrollWidthFor(overflow.X, scrollbarWidth),
 		}
-		t.SetUnroundedLayout(child, Layout{
+		t.setUnroundedLayout(child, Layout{
 			Order:                  uint32(order),
 			Size:                   finalSize,
 			ScrollableOverflowRect: layoutOutput.ScrollableOverflowRect,
