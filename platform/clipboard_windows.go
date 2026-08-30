@@ -14,9 +14,9 @@ import (
 // when a goroutine switches threads between them.
 type windowsClipboard struct{}
 
-// ReadText returns the current clipboard text, or an empty string if the
+// Text returns the current clipboard text, or an empty string if the
 // clipboard does not contain text.
-func (windowsClipboard) ReadText() (string, error) {
+func (windowsClipboard) Text() (string, error) {
 	text, err := w32.GetClipboardText()
 	if err != nil {
 		return "", fmt.Errorf("read clipboard: %w", err)
@@ -24,8 +24,8 @@ func (windowsClipboard) ReadText() (string, error) {
 	return text, nil
 }
 
-// WriteText replaces the clipboard contents with text.
-func (windowsClipboard) WriteText(text string) error {
+// SetText replaces the clipboard contents with text.
+func (windowsClipboard) SetText(text string) error {
 	if err := w32.SetClipboardText(text); err != nil {
 		return fmt.Errorf("write clipboard: %w", err)
 	}
