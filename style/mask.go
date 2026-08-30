@@ -6,6 +6,8 @@ const (
 	propOpacity
 	propBackground
 	propFlexGrow
+
+	propTestHigh uint8 = 64
 )
 
 // mask is a 128-bit bitset indicating which properties have been explicitly
