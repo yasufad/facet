@@ -291,30 +291,50 @@ func TestRenderMonochromeSpriteCoverage(t *testing.T) {
 	}
 }
 
-// 5. Test quad with borders: verifies fill colour vs border colour vs background.
-func TestRenderQuadWithBorder(t *testing.T) {
+// 5. PolychromeSprite: upload a two-colour image and assert both colours land in the right halves.
+func TestRenderPolychromeSprite(t *testing.T) {
 	width, height := 200, 200
-	p, w, r, scale := setupTestWindow(t, "QuadBorder", width, height)
+	p, w, r, scale := setupTestWindow(t, "PolySprite", width, height)
 	defer w.Close()
 	defer r.Close()
 
 	p.Dispatch(func() {
 		defer p.Quit()
 
-		blue := colour.Rgba{R: 0.0, G: 0.0, B: 1.0, A: 1.0}
-		yellow := colour.Rgba{R: 1.0, G: 1.0, B: 0.0, A: 1.0}
-		clearBg := colour.Rgba{R: 0.0, G: 0.0, B: 0.0, A: 0.0}
+		// 16x16 polychrome texture: left 8 columns = red, right 8 columns = blue
+		polyData := make([]byte, 16*16*4)
+		for y := 0; y < 16; y++ {
+			for x := 0; x < 16; x++ {
+				idx := (y*16 + x) * 4
+				if x < 8 {
+					// Red (R=255, G=0, B=0, A=255)
+					polyData[idx+0] = 0xff
+					polyData[idx+1] = 0x00
+					polyData[idx+2] = 0x00
+					polyData[idx+3] = 0xff
+				} else {
+					// Blue (R=0, G=0, B=255, A=255)
+					polyData[idx+0] = 0x00
+					polyData[idx+1] = 0x00
+					polyData[idx+2] = 0xff
+					polyData[idx+3] = 0xff
+				}
+			}
+		}
+
+		tile, err := r.Upload(scene.TexturePolychrome, geometry.NewSize[geometry.DevicePixels](16, 16), polyData)
+		if err != nil {
+			t.Fatalf("r.Upload polychrome: %v", err)
+		}
 
 		sc := scene.New()
-		sc.InsertQuad(scene.Quad{
+		sc.InsertPolychromeSprite(scene.PolychromeSprite{
 			Bounds: geometry.NewBounds(
 				geometry.NewPoint(geometry.ScaledPixels(40*scale), geometry.ScaledPixels(40*scale)),
-				geometry.NewSize(geometry.ScaledPixels(120*scale), geometry.ScaledPixels(120*scale)),
+				geometry.NewSize(geometry.ScaledPixels(16*scale), geometry.ScaledPixels(16*scale)),
 			),
-			Background:   blue,
-			BorderColour: yellow,
-			BorderWidths: geometry.AllEdges(geometry.ScaledPixels(10 * scale)),
-			BorderStyle:  scene.BorderSolid,
+			Tile:    tile,
+			Opacity: 1.0,
 		})
 		sc.Finish()
 
@@ -327,25 +347,21 @@ func TestRenderQuadWithBorder(t *testing.T) {
 			t.Fatalf("ReadBackbuffer: %v", err)
 		}
 
-		// Centre (100, 100) -> blue fill
-		centerX, centerY := int(100*scale), int(100*scale)
-		centerGot := pixels[centerY][centerX]
-		if !coloursMatch(centerGot, blue, 0.05) {
-			t.Errorf("center fill (%d, %d): got %v, want %v", centerX, centerY, centerGot, blue)
+		red := colour.Rgba{R: 1.0, G: 0.0, B: 0.0, A: 1.0}
+		blue := colour.Rgba{R: 0.0, G: 0.0, B: 1.0, A: 1.0}
+
+		// Left half: pixel at (44, 48) is red
+		leftX, leftY := int(44*scale), int(48*scale)
+		leftGot := pixels[leftY][leftX]
+		if !coloursMatch(leftGot, red, 0.05) {
+			t.Errorf("left half pixel (%d, %d): got %v, want %v (red)", leftX, leftY, leftGot, red)
 		}
 
-		// Border edge (45, 100) -> yellow border
-		borderX, borderY := int(45*scale), int(100*scale)
-		borderGot := pixels[borderY][borderX]
-		if !coloursMatch(borderGot, yellow, 0.05) {
-			t.Errorf("border edge (%d, %d): got %v, want %v", borderX, borderY, borderGot, yellow)
-		}
-
-		// Outside (20, 20) -> background
-		outX, outY := int(20*scale), int(20*scale)
-		outGot := pixels[outY][outX]
-		if !coloursMatch(outGot, clearBg, 0.05) {
-			t.Errorf("outside (%d, %d): got %v, want %v", outX, outY, outGot, clearBg)
+		// Right half: pixel at (52, 48) is blue
+		rightX, rightY := int(52*scale), int(48*scale)
+		rightGot := pixels[rightY][rightX]
+		if !coloursMatch(rightGot, blue, 0.05) {
+			t.Errorf("right half pixel (%d, %d): got %v, want %v (blue)", rightX, rightY, rightGot, blue)
 		}
 	})
 
@@ -354,7 +370,168 @@ func TestRenderQuadWithBorder(t *testing.T) {
 	}
 }
 
-// 6. Test path rasterisation: verifies geometry rendered through Draw.
+// 6. Shadow: a shadow under an opaque quad with smooth Gaussian blur falloff.
+func TestRenderShadowBlurFalloff(t *testing.T) {
+	width, height := 200, 200
+	p, w, r, scale := setupTestWindow(t, "ShadowFalloff", width, height)
+	defer w.Close()
+	defer r.Close()
+
+	p.Dispatch(func() {
+		defer p.Quit()
+
+		sc := scene.New()
+		// Shadow bounds: (40, 40) to (160, 160) with blur radius 16
+		sc.InsertShadow(scene.Shadow{
+			Bounds: geometry.NewBounds(
+				geometry.NewPoint(geometry.ScaledPixels(40*scale), geometry.ScaledPixels(40*scale)),
+				geometry.NewSize(geometry.ScaledPixels(120*scale), geometry.ScaledPixels(120*scale)),
+			),
+			CornerRadii: geometry.AllCorners(geometry.ScaledPixels(0)),
+			Colour:      colour.Rgba{R: 0.0, G: 0.0, B: 0.0, A: 1.0},
+			BlurRadius:  geometry.ScaledPixels(16 * scale),
+			Inset:       false,
+		})
+		// Opaque white quad over shadow: (60, 60) to (140, 140)
+		sc.InsertQuad(scene.Quad{
+			Bounds: geometry.NewBounds(
+				geometry.NewPoint(geometry.ScaledPixels(60*scale), geometry.ScaledPixels(60*scale)),
+				geometry.NewSize(geometry.ScaledPixels(80*scale), geometry.ScaledPixels(80*scale)),
+			),
+			Background: colour.Rgba{R: 1.0, G: 1.0, B: 1.0, A: 1.0},
+		})
+		sc.Finish()
+
+		if err := r.Draw(sc); err != nil {
+			t.Fatalf("r.Draw: %v", err)
+		}
+
+		pixels, err := d3d11.ReadBackbuffer(r)
+		if err != nil {
+			t.Fatalf("ReadBackbuffer: %v", err)
+		}
+
+		// 1. Inside quad (100, 100): white quad
+		white := colour.Rgba{R: 1.0, G: 1.0, B: 1.0, A: 1.0}
+		centerGot := pixels[int(100*scale)][int(100*scale)]
+		if !coloursMatch(centerGot, white, 0.05) {
+			t.Errorf("center quad pixel: got %v, want %v (white)", centerGot, white)
+		}
+
+		// 2. Just outside quad edge (55, 100): deep in shadow bounds -> high shadow alpha (> 0.8)
+		nearShadow := pixels[int(100*scale)][int(55*scale)]
+		if nearShadow.A < 0.8 {
+			t.Errorf("near shadow pixel (55, 100): alpha %v too low, want >= 0.8", nearShadow.A)
+		}
+
+		// 3. At shadow outer boundary (40, 100): partial blur falloff (0.1 <= alpha <= 0.8)
+		edgeShadow := pixels[int(100*scale)][int(40*scale)]
+		if edgeShadow.A < 0.1 || edgeShadow.A > 0.85 {
+			t.Errorf("edge shadow pixel (40, 100): alpha %v want partial coverage (0.1 to 0.85)", edgeShadow.A)
+		}
+
+		// 4. Well outside shadow (15, 100): background alpha near 0
+		clearBg := colour.Rgba{R: 0.0, G: 0.0, B: 0.0, A: 0.0}
+		outShadow := pixels[int(100*scale)][int(15*scale)]
+		if !coloursMatch(outShadow, clearBg, 0.05) {
+			t.Errorf("outside shadow pixel (15, 100): got %v, want %v (background)", outShadow, clearBg)
+		}
+	})
+
+	if err := p.Run(); err != nil {
+		t.Fatalf("p.Run: %v", err)
+	}
+}
+
+// 7. Underline: a straight underline and a wavy underline showing wave offset.
+func TestRenderUnderlineStraightAndWavy(t *testing.T) {
+	width, height := 200, 200
+	p, w, r, scale := setupTestWindow(t, "UnderlineStraightWavy", width, height)
+	defer w.Close()
+	defer r.Close()
+
+	p.Dispatch(func() {
+		defer p.Quit()
+
+		white := colour.Rgba{R: 1.0, G: 1.0, B: 1.0, A: 1.0}
+		clearBg := colour.Rgba{R: 0.0, G: 0.0, B: 0.0, A: 0.0}
+
+		// Draw a straight underline from (40, 40) to (160, 60), center at y=50, thickness=4
+		scStraight := scene.New()
+		scStraight.InsertUnderline(scene.Underline{
+			Bounds: geometry.NewBounds(
+				geometry.NewPoint(geometry.ScaledPixels(40*scale), geometry.ScaledPixels(40*scale)),
+				geometry.NewSize(geometry.ScaledPixels(120*scale), geometry.ScaledPixels(20*scale)),
+			),
+			Colour:    white,
+			Thickness: geometry.ScaledPixels(4 * scale),
+			Wavy:      false,
+		})
+		scStraight.Finish()
+
+		if err := r.Draw(scStraight); err != nil {
+			t.Fatalf("r.Draw straight: %v", err)
+		}
+
+		pixelsStraight, err := d3d11.ReadBackbuffer(r)
+		if err != nil {
+			t.Fatalf("ReadBackbuffer straight: %v", err)
+		}
+
+		// On straight underline at (100, 50) -> white
+		onStraight := pixelsStraight[int(50*scale)][int(100*scale)]
+		if !coloursMatch(onStraight, white, 0.05) {
+			t.Errorf("on straight underline (100, 50): got %v, want %v", onStraight, white)
+		}
+
+		// Above straight underline at (100, 43) -> background
+		aboveStraight := pixelsStraight[int(43*scale)][int(100*scale)]
+		if !coloursMatch(aboveStraight, clearBg, 0.05) {
+			t.Errorf("above straight underline (100, 43): got %v, want %v", aboveStraight, clearBg)
+		}
+
+		// Now draw a wavy underline in a fresh scene
+		scWavy := scene.New()
+		scWavy.InsertUnderline(scene.Underline{
+			Bounds: geometry.NewBounds(
+				geometry.NewPoint(geometry.ScaledPixels(40*scale), geometry.ScaledPixels(40*scale)),
+				geometry.NewSize(geometry.ScaledPixels(120*scale), geometry.ScaledPixels(20*scale)),
+			),
+			Colour:    white,
+			Thickness: geometry.ScaledPixels(4 * scale),
+			Wavy:      true,
+		})
+		scWavy.Finish()
+
+		if err := r.Draw(scWavy); err != nil {
+			t.Fatalf("r.Draw wavy: %v", err)
+		}
+
+		pixelsWavy, err := d3d11.ReadBackbuffer(r)
+		if err != nil {
+			t.Fatalf("ReadBackbuffer wavy: %v", err)
+		}
+
+		// Period = 16. At x = 44 (offset 4, sin = +1), wave crests towards y=51.6.
+		// At y = 52, wavy underline has full coverage (alpha > 0.8).
+		wavyOn := pixelsWavy[int(52*scale)][int(44*scale)]
+		if wavyOn.A < 0.8 {
+			t.Errorf("on wavy underline crest (44, 52): alpha %v too low, want >= 0.8", wavyOn.A)
+		}
+
+		// At x = 44, y = 48 (above the wave crest): wavy underline is background.
+		wavyOff := pixelsWavy[int(48*scale)][int(44*scale)]
+		if !coloursMatch(wavyOff, clearBg, 0.1) {
+			t.Errorf("off wavy underline (44, 48): got %v, want %v (background)", wavyOff, clearBg)
+		}
+	})
+
+	if err := p.Run(); err != nil {
+		t.Fatalf("p.Run: %v", err)
+	}
+}
+
+// 8. Path rasterisation: verifies geometry rendered through Draw.
 func TestRenderPathTriangle(t *testing.T) {
 	width, height := 200, 200
 	p, w, r, scale := setupTestWindow(t, "PathTriangle", width, height)
