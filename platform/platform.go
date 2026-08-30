@@ -150,10 +150,17 @@ type Platform interface {
 	// application's chance to save documents or confirm the quit.
 	SetQuitHandler(handler func() bool)
 
-	// SetDisplayChangeHandler sets a handler called when the display
+	// SetDisplayChangeHandler sets a handler called when the global display
 	// configuration changes — a monitor is attached or removed, the primary
-	// display changes, or a scale factor changes. After it fires, the values
-	// returned by [Platform.Displays] and [Platform.PrimaryDisplay] reflect
-	// the new configuration. It is called on the platform thread.
+	// display changes, or a scale factor changes system-wide. After it fires,
+	// the values returned by [Platform.Displays] and
+	// [Platform.PrimaryDisplay] reflect the new configuration. It is called
+	// on the platform thread.
+	//
+	// This is the global signal for display-set changes. The per-window
+	// signal for a scale-factor change — including when the window moves to a
+	// different display — is [ScaleChangedEvent], delivered through the
+	// window's event handler. A consumer that needs both subscribes to each
+	// once; they do not duplicate each other.
 	SetDisplayChangeHandler(handler func())
 }
