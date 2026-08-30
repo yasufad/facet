@@ -24,12 +24,15 @@ type shaderProgram struct {
 func (s *shaderProgram) release() {
 	if s.inputLayout != nil {
 		s.inputLayout.Release()
+		s.inputLayout = nil
 	}
 	if s.ps != nil {
 		s.ps.Release()
+		s.ps = nil
 	}
 	if s.vs != nil {
 		s.vs.Release()
+		s.vs = nil
 	}
 }
 
@@ -136,39 +139,48 @@ func (p *pipelineManager) createShader(vsBytecode, psBytecode []byte, elements [
 	if len(vsBytecode) > 0 {
 		vsPtr = uintptr(unsafe.Pointer(&vsBytecode[0]))
 	}
+
+	var vs *comObject
 	// ID3D11Device::CreateVertexShader is vtbl index 12
-	r1, _, _ := p.device.call(12, vsPtr, uintptr(len(vsBytecode)), 0, uintptr(unsafe.Pointer(&prog.vs)))
-	if int32(r1) < 0 || prog.vs == nil {
-		return prog, fmt.Errorf("create vertex shader: hr=0x%08x", uint32(r1))
+	r1, _, _ := p.device.call(12, vsPtr, uintptr(len(vsBytecode)), 0, uintptr(unsafe.Pointer(&vs)))
+	if int32(r1) < 0 || vs == nil {
+		return shaderProgram{}, fmt.Errorf("create vertex shader: hr=0x%08x", uint32(r1))
 	}
+	prog.vs = vs
 
 	psPtr := uintptr(0)
 	if len(psBytecode) > 0 {
 		psPtr = uintptr(unsafe.Pointer(&psBytecode[0]))
 	}
+	var ps *comObject
 	// ID3D11Device::CreatePixelShader is vtbl index 15
-	r1, _, _ = p.device.call(15, psPtr, uintptr(len(psBytecode)), 0, uintptr(unsafe.Pointer(&prog.ps)))
-	if int32(r1) < 0 || prog.ps == nil {
+	r1, _, _ = p.device.call(15, psPtr, uintptr(len(psBytecode)), 0, uintptr(unsafe.Pointer(&ps)))
+	if int32(r1) < 0 || ps == nil {
 		prog.release()
-		return prog, fmt.Errorf("create pixel shader: hr=0x%08x", uint32(r1))
+		return shaderProgram{}, fmt.Errorf("create pixel shader: hr=0x%08x", uint32(r1))
 	}
+	prog.ps = ps
 
 	elemPtr := uintptr(0)
 	if len(elements) > 0 {
 		elemPtr = uintptr(unsafe.Pointer(&elements[0]))
 	}
+	var inputLayout *comObject
 	// ID3D11Device::CreateInputLayout is vtbl index 11
-	r1, _, _ = p.device.call(11, elemPtr, uintptr(len(elements)), vsPtr, uintptr(len(vsBytecode)), uintptr(unsafe.Pointer(&prog.inputLayout)))
-	if int32(r1) < 0 || prog.inputLayout == nil {
+	r1, _, _ = p.device.call(11, elemPtr, uintptr(len(elements)), vsPtr, uintptr(len(vsBytecode)), uintptr(unsafe.Pointer(&inputLayout)))
+	if int32(r1) < 0 || inputLayout == nil {
 		prog.release()
-		return prog, fmt.Errorf("create input layout: hr=0x%08x", uint32(r1))
+		return shaderProgram{}, fmt.Errorf("create input layout: hr=0x%08x", uint32(r1))
 	}
+	prog.inputLayout = inputLayout
 
 	return prog, nil
 }
 
 func (p *pipelineManager) initShaders() error {
 	var err error
+
+	semPad := []byte("INST_PAD\x00")
 
 	// 1. Quad
 	semBounds := []byte("INST_BOUNDS\x00")
@@ -178,9 +190,6 @@ func (p *pipelineManager) initShaders() error {
 	semRadii := []byte("INST_RADII\x00")
 	semBorderW := []byte("INST_BORDER_W\x00")
 	semBorderStyle := []byte("INST_BORDER_STYLE\x00")
-	semPad0 := []byte("INST_PAD0\x00")
-	semPad1 := []byte("INST_PAD1\x00")
-	semPad2 := []byte("INST_PAD2\x00")
 
 	quadElems := []d3d11InputElementDesc{
 		{&semBounds[0], 0, dxgiFormatR32G32B32A32Float, 0, 0, d3d11InputPerInstanceData, 1},
@@ -190,9 +199,9 @@ func (p *pipelineManager) initShaders() error {
 		{&semRadii[0], 0, dxgiFormatR32G32B32A32Float, 0, 64, d3d11InputPerInstanceData, 1},
 		{&semBorderW[0], 0, dxgiFormatR32G32B32A32Float, 0, 80, d3d11InputPerInstanceData, 1},
 		{&semBorderStyle[0], 0, dxgiFormatR32Uint, 0, 96, d3d11InputPerInstanceData, 1},
-		{&semPad0[0], 0, dxgiFormatR32Uint, 0, 100, d3d11InputPerInstanceData, 1},
-		{&semPad1[0], 0, dxgiFormatR32Uint, 0, 104, d3d11InputPerInstanceData, 1},
-		{&semPad2[0], 0, dxgiFormatR32Uint, 0, 108, d3d11InputPerInstanceData, 1},
+		{&semPad[0], 0, dxgiFormatR32Uint, 0, 100, d3d11InputPerInstanceData, 1},
+		{&semPad[0], 1, dxgiFormatR32Uint, 0, 104, d3d11InputPerInstanceData, 1},
+		{&semPad[0], 2, dxgiFormatR32Uint, 0, 108, d3d11InputPerInstanceData, 1},
 	}
 	p.quadShader, err = p.createShader(quadVSBytecode, quadPSBytecode, quadElems, 112)
 	if err != nil {
@@ -215,8 +224,8 @@ func (p *pipelineManager) initShaders() error {
 		{&semElemRadii[0], 0, dxgiFormatR32G32B32A32Float, 0, 80, d3d11InputPerInstanceData, 1},
 		{&semBlur[0], 0, dxgiFormatR32Float, 0, 96, d3d11InputPerInstanceData, 1},
 		{&semInset[0], 0, dxgiFormatR32Uint, 0, 100, d3d11InputPerInstanceData, 1},
-		{&semPad0[0], 0, dxgiFormatR32Uint, 0, 104, d3d11InputPerInstanceData, 1},
-		{&semPad1[0], 0, dxgiFormatR32Uint, 0, 108, d3d11InputPerInstanceData, 1},
+		{&semPad[0], 0, dxgiFormatR32Uint, 0, 104, d3d11InputPerInstanceData, 1},
+		{&semPad[0], 1, dxgiFormatR32Uint, 0, 108, d3d11InputPerInstanceData, 1},
 	}
 	p.shadowShader, err = p.createShader(shadowVSBytecode, shadowPSBytecode, shadowElems, 112)
 	if err != nil {
@@ -235,7 +244,7 @@ func (p *pipelineManager) initShaders() error {
 		{&semTile[0], 0, dxgiFormatR32G32B32A32Float, 0, 48, d3d11InputPerInstanceData, 1},
 		{&semTransMat[0], 0, dxgiFormatR32G32B32A32Float, 0, 64, d3d11InputPerInstanceData, 1},
 		{&semTransTx[0], 0, dxgiFormatR32G32Float, 0, 80, d3d11InputPerInstanceData, 1},
-		{&semPad0[0], 0, dxgiFormatR32G32Float, 0, 88, d3d11InputPerInstanceData, 1},
+		{&semPad[0], 0, dxgiFormatR32G32Float, 0, 88, d3d11InputPerInstanceData, 1},
 	}
 	p.monoShader, err = p.createShader(monoSpriteVSBytecode, monoSpritePSBytecode, monoElems, 96)
 	if err != nil {
@@ -253,7 +262,7 @@ func (p *pipelineManager) initShaders() error {
 		{&semRadii[0], 0, dxgiFormatR32G32B32A32Float, 0, 48, d3d11InputPerInstanceData, 1},
 		{&semOpacity[0], 0, dxgiFormatR32Float, 0, 64, d3d11InputPerInstanceData, 1},
 		{&semGrayscale[0], 0, dxgiFormatR32Uint, 0, 68, d3d11InputPerInstanceData, 1},
-		{&semPad0[0], 0, dxgiFormatR32G32Float, 0, 72, d3d11InputPerInstanceData, 1},
+		{&semPad[0], 0, dxgiFormatR32G32Float, 0, 72, d3d11InputPerInstanceData, 1},
 	}
 	p.polyShader, err = p.createShader(polySpriteVSBytecode, polySpritePSBytecode, polyElems, 80)
 	if err != nil {
@@ -287,7 +296,7 @@ func (p *pipelineManager) initShaders() error {
 		{&semColor[0], 0, dxgiFormatR32G32B32A32Float, 0, 32, d3d11InputPerInstanceData, 1},
 		{&semThickness[0], 0, dxgiFormatR32Float, 0, 48, d3d11InputPerInstanceData, 1},
 		{&semWavy[0], 0, dxgiFormatR32Uint, 0, 52, d3d11InputPerInstanceData, 1},
-		{&semPad0[0], 0, dxgiFormatR32G32Float, 0, 56, d3d11InputPerInstanceData, 1},
+		{&semPad[0], 0, dxgiFormatR32G32Float, 0, 56, d3d11InputPerInstanceData, 1},
 	}
 	p.underlineShader, err = p.createShader(underlineVSBytecode, underlinePSBytecode, underlineElems, 64)
 	if err != nil {
