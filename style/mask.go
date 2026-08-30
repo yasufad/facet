@@ -3,16 +3,90 @@ package style
 // Property indices for the parallel bitset mask.
 //
 // Inset, margin, padding, border widths, and corner radii use 4 bits each
-// (one per edge or corner). Size and gap use 2 bits each (width/height or
-// row/column). Scalar and enum properties use 1 bit each.
+// (one per edge or corner). Size, min size, max size and gap use 2 bits each
+// (width/height or row/column).
 const (
+	// Low word: layout, box model, visual properties (bits 0–63).
 	propDisplay uint8 = iota
-	propOpacity
-	propBackground
+	propPosition
+	propVisibility
+	propOverflowX
+	propOverflowY
+	propScrollbarWidth
+	propAllowConcurrentScroll
+	propRestrictScrollToAxis
 
-	// propFlexGrow is placed in the high word (bit 64) so high-word mask
-	// operations are exercised by a genuine property on the main path.
+	propInsetTop
+	propInsetRight
+	propInsetBottom
+	propInsetLeft
+
+	propMarginTop
+	propMarginRight
+	propMarginBottom
+	propMarginLeft
+
+	propPaddingTop
+	propPaddingRight
+	propPaddingBottom
+	propPaddingLeft
+
+	propBorderWidthTop
+	propBorderWidthRight
+	propBorderWidthBottom
+	propBorderWidthLeft
+
+	propBorderColour
+	propBorderStyle
+
+	propCornerRadiusTopLeft
+	propCornerRadiusTopRight
+	propCornerRadiusBottomRight
+	propCornerRadiusBottomLeft
+
+	propSizeWidth
+	propSizeHeight
+	propMinSizeWidth
+	propMinSizeHeight
+	propMaxSizeWidth
+	propMaxSizeHeight
+	propAspectRatio
+
+	propGapRow
+	propGapColumn
+
+	propAlignItems
+	propAlignSelf
+	propAlignContent
+	propJustifyContent
+
+	propFlexDirection
+	propFlexWrap
+	propFlexBasis
+	propFlexShrink
+
+	propBackground
+	propOpacity
+	propBoxShadow
+	propMouseCursor
+
+	// High word: flex grow and typography/text properties (bits 64–127).
 	propFlexGrow uint8 = 64
+	propTextColour
+	propFontFamily
+	propFontFeatures
+	propFontFallbacks
+	propFontSize
+	propLineHeight
+	propFontWeight
+	propFontStyle
+	propTextBackgroundColour
+	propUnderline
+	propStrikethrough
+	propWhiteSpace
+	propTextOverflow
+	propTextAlign
+	propLineClamp
 )
 
 // mask is a 128-bit bitset indicating which properties have been explicitly
