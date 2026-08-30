@@ -303,5 +303,6 @@ The dependency table above is also the order packages can be built in.
 A package whose dependencies are unwritten waits. Do not stub them — a placeholder
 gets imported, drifts from the real API, and turns the merge into a rewrite.
 
-For what is finished rather than what is possible, look at `prompts/`: an assignment
-is retired when its package is done, so the files there are the work outstanding.
+`prompts/` holds the assignments currently in hand, and one is retired when its
+package is done. It is not a list of what remains — a package with no prompt has
+either been finished or not yet been assigned. `go list ./...` says which.
