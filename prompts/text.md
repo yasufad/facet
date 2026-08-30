@@ -11,11 +11,14 @@ being held — metrics, line layout and rasterisation — is open. If you starte
 font loading, matching, segmentation and shaping as instructed, carry straight on
 into the rest.
 
-Metrics speak in `geometry.Pixels`. When rasterising, note that
-`BoundsToDevicePixels` snaps both edges and derives the size rather than rounding
-origin and size independently; glyph bounds should go through it rather than
-re-deriving the rule, or atlas tiles will disagree with the geometry around them by
-a pixel.
+Metrics speak in `geometry.Pixels`.
+
+One caveat for rasterisation: `BoundsToDevicePixels` currently rounds origin and
+size independently, so a converted rectangle can gap or overlap its neighbour by a
+pixel. A fix is assigned to `geometry`. Take glyph bounds through that function
+anyway rather than rounding yourself — the rule belongs in one place and you will
+inherit the fix — but do not build anything that assumes adjacent runs tile exactly
+until it lands.
 
 ## Read first
 
