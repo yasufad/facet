@@ -1,12 +1,21 @@
 # Assignment: scene
 
 The package is built and committed — fifteen files, one per commit, staged by path,
-and every check clean. The draw-order engine is the right call: an R-tree that
-returns an order one above anything the new bounds intersect gives correct occlusion
-and lets non-overlapping primitives share an order so the renderer can batch them.
-That is the substance of this package and it is done.
+and every check clean.
 
-What is missing is the attribution for it.
+The logic has been verified against its four load-bearing properties, not just read:
+
+    overlapping primitives get strictly increasing orders     1, 2, 3
+    disjoint primitives share an order, so they batch         1, 1, 1, 1
+    nested clips intersect rather than replace                50,50 50x50
+    batches interleave across types by draw order             quad, sprite, quad
+
+The last one is the one that usually breaks. Primitives live in per-type slices, so
+the obvious implementation sorts each slice and emits every quad then every sprite,
+which quietly draws a glyph underneath the quad that was painted over it. `Finish`
+and `Batches` walk the merged order instead, and it comes out right.
+
+Do not change any of that. What is missing is only the attribution.
 
 ## bounds_tree.go is a port and is not attributed as one
 
