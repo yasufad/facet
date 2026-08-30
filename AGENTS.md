@@ -107,8 +107,15 @@ invariants it holds. Read your package's entry before you start.
 ## Language
 
 International (GB) English, in prose and in code: `colour`, `centre`, `behaviour`,
-`initialise`, `serialise`. This covers package names, identifiers, comments and
-documentation alike.
+`initialise`, `serialise`, `greyscale`. This covers package names, identifiers,
+comments and documentation alike.
+
+A name that mirrors a foreign API keeps that API's spelling, because it is quoting,
+not writing. `d3d11ColorWriteEnableAll` is `D3D11_COLOR_WRITE_ENABLE_ALL`, and
+`semColor` holds the HLSL semantic `INST_COLOR`, which has to match the compiled
+shader bytecode byte for byte. Renaming the Go identifier there loses the
+correspondence that makes the constant checkable against the SDK header, and invites
+someone to change the string next.
 
 ## Code style
 
