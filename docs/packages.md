@@ -184,10 +184,19 @@ an excavation.
 
 ## Where to start
 
-Six packages have no dependency on anything unwritten and can be built at the same
-time by different people:
+Three packages depend on nothing and start immediately:
 
-    geometry   colour   app   layout   text   scene
+    geometry   colour   app
 
-`platform` and `render` come next and are the largest. Everything else waits on
-them.
+`geometry` and `colour` are both small, and until they land nothing that speaks in
+pixels or colours can compile. They are the critical path, not the warm-up.
+
+Once they are in, a second wave opens:
+
+    scene   layout   text   platform
+
+`app` is large enough to run across both waves. `render` waits on `platform` and
+`scene`; `style`, `input`, `element`, `window` and `ui` wait on the second wave.
+
+A package whose dependencies are unwritten waits. Do not stub them — a placeholder
+gets imported, drifts from the real API, and turns the merge into a rewrite.
