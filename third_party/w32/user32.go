@@ -6,9 +6,13 @@
 // MIT License -- see NOTICE for the full text.
 //
 // Modified from the original: added procShowCursor and the ShowCursor
+// wrapper, and procAdjustWindowRectExForDpi with the AdjustWindowRectExForDpi
 // wrapper. Wails does not expose ShowCursor because its webview manages
-// cursor visibility; Facet's cursor backend needs it for
-// application-wide cursor visibility.
+// cursor visibility; Facet's cursor backend needs it for application-wide
+// cursor visibility. Wails does not need AdjustWindowRectExForDpi because
+// its webview handles its own sizing; Facet's window creation needs it to
+// compute the outer window size from a wanted client size at the correct
+// per-monitor DPI, rather than assuming the primary display's scale.
 
 /*
  * Copyright (C) 2019 Tad Vizbaras. All Rights Reserved.
@@ -41,6 +45,7 @@ var (
 	procCreateWindowEx                = moduser32.NewProc("CreateWindowExW")
 	procAdjustWindowRect              = moduser32.NewProc("AdjustWindowRect")
 	procAdjustWindowRectEx            = moduser32.NewProc("AdjustWindowRectEx")
+	procAdjustWindowRectExForDpi      = moduser32.NewProc("AdjustWindowRectExForDpi")
 	procDestroyWindow                 = moduser32.NewProc("DestroyWindow")
 	procDefWindowProc                 = moduser32.NewProc("DefWindowProcW")
 	procDefDlgProc                    = moduser32.NewProc("DefDlgProcW")
@@ -389,6 +394,22 @@ func AdjustWindowRectEx(rect *RECT, style uint, menu bool, exStyle uint) bool {
 		uintptr(style),
 		uintptr(BoolToBOOL(menu)),
 		uintptr(exStyle))
+
+	return ret != 0
+}
+
+// AdjustWindowRectExForDpi is the per-monitor-DPI-aware version of
+// AdjustWindowRectEx. It computes the required outer window size for a
+// wanted client size at the given DPI. AdjustWindowRectEx assumes the
+// primary display's DPI, which is wrong the moment a window opens on a
+// secondary monitor with a different scale factor.
+func AdjustWindowRectExForDpi(rect *RECT, style uint, menu bool, exStyle uint, dpi uint) bool {
+	ret, _, _ := procAdjustWindowRectExForDpi.Call(
+		uintptr(unsafe.Pointer(rect)),
+		uintptr(style),
+		uintptr(BoolToBOOL(menu)),
+		uintptr(exStyle),
+		uintptr(dpi))
 
 	return ret != 0
 }

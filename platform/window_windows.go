@@ -86,11 +86,7 @@ func newWindowsWindow(owner *windowsPlatform, opts WindowOptions) (*windowsWindo
 	// scale factor. The window corrects itself in WM_DPICHANGED if it lands
 	// on a different display.
 	scale := owner.primaryScale()
-	var deviceWidth, deviceHeight int
-	if opts.Size.Width != 0 && opts.Size.Height != 0 {
-		deviceWidth = int(opts.Size.Width.ToDevicePixels(scale))
-		deviceHeight = int(opts.Size.Height.ToDevicePixels(scale))
-	}
+	dpi := uint(scale * 96.0)
 
 	style := uint(w32.WS_OVERLAPPEDWINDOW)
 	if !opts.Resizable {
@@ -111,10 +107,24 @@ func newWindowsWindow(owner *windowsPlatform, opts WindowOptions) (*windowsWindo
 		exStyle |= w32.WS_EX_TOPMOST
 	}
 
+	// WindowOptions.Size is the client area, but CreateWindowEx takes the
+	// outer size. Adjust the wanted client size to the outer size using
+	// AdjustWindowRectExForDpi, which accounts for the frame at the
+	// window's DPI rather than the primary display's. AdjustWindowRectEx
+	// assumes the primary DPI, which is wrong on a secondary monitor with
+	// a different scale factor.
+	var width, height int
+	if opts.Size.Width != 0 && opts.Size.Height != 0 {
+		clientW := int(opts.Size.Width.ToDevicePixels(scale))
+		clientH := int(opts.Size.Height.ToDevicePixels(scale))
+		rect := w32.RECT{Right: int32(clientW), Bottom: int32(clientH)}
+		w32.AdjustWindowRectExForDpi(&rect, style, false, exStyle, dpi)
+		width = int(rect.Right - rect.Left)
+		height = int(rect.Bottom - rect.Top)
+	}
+
 	x := int(opts.Position.X.ToDevicePixels(scale))
 	y := int(opts.Position.Y.ToDevicePixels(scale))
-	width := deviceWidth
-	height := deviceHeight
 	if opts.Position.X == 0 && opts.Position.Y == 0 {
 		x = w32.CW_USEDEFAULT
 		y = w32.CW_USEDEFAULT
@@ -389,16 +399,25 @@ func (w *windowsWindow) SetTitle(title string) {
 	w32.SetWindowText(w.hwnd, title)
 }
 
-// SetSize sets the client-area size in logical pixels.
+// SetSize sets the client-area size in logical pixels. The window stays
+// where it is; only the size changes.
 func (w *windowsWindow) SetSize(size geometry.Size[geometry.Pixels]) {
 	deviceW := int(size.Width.ToDevicePixels(w.scaleFactor))
 	deviceH := int(size.Height.ToDevicePixels(w.scaleFactor))
-	// Adjust for the non-client area to get the client size we asked for.
+	// Adjust for the non-client area to get the client size we asked for,
+	// at the window's DPI rather than the primary display's.
 	rect := w32.RECT{Right: int32(deviceW), Bottom: int32(deviceH)}
 	style := w32.GetWindowLong(w.hwnd, w32.GWL_STYLE)
 	exStyle := w32.GetWindowLong(w.hwnd, w32.GWL_EXSTYLE)
-	w32.AdjustWindowRectEx(&rect, uint(style), false, uint(exStyle))
-	w32.MoveWindow(w.hwnd, -1, -1, int(rect.Right-rect.Left), int(rect.Bottom-rect.Top), true)
+	dpi := uint(w.scaleFactor * 96.0)
+	w32.AdjustWindowRectExForDpi(&rect, uint(style), false, uint(exStyle), dpi)
+	// SetWindowPos with SWP_NOMOVE leaves the position alone. MoveWindow
+	// sets position as well as size, and there is no sentinel meaning
+	// "leave it" — -1 is a coordinate, and using it moves the window to
+	// the top-left corner of the screen.
+	w32.SetWindowPos(w.hwnd, 0, 0, 0,
+		int(rect.Right-rect.Left), int(rect.Bottom-rect.Top),
+		w32.SWP_NOMOVE|w32.SWP_NOZORDER|w32.SWP_NOACTIVATE)
 }
 
 // Size returns the current client-area size in logical pixels.

@@ -45,10 +45,15 @@ w32/
       WM_XBUTTONDOWN.
 
     user32.go
-      Added procShowCursor and the ShowCursor wrapper. Wails does not
-      expose ShowCursor because its webview manages cursor visibility;
-      Facet's cursor backend needs it for application-wide cursor
-      visibility.
+      Added procShowCursor and the ShowCursor wrapper, and
+      procAdjustWindowRectExForDpi with the AdjustWindowRectExForDpi
+      wrapper. Wails does not expose ShowCursor because its webview
+      manages cursor visibility; Facet's cursor backend needs it for
+      application-wide cursor visibility. Wails does not need
+      AdjustWindowRectExForDpi because its webview handles its own
+      sizing; Facet's window creation needs it to compute the outer
+      window size from a wanted client size at the correct per-monitor
+      DPI, rather than assuming the primary display's scale.
 
     ole32.go
       Removed RegisterDragDrop and RevokeDragDrop, along with the
