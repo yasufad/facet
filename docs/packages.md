@@ -162,11 +162,16 @@ new backend is a new subpackage and nothing else.
 Font loading and matching, script and bidi segmentation, shaping, line breaking,
 and rasterising glyphs into the atlas.
 
-Wraps `github.com/go-text/typesetting`, which is the one third-party dependency
-here. Nothing above `text` knows that package exists.
+Built on `github.com/go-text/typesetting` for font handling and shaping, and
+`golang.org/x/image` for fixed-point types and outline rasterisation. This is the
+package where third-party code is expected: text is the deepest problem in the
+stack, and the established Go libraries for it are better than anything we would
+write.
 
-Invariants: the shaped output is cached by run, not by string. Rasterisation is
-still an open choice — see `docs/architecture.md`.
+Invariants: shaped output is cached by run, not by string. What matters is the
+boundary, not the dependency count — `text` exposes shaped lines, glyph runs and
+coverage masks in our own types, so no layer above it knows what it is built on and
+any of it can be replaced without reaching further up.
 
 ## style
 
