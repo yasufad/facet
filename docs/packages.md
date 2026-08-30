@@ -17,7 +17,7 @@ design changed, not the test.
     app                                       nothing
     layout                                    nothing
     scene                                     geometry colour
-    platform                                  geometry colour
+    platform                                  geometry colour third_party
     text                                      geometry colour
     render                                    geometry colour scene platform
     style                                     geometry colour layout text
@@ -31,8 +31,9 @@ where an entry names one.
 
 ## geometry
 
-Pixels, DevicePixels, Rems, Point, Size, Bounds, Edges, Corners, Axis, and the
-arithmetic over them.
+Pixels, DevicePixels, ScaledPixels and Rems; Point, Size, Bounds, Edges and Corners
+generic over them; Axis and Anchor for directions and reference points; and the
+arithmetic over all of it.
 
 Invariants: no dependencies at all, including on `colour`. Generic over a numeric
 constraint so the same types serve logical pixels, device pixels and layout units.
@@ -222,21 +223,17 @@ Invariants: changes here are ports and patches, not features. Record what was
 changed and why, so the next update against a newer upstream is a merge rather than
 an excavation.
 
-## Where to start
+## Order of work
 
-Four packages depend on nothing and start immediately:
+The dependency table above is also the order packages can be built in.
 
-    geometry   colour   app   layout
-
-`geometry` and `colour` are both small, and until they land nothing that speaks in
-pixels or colours can compile. They are the critical path, not the warm-up.
-
-Once they are in, a second wave opens:
-
-    scene   text   platform
-
-`app` is large enough to run across both waves. `render` waits on `platform` and
-`scene`; `style`, `input`, `element`, `window` and `ui` wait on the second wave.
+    depend on nothing        geometry  colour  app  layout
+    then                     scene  text  platform
+    then                     render  style  input
+    last                     element  window  ui
 
 A package whose dependencies are unwritten waits. Do not stub them — a placeholder
 gets imported, drifts from the real API, and turns the merge into a rewrite.
+
+For what is finished rather than what is possible, look at `prompts/`: an assignment
+is retired when its package is done, so the files there are the work outstanding.
