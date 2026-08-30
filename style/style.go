@@ -3,6 +3,9 @@ package style
 import "github.com/yasufad/facet/colour"
 
 // Style contains the fully resolved styling information for an element.
+//
+// Default() is the only valid constructor to obtain a Style. The zero-value
+// Style{} has zero opacity and default-initialised fields, rendering nothing.
 type Style struct {
 	// Display sets the layout strategy for children.
 	Display Display
@@ -11,10 +14,13 @@ type Style struct {
 	Opacity float32
 
 	// Background is the fill colour of the element.
-	Background colour.Hsla
+	Background colour.Rgba
 
 	// FlexGrow controls the relative rate at which this item expands.
 	FlexGrow float32
+
+	// testHigh is a high-word test property (bit 64).
+	testHigh float32
 }
 
 // Default returns the default style.
@@ -22,7 +28,7 @@ func Default() Style {
 	return Style{
 		Display:    DisplayFlex,
 		Opacity:    1.0,
-		Background: colour.Hsla{},
+		Background: colour.Rgba{},
 		FlexGrow:   0.0,
 	}
 }
@@ -44,6 +50,11 @@ func (s *Style) Refine(r Refinement) {
 		}
 		if r.mask.has(propFlexGrow) {
 			s.FlexGrow = r.flexGrow
+		}
+	}
+	if r.mask.hi != 0 {
+		if r.mask.has(propTestHigh) {
+			s.testHigh = r.testHigh
 		}
 	}
 }
