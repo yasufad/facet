@@ -6,10 +6,10 @@
 package layout
 
 // computeRootLayout lays out the root node of a tree.
-func computeRootLayout(t LayoutTree, root NodeID, avail Size[availableSpace]) {
+func computeRootLayout(t layoutTree, root NodeID, avail Size[AvailableSpace]) {
 	known := sizeNone
 
-	style := t.CoreContainerStyle(root)
+	style := t.coreContainerStyle(root)
 	if style.isBlock() {
 		aspectRatio := style.aspectRatioVal()
 		parentSize := sizeAvailIntoOptions(avail)
@@ -52,7 +52,7 @@ func computeRootLayout(t LayoutTree, root NodeID, avail Size[availableSpace]) {
 	}
 
 	output := performChildLayout(t, root, known, sizeAvailIntoOptions(avail), avail, sizingInherentSize, lineBoolFalse)
-	style = t.CoreContainerStyle(root)
+	style = t.coreContainerStyle(root)
 	padding := rectLPResolveOrZeroOpt(style.paddingVal(), avail.Width.intoOption())
 	border := rectLPResolveOrZeroOpt(style.borderVal(), avail.Width.intoOption())
 	margin := rectLPAResolveOrZeroOpt(style.marginVal(), avail.Width.intoOption())
@@ -66,7 +66,7 @@ func computeRootLayout(t LayoutTree, root NodeID, avail Size[availableSpace]) {
 			locX = w.v - output.Size.Width
 		}
 	}
-	t.SetUnroundedLayout(root, Layout{
+	t.setUnroundedLayout(root, Layout{
 		Order:                  0,
 		Location:               Point[float32]{X: locX, Y: 0},
 		Size:                   output.Size,
@@ -97,38 +97,38 @@ func rectF32AddPaddingBorder(padding, border Rect[float32]) Rect[float32] {
 
 // computeCachedLayout wraps a layout computation in a cache lookup/store.
 func computeCachedLayout(
-	t LayoutTree,
+	t layoutTree,
 	node NodeID,
 	in LayoutInput,
-	computeUncached func(LayoutTree, NodeID, LayoutInput) LayoutOutput,
+	computeUncached func(layoutTree, NodeID, LayoutInput) LayoutOutput,
 ) LayoutOutput {
-	if cached, ok := t.CacheGet(node, &in); ok {
+	if cached, ok := t.cacheGet(node, &in); ok {
 		return cached
 	}
 	out := computeUncached(t, node, in)
-	t.CacheStore(node, &in, out)
+	t.cacheStore(node, &in, out)
 	return out
 }
 
 // computeHiddenLayout marks a node and its descendants as hidden (zero size at
 // the origin).
-func computeHiddenLayout(t LayoutTree, node NodeID) LayoutOutput {
-	t.CacheClear(node)
-	t.SetUnroundedLayout(node, newLayoutWithOrder(0))
-	for i := 0; i < t.ChildCount(node); i++ {
-		child := t.ChildID(node, i)
-		t.ComputeChildLayout(child, layoutInputHidden)
+func computeHiddenLayout(t layoutTree, node NodeID) LayoutOutput {
+	t.cacheClear(node)
+	t.setUnroundedLayout(node, newLayoutWithOrder(0))
+	for i := 0; i < t.childCount(node); i++ {
+		child := t.childID(node, i)
+		t.computeChildLayout(child, layoutInputHidden)
 	}
 	return layoutOutputHidden
 }
 
 // roundLayout rounds a tree of unrounded float layouts to integer pixels.
-func roundLayout(t RoundTree, node NodeID) {
+func roundLayout(t roundTree, node NodeID) {
 	roundLayoutInner(t, node, 0, 0)
 }
 
-func roundLayoutInner(t RoundTree, node NodeID, cumulativeX, cumulativeY float32) {
-	unrounded := t.GetUnroundedLayout(node)
+func roundLayoutInner(t roundTree, node NodeID, cumulativeX, cumulativeY float32) {
+	unrounded := t.getUnroundedLayout(node)
 	layout := unrounded
 	cumulativeX += unrounded.Location.X
 	cumulativeY += unrounded.Location.Y
@@ -150,8 +150,8 @@ func roundLayoutInner(t RoundTree, node NodeID, cumulativeX, cumulativeY float32
 	layout.ScrollableOverflowRect.Right = round(cumulativeX+unrounded.ScrollableOverflowRect.Right) - round(cumulativeX)
 	layout.ScrollableOverflowRect.Top = round(cumulativeY+unrounded.ScrollableOverflowRect.Top) - round(cumulativeY)
 	layout.ScrollableOverflowRect.Bottom = round(cumulativeY+unrounded.ScrollableOverflowRect.Bottom) - round(cumulativeY)
-	t.SetFinalLayout(node, layout)
-	for i := 0; i < t.ChildCount(node); i++ {
-		roundLayoutInner(t, t.ChildID(node, i), cumulativeX, cumulativeY)
+	t.setFinalLayout(node, layout)
+	for i := 0; i < t.childCount(node); i++ {
+		roundLayoutInner(t, t.childID(node, i), cumulativeX, cumulativeY)
 	}
 }
