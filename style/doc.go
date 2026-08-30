@@ -34,7 +34,7 @@
 // SetBackground, SetDisplay, SetFlexGrow) and an in-place MergeFrom method.
 // It does not expose value-receiver fluent methods: returning Refinement by
 // value on every call incurs struct-copy overhead on each property in the chain
-// (~19 ns per call at 48 bytes, growing with struct size).
+// (over 24 ns per copy at 504 bytes, growing with struct size).
 //
 // In Facet, the fluent builder chain lives on the element (e.g. *Div in the
 // element package), which is already addressable and mutates its internal
@@ -43,13 +43,22 @@
 //	func (d *Div) Flex() *Div { d.style.SetDisplay(DisplayFlex); return d }
 //
 // This gives div().Flex().Bg(c) clean fluent reading with zero struct copies
-// and zero allocations. Benchmark measurements:
+// and zero allocations.
 //
-//	control (48-byte copy)         2.13 ns
-//	SetOpacity                     1.31 ns
-//	SetBackground (colour.Rgba)    2.37 ns
-//	sequence of 4 mutators         6.22 ns
-//	MergeFrom                     20.45 ns
+// # Frame Budget Baseline
+//
+// Benchmark measurements on a 504-byte Refinement:
+//
+//	control copy (504 bytes)      24.1 ns
+//	SetOpacity                     1.6 ns
+//	four mutators, hoisted         5.4 ns
+//	Style.Refine                 116.3 ns
+//	MergeFrom                     98.2 ns
+//	Style.ToLayout               190.2 ns
+//
+// Refine, MergeFrom and ToLayout run once per element per frame. Together they
+// cost roughly 400 ns per element — approximately 400 µs for a hierarchy of a
+// thousand elements against a 16 ms (60 fps) frame budget.
 //
 // # Colour Storage
 //
@@ -62,15 +71,15 @@
 //
 // Compound properties — inset, margin, padding, border widths and corner
 // radii — use separate mask bits for each edge or corner (4 bits per compound
-// property; 2 bits for size and gap). This per-edge granularity allows a
-// refinement such as PaddingLeft(4) to override only the left padding while
-// leaving top, right and bottom intact from earlier refinements.
+// property; 2 bits for size, min/max size and gap). This per-edge granularity
+// allows a refinement such as PaddingLeft(4) to override only the left padding
+// while leaving top, right and bottom intact from earlier refinements.
 //
 // # Slice Immutability and Comparability
 //
-// Properties with slice values (such as box shadows) are immutable once set.
-// Setting a slice property replaces the slice reference; code never appends
-// to or mutates a slice stored in a Refinement.
+// Properties with slice values (such as box shadows and font features) are
+// immutable once set. Setting a slice property replaces the slice reference;
+// code never appends to or mutates a slice stored in a Refinement.
 //
 // Refinement copies slice headers directly during MergeFrom and Refine. Because
 // it contains slice fields, Refinement is non-comparable (cannot be used with ==
