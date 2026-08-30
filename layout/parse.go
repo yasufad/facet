@@ -213,7 +213,7 @@ func parseAlignItems(s string) (AlignItems, error) {
 	case "self-end":
 		kw = alignItemsSelfEnd
 	case "center":
-		kw = alignItemsCenter
+		kw = alignItemsCentre
 	case "baseline":
 		kw = alignItemsBaseline
 	case "stretch":
@@ -247,7 +247,7 @@ func parseAlignContent(s string) (AlignContent, error) {
 	case "flex-end":
 		kw = alignContentFlexEnd
 	case "center":
-		kw = alignContentCenter
+		kw = alignContentCentre
 	case "stretch":
 		kw = alignContentStretch
 	case "space-between":
