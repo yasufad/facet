@@ -87,9 +87,26 @@ you what a method means.
 Conventional commits, one file per commit, staged by path — `NOTICE` is shared and
 other agents are working in this tree.
 
-## What this package is allowed that others are not
+## No cgo
 
-`cgo` and `unsafe`, for platform calls. It is the only package with that permission,
-which is the reason the boundary is drawn here. Everything above it is ordinary Go,
-and that stays true only if the unsafe parts do not leak upward through the
-interface.
+`CGO_ENABLED=0` must build on every target, and it must keep building. A user
+installs Go and runs `go build`; they do not install a C compiler, Xcode command
+line tools or GTK development headers. The requirements section of
+`docs/architecture.md` says why that is a constraint rather than a preference.
+
+Windows makes this easy and is the reason to start here: the `w32` bindings you are
+vendoring already reach Win32 through `syscall.NewLazyDLL` and
+`golang.org/x/sys/windows`, with no C anywhere. Keep it that way.
+
+macOS and Linux, when their turn comes, go through
+`github.com/ebitengine/purego` — `objc_msgSend` and `dlopen` without a C compiler.
+Ebitengine ships that way, so it is proven, but Cocoa expects the main thread and an
+`NSApplication` run loop and struct-returning messages have awkward calling
+conventions. Design the interface now so those fit; you do not have to solve them.
+
+If a platform turns out to be genuinely unreachable without cgo, that is a decision
+to raise and record, not a build tag to add quietly.
+
+`unsafe` is permitted here, and only here, for platform calls. Everything above is
+ordinary Go, and stays that way only if the unsafe parts do not leak upward through
+the interface.
