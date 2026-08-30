@@ -76,6 +76,9 @@ invariants it holds. Read your package's entry before you start.
 - Write a test when the logic is non-obvious, or to pin a bug as it is fixed. A
   test that restates the implementation is noise, and a change is not incomplete
   for lacking one.
+- When coverage is bounded — a ported suite partly adopted, a case left unhandled —
+  record what was left out and why, beside the code. A pass count with no exclusion
+  count reads as full coverage to everyone who comes after.
 - Adding a dependency to `go.mod` requires saying which package needs it and why.
 
 ## Language
