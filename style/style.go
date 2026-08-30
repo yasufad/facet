@@ -18,9 +18,6 @@ type Style struct {
 
 	// FlexGrow controls the relative rate at which this item expands.
 	FlexGrow float32
-
-	// testHigh is a high-word test property (bit 64).
-	testHigh float32
 }
 
 // Default returns the default style.
@@ -48,13 +45,10 @@ func (s *Style) Refine(r Refinement) {
 		if r.mask.has(propBackground) {
 			s.Background = r.background
 		}
-		if r.mask.has(propFlexGrow) {
-			s.FlexGrow = r.flexGrow
-		}
 	}
 	if r.mask.hi != 0 {
-		if r.mask.has(propTestHigh) {
-			s.testHigh = r.testHigh
+		if r.mask.has(propFlexGrow) {
+			s.FlexGrow = r.flexGrow
 		}
 	}
 }
