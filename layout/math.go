@@ -135,9 +135,9 @@ func f32MaybeSub(a float32, b optF32) float32 {
 	return a
 }
 
-// --- availableSpace vs float32 -> availableSpace ---
+// --- AvailableSpace vs float32 -> AvailableSpace ---
 
-func availMaybeMinF32(a availableSpace, b float32) availableSpace {
+func availMaybeMinF32(a AvailableSpace, b float32) AvailableSpace {
 	switch a.kind {
 	case availableDefinite:
 		return definiteAvail(f32Min(a.val, b))
@@ -146,7 +146,7 @@ func availMaybeMinF32(a availableSpace, b float32) availableSpace {
 	}
 }
 
-func availMaybeMaxF32(a availableSpace, b float32) availableSpace {
+func availMaybeMaxF32(a AvailableSpace, b float32) AvailableSpace {
 	switch a.kind {
 	case availableDefinite:
 		return definiteAvail(f32Max(a.val, b))
@@ -155,7 +155,7 @@ func availMaybeMaxF32(a availableSpace, b float32) availableSpace {
 	}
 }
 
-func availMaybeClampF32(a availableSpace, lo, hi float32) availableSpace {
+func availMaybeClampF32(a AvailableSpace, lo, hi float32) AvailableSpace {
 	if a.kind == availableDefinite {
 		// Taffy: val.min(max).max(min) — min wins when min > max.
 		return definiteAvail(f32Max(f32Min(a.val, hi), lo))
@@ -163,23 +163,23 @@ func availMaybeClampF32(a availableSpace, lo, hi float32) availableSpace {
 	return a
 }
 
-func availMaybeAddF32(a availableSpace, b float32) availableSpace {
+func availMaybeAddF32(a AvailableSpace, b float32) AvailableSpace {
 	if a.kind == availableDefinite {
 		return definiteAvail(a.val + b)
 	}
 	return a
 }
 
-func availMaybeSubF32(a availableSpace, b float32) availableSpace {
+func availMaybeSubF32(a AvailableSpace, b float32) AvailableSpace {
 	if a.kind == availableDefinite {
 		return definiteAvail(a.val - b)
 	}
 	return a
 }
 
-// --- availableSpace vs optF32 -> availableSpace ---
+// --- AvailableSpace vs optF32 -> AvailableSpace ---
 
-func availMaybeMinOpt(a availableSpace, b optF32) availableSpace {
+func availMaybeMinOpt(a AvailableSpace, b optF32) AvailableSpace {
 	if a.kind == availableDefinite {
 		if b.isSome() {
 			return definiteAvail(f32Min(a.val, b.v))
@@ -192,7 +192,7 @@ func availMaybeMinOpt(a availableSpace, b optF32) availableSpace {
 	return a
 }
 
-func availMaybeMaxOpt(a availableSpace, b optF32) availableSpace {
+func availMaybeMaxOpt(a AvailableSpace, b optF32) AvailableSpace {
 	if a.kind == availableDefinite {
 		if b.isSome() {
 			return definiteAvail(f32Max(a.val, b.v))
@@ -202,7 +202,7 @@ func availMaybeMaxOpt(a availableSpace, b optF32) availableSpace {
 	return a
 }
 
-func availMaybeClampOpt(a availableSpace, lo, hi optF32) availableSpace {
+func availMaybeClampOpt(a AvailableSpace, lo, hi optF32) AvailableSpace {
 	if a.kind == availableDefinite {
 		v := a.val
 		// Taffy: val.min(max).max(min) — min wins when min > max.
@@ -217,14 +217,14 @@ func availMaybeClampOpt(a availableSpace, lo, hi optF32) availableSpace {
 	return a
 }
 
-func availMaybeAddOpt(a availableSpace, b optF32) availableSpace {
+func availMaybeAddOpt(a AvailableSpace, b optF32) AvailableSpace {
 	if a.kind == availableDefinite && b.isSome() {
 		return definiteAvail(a.val + b.v)
 	}
 	return a
 }
 
-func availMaybeSubOpt(a availableSpace, b optF32) availableSpace {
+func availMaybeSubOpt(a AvailableSpace, b optF32) AvailableSpace {
 	if a.kind == availableDefinite && b.isSome() {
 		return definiteAvail(a.val - b.v)
 	}
