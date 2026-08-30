@@ -69,6 +69,66 @@ func TestNewWindowHonoursClientSize(t *testing.T) {
 	}
 }
 
+// TestNewWindowHonoursClientSizeZeroValue is the same test as
+// TestNewWindowHonoursClientSize but with zero-value WindowOptions — only
+// Title and Size are set, everything else is the zero value. The zero
+// value of Decorated is false (undecorated), which uses WS_POPUP and has
+// no frame to adjust for. Before the fix that made Decorated:false use
+// WS_POPUP, the style kept WS_CAPTION and the frame adjustment was
+// computed from a style that did not match the window — the client area
+// was short by exactly one frame.
+//
+// This is the case every stranger hits first: WindowOptions{Title: ...,
+// Size: ...} and nothing else. Every other test configures Decorated,
+// Resizable and Visible, so the default went unexercised for two rounds.
+func TestNewWindowHonoursClientSizeZeroValue(t *testing.T) {
+	p, err := New(Options{})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		size geometry.Size[geometry.Pixels]
+	}{
+		{"640x480 zero-value", geometry.Size[geometry.Pixels]{Width: 640, Height: 480}},
+		{"300x200 zero-value", geometry.Size[geometry.Pixels]{Width: 300, Height: 200}},
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		for _, c := range cases {
+			// Only Title and Size. Everything else is the zero value:
+			// Decorated=false, Resizable=false, Visible=false.
+			w, err := p.NewWindow(WindowOptions{
+				Title: c.name,
+				Size:  c.size,
+			})
+			if err != nil {
+				t.Errorf("NewWindow %s: %v", c.name, err)
+				continue
+			}
+
+			got := w.Size()
+			if !approxEqual(got.Width, c.size.Width, 1) || !approxEqual(got.Height, c.size.Height, 1) {
+				t.Errorf("client size %s: got %v, want %v", c.name, got, c.size)
+			}
+			w.Close()
+		}
+	}()
+
+	go func() {
+		<-done
+		p.Quit()
+	}()
+
+	if err := p.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
 // TestSetSizePreservesPosition asserts that SetSize does not move the
 // window. Before the fix that replaced MoveWindow(-1, -1, ...) with
 // SetWindowPos(SWP_NOMOVE), SetSize teleported the window to the
