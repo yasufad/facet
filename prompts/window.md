@@ -57,6 +57,29 @@ text at the window's scale factor, so expose that. And a scene assertion is the
 verification here — running `examples/quad` and looking at it is not evidence, for
 the reason `docs/packages.md` gives about the render backend.
 
+## The element arena is yours
+
+`element` landed, and its construction cost was measured:
+
+    Div                 584 bytes (it embeds style.Refinement, 504 of them)
+    NewDiv()            420 ns   640 B   1 alloc
+    eleven-node tree   5300 ns  7536 B  16 allocs
+
+A thousand elements a frame is ~420 µs and ~640 KB of garbage — 38 MB/s at 60 fps.
+The wall-clock fits the budget; the allocation rate does not, because it arrives as
+GC pauses inside frames rather than as a slower average, and that is stutter.
+
+GPUI's answer is a per-frame arena: `window.rs` enters an `ElementArenaScope` in
+`draw`, every element allocates from it, and the whole thing resets at frame end.
+Allocation becomes a bump; nothing is collected.
+
+That arena belongs here, because you own the frame lifecycle and the reset point.
+It is not part of the first milestone — get the six steps running first — but design
+the frame boundary so it can be added without moving the reset around afterwards.
+`element` is separately deciding how a constructor reaches an arena, since `NewDiv()`
+currently takes no arguments and so cannot see one. Coordinate on that rather than
+each assuming the other's answer.
+
 ## Read first
 
 1. `AGENTS.md` — conventions, commit style, GB English
