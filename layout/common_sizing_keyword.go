@@ -4,7 +4,7 @@ package layout
 // sizingKeywordResolution is how a sizing keyword resolves to a used size.
 type sizingKeywordResolution struct {
 	kind  sizingKeywordKind
-	value availableSpace // for Measure
+	value AvailableSpace // for Measure
 	exact float32        // for Exact
 }
 
@@ -49,7 +49,7 @@ func resolveSizingKeyword(style Dimension, stretchSize optF32, percentBasis optF
 // of an absolutely positioned item, filling in the corresponding known
 // dimensions axes.
 func resolveAbsoluteSizingKeywords(
-	t LayoutTree,
+	t layoutTree,
 	node NodeID,
 	known *Size[optF32],
 	sizeStyle Size[Dimension],
@@ -78,7 +78,7 @@ func resolveAbsoluteSizingKeywords(
 	if kwW != nil && kwW.kind == sizingMeasure && kwH != nil && kwH.kind == sizingMeasure {
 		measured := measureChildSizeBoth(t, node, sizeNone,
 			Size[optF32]{Width: some(areaSize.Width), Height: some(areaSize.Height)},
-			Size[availableSpace]{Width: kwW.value, Height: kwH.value},
+			Size[AvailableSpace]{Width: kwW.value, Height: kwH.value},
 			sizing, lineBoolFalse)
 		*known = Size[optF32]{Width: some(measured.Width), Height: some(measured.Height)}
 		return
@@ -90,7 +90,7 @@ func resolveAbsoluteSizingKeywords(
 		} else {
 			w := measureChildSize(t, node, *known,
 				Size[optF32]{Width: some(areaSize.Width), Height: some(areaSize.Height)},
-				Size[availableSpace]{Width: kwW.value, Height: definiteAvail(stretchSize.Height)},
+				Size[AvailableSpace]{Width: kwW.value, Height: definiteAvail(stretchSize.Height)},
 				sizing, absoluteHorizontal, lineBoolFalse)
 			known.Width = some(w)
 		}
@@ -105,7 +105,7 @@ func resolveAbsoluteSizingKeywords(
 			}
 			h := measureChildSize(t, node, *known,
 				Size[optF32]{Width: some(areaSize.Width), Height: some(areaSize.Height)},
-				Size[availableSpace]{Width: availW, Height: kwH.value},
+				Size[AvailableSpace]{Width: availW, Height: kwH.value},
 				sizing, absoluteVertical, lineBoolFalse)
 			known.Height = some(h)
 		}
