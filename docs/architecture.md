@@ -116,12 +116,16 @@ foreground to touch state:
 
 Using a context from another goroutine panics.
 
-## Text — *open*
+## Text
 
-Shaping, font fallback and glyph rasterisation. `go-text/typesetting` is a pure Go
-candidate; the alternative is binding HarfBuzz.
+`go-text/typesetting` handles font loading and matching, script and bidi
+segmentation, and shaping, in pure Go. `text/` wraps it and exposes shaped lines and
+glyph runs; no layer above `text/` knows the dependency exists.
 
-## Layout — *open*
+Rasterising outlines into the glyph atlas sits on our side of that boundary and is
+still *open*.
 
-Flexbox. Either a port of Taffy or a direct implementation against the spec subset
-GPUI actually uses.
+## Layout
+
+A port of Taffy's flexbox solver, algorithm for algorithm, including its
+browser-derived test suite. Grid is out of scope.
