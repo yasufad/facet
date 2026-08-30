@@ -22,9 +22,9 @@ design changed, not the test.
     render                                    geometry colour scene platform
     style                                     geometry colour layout text
     input                                     geometry platform
-    element                                   geometry colour scene style layout text app
+    element                                   geometry colour scene style layout text input app
     window                                    all of the above
-    ui                                        geometry colour style element app
+    ui                                        geometry colour style element input app
 
 Standard library imports are always allowed. Third-party imports are not, except
 where an entry names one.
@@ -287,9 +287,18 @@ Defines the `Frame` interface that elements use to request layout, register hit
 regions and paint. `window` implements it. Elements never import `window` — that
 would be a cycle, and the interface is what breaks it.
 
+It owns the fluent style builder. `style` exposes mutators on `*Refinement` and the
+chain — `div().Flex().Gap(4).Bg(c)` — hangs off the element, which is already behind
+a pointer, so no style struct is copied per call.
+
 Invariants: elements are values built fresh each frame and discarded after paint.
 Anything that must survive the frame belongs in an entity. Layout, prepaint and
 paint run in that order and no phase may reach backwards.
+
+It imports `input` because an element declares key contexts, focus handles and
+action handlers, and that vocabulary lives there. Without it neither `element` nor
+`ui` could express a click. `input` sits below both, so this runs downward like
+everything else.
 
 ## window
 
@@ -304,9 +313,9 @@ Invariants: implements `element.Frame`. This is where the six frame steps in
 
 Buttons, labels, lists, text fields, scroll views.
 
-Invariants: built entirely from the public API of `element` and `style`. If a widget
-needs something those do not expose, the gap is in the framework and gets fixed
-there. No widget registry — adding a widget adds a file and touches nothing else.
+Invariants: built entirely from the public API of `element`, `style` and `input`. If
+a widget needs something those do not expose, the gap is in the framework and gets
+fixed there. No widget registry — adding a widget adds a file and touches nothing else.
 
 ## third_party
 

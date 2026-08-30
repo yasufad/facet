@@ -33,12 +33,12 @@ var permitted = map[string][]string{
 	"render":   {"geometry", "colour", "scene", "platform"},
 	"style":    {"geometry", "colour", "layout", "text"},
 	"input":    {"geometry", "platform"},
-	"element":  {"geometry", "colour", "scene", "style", "layout", "text", "app"},
+	"element":  {"geometry", "colour", "scene", "style", "layout", "text", "input", "app"},
 	"window": {
 		"geometry", "colour", "app", "scene", "layout", "platform", "text",
 		"render", "style", "input", "element",
 	},
-	"ui": {"geometry", "colour", "style", "element", "app"},
+	"ui": {"geometry", "colour", "style", "element", "input", "app"},
 }
 
 // unconstrained packages sit outside the layer stack. Vendored source keeps
