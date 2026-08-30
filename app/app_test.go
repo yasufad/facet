@@ -215,6 +215,46 @@ func TestSubscriptionCloseCancels(t *testing.T) {
 	observed.Release()
 }
 
+func TestSubscriptionCloseInline(t *testing.T) {
+	// Subscription.Close must be callable inline on a returned value, not
+	// only on an addressable variable. This is a regression test for the
+	// pointer-receiver bug that made app.Subscribe(...).Close() not compile.
+	app := NewApp()
+	defer app.Close()
+
+	observed := newCounter(t, app, 0)
+	defer observed.Release()
+
+	observer := New(app, func(cx *Context[observerCount]) observerCount {
+		// Close inline on the returned value — this must compile and work.
+		Observe(cx, observed, func(v *observerCount, e Entity[counter], cx *Context[observerCount]) {}).Close()
+		return observerCount{}
+	})
+	defer observer.Release()
+
+	// If the inline Close did not cancel the subscription, the observer
+	// would still be registered. Notifying should not panic or fire.
+	observed.Update(app, func(v *counter, cx *Context[counter]) { cx.Notify() })
+}
+
+func TestSubscriptionDetachInline(t *testing.T) {
+	// Detach must also be callable inline on a returned value.
+	app := NewApp()
+	defer app.Close()
+
+	observed := newCounter(t, app, 0)
+	defer observed.Release()
+
+	observer := New(app, func(cx *Context[observerCount]) observerCount {
+		Observe(cx, observed, func(v *observerCount, e Entity[counter], cx *Context[observerCount]) {}).Detach()
+		return observerCount{}
+	})
+	defer observer.Release()
+
+	// Detach leaves the subscription running; notifying should not panic.
+	observed.Update(app, func(v *counter, cx *Context[counter]) { cx.Notify() })
+}
+
 func TestNotificationDuringFlushChains(t *testing.T) {
 	// An observer that notifies another entity must cause a follow-on notify
 	// effect processed in the same flush: effects cause effects, and the flush

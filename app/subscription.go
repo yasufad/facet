@@ -50,7 +50,7 @@ func (s *subscriberSet[K, C]) insert(key K, cb C) (Subscription, func()) {
 			}
 		}
 	}
-	return Subscription{unsubscribe: unsubscribe}, activate
+	return Subscription{state: &subscriptionState{unsubscribe: unsubscribe}}, activate
 }
 
 // remove returns the callbacks of all active subscribers for key and clears
@@ -133,25 +133,37 @@ func (s *subscriberSet[K, C]) retain(key K, f func(*C) bool) {
 // Go has no RAII, so cancellation is explicit. The framework closes
 // subscriptions tied to an entity when that entity is dropped; code that holds
 // a Subscription for early cancellation should Close it when done.
+//
+// The state lives behind a pointer so that Close and Detach have value
+// receivers and can be called inline on a returned value:
+// app.Subscribe(...).Close(). A pointer receiver would not compile because the
+// return value is not addressable.
 type Subscription struct {
+	state *subscriptionState
+}
+
+type subscriptionState struct {
 	unsubscribe func()
 	closed      bool
 }
 
-// Close cancels the subscription. It is safe to call multiple times.
-func (s *Subscription) Close() {
-	if s.closed || s.unsubscribe == nil {
-		s.closed = true
+// Close cancels the subscription. It is safe to call multiple times and on a
+// zero-value Subscription.
+func (s Subscription) Close() {
+	if s.state == nil || s.state.closed {
 		return
 	}
-	s.closed = true
-	s.unsubscribe()
+	s.state.closed = true
+	s.state.unsubscribe()
 }
 
 // Detach leaves the subscription running independently of this handle. The
 // callback continues to fire until the entity it watches is dropped.
-func (s *Subscription) Detach() {
-	s.closed = true
+func (s Subscription) Detach() {
+	if s.state == nil {
+		return
+	}
+	s.state.closed = true
 	// Drop the unsubscribe closure without invoking it.
-	s.unsubscribe = nil
+	s.state.unsubscribe = nil
 }
