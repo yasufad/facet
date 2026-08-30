@@ -57,19 +57,19 @@ func BenchmarkSetBackground(b *testing.B) {
 
 // BenchmarkSetSequence4 measures setting 4 properties in sequence on an addressable *Refinement.
 func BenchmarkSetSequence4(b *testing.B) {
+	var r Refinement
 	c := colour.Rgb(0x0000ff)
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		var r Refinement
 		r.SetDisplay(DisplayFlex)
 		r.SetBackground(c)
 		r.SetOpacity(0.8)
 		r.SetFlexGrow(1.0)
-		benchSink.r = r
 	}
+	benchSink.r = r
 }
 
 func BenchmarkStyleRefineEmpty(b *testing.B) {
@@ -104,7 +104,7 @@ func BenchmarkStyleRefineNonEmpty(b *testing.B) {
 	}
 }
 
-func BenchmarkRefinementMerge(b *testing.B) {
+func BenchmarkRefinementMergeFrom(b *testing.B) {
 	blue := colour.Rgb(0x0000ff)
 	yellow := colour.Rgb(0xffff00)
 
@@ -121,7 +121,8 @@ func BenchmarkRefinementMerge(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		merged := r1.Merge(r2)
-		benchSink.r = merged
+		r := r1
+		r.MergeFrom(&r2)
+		benchSink.r = r
 	}
 }
