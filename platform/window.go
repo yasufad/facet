@@ -9,29 +9,30 @@ import (
 // decorated, opaque, non-resizable 800×600 window with a black background and
 // no title — the least surprising starting point that a caller then overrides.
 //
-// Sizes and positions are in device pixels. A caller that thinks in logical
-// pixels converts with the display's scale factor before constructing the
-// options.
+// Sizes and positions are in logical pixels — the same unit layout and
+// styling speak in. The platform converts to device pixels using the display's
+// scale factor; the caller does not do scale arithmetic, which is what typed
+// units exist to prevent.
 type WindowOptions struct {
 	// Title is the window title shown in the title bar and the taskbar.
 	Title string
 
 	// Size is the initial client-area size. The client area excludes the
 	// title bar and borders; the full window is larger.
-	Size geometry.Size[geometry.DevicePixels]
+	Size geometry.Size[geometry.Pixels]
 
 	// Position is the initial window position in display coordinates. The
 	// zero value lets the platform choose — typically cascading from the last
 	// created window. A non-zero value pins the top-left corner.
-	Position geometry.Point[geometry.DevicePixels]
+	Position geometry.Point[geometry.Pixels]
 
 	// MinSize is the smallest the user can resize the window to. The zero
 	// value means no minimum.
-	MinSize geometry.Size[geometry.DevicePixels]
+	MinSize geometry.Size[geometry.Pixels]
 
 	// MaxSize is the largest the user can resize the window to. The zero
 	// value means no maximum.
-	MaxSize geometry.Size[geometry.DevicePixels]
+	MaxSize geometry.Size[geometry.Pixels]
 
 	// Background is the colour the client area is cleared to before the
 	// renderer draws. It is the colour seen through transparent content or
@@ -84,26 +85,29 @@ type Window interface {
 	// SetTitle sets the title bar and taskbar text.
 	SetTitle(title string)
 
-	// SetSize sets the client-area size in device pixels. The full window is
-	// larger by the title bar and border.
-	SetSize(size geometry.Size[geometry.DevicePixels])
+	// SetSize sets the client-area size in logical pixels. The full window is
+	// larger by the title bar and border; the platform converts to device
+	// pixels using the display's scale factor.
+	SetSize(size geometry.Size[geometry.Pixels])
 
-	// Size returns the current client-area size in device pixels.
-	Size() geometry.Size[geometry.DevicePixels]
+	// Size returns the current client-area size in logical pixels.
+	Size() geometry.Size[geometry.Pixels]
 
-	// SetPosition sets the window's top-left corner in display coordinates.
-	SetPosition(pos geometry.Point[geometry.DevicePixels])
+	// SetPosition sets the window's top-left corner in display coordinates,
+	// in logical pixels.
+	SetPosition(pos geometry.Point[geometry.Pixels])
 
-	// Position returns the window's top-left corner in display coordinates.
-	Position() geometry.Point[geometry.DevicePixels]
+	// Position returns the window's top-left corner in display coordinates,
+	// in logical pixels.
+	Position() geometry.Point[geometry.Pixels]
 
-	// SetMinSize sets the minimum resizable size. The zero value removes the
-	// minimum.
-	SetMinSize(size geometry.Size[geometry.DevicePixels])
+	// SetMinSize sets the minimum resizable size in logical pixels. The zero
+	// value removes the minimum.
+	SetMinSize(size geometry.Size[geometry.Pixels])
 
-	// SetMaxSize sets the maximum resizable size. The zero value removes the
-	// maximum.
-	SetMaxSize(size geometry.Size[geometry.DevicePixels])
+	// SetMaxSize sets the maximum resizable size in logical pixels. The zero
+	// value removes the maximum.
+	SetMaxSize(size geometry.Size[geometry.Pixels])
 
 	// SetResizable controls whether the user can resize the window by
 	// dragging its borders.

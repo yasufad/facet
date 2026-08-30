@@ -166,9 +166,10 @@ type FocusEvent struct {
 func (FocusEvent) isEvent() {}
 
 // ResizeEvent reports that the window's client area changed size. The new
-// size is included so the handler need not query the window.
+// size is in logical pixels, matching [Window.Size], so the handler need not
+// query the window or convert units.
 type ResizeEvent struct {
-	Size geometry.Size[geometry.DevicePixels]
+	Size geometry.Size[geometry.Pixels]
 	Time time.Time
 }
 
