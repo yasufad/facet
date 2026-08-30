@@ -59,6 +59,10 @@ elsewhere panics with a message naming the mistake. Effects queue during an upda
 and flush once at its end, so a burst of mutations produces one frame. An
 `Entity[T]` is an identifier, never a pointer to the value.
 
+Observers and subscribers fire in registration order. Go map iteration is random, so
+this has to be arranged deliberately; without it, order-dependent bugs appear in one
+run out of five and are close to impossible to reproduce.
+
 ## scene
 
 The renderer's input language: Quad, Shadow, MonochromeSprite, PolychromeSprite,
