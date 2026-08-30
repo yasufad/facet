@@ -16,7 +16,9 @@ first.
 
 - [docs/architecture.md](docs/architecture.md) — the layer stack, the seams between
   layers, and which decisions are still open
-- [docs/sources.md](docs/sources.md) — what we read, port and borrow, and from where
+- [docs/packages.md](docs/packages.md) — what each package owns, what it may import,
+  and the invariants it holds
+- [docs/sources.md](docs/sources.md) — what we read, port and vendor, and from where
 - [AGENTS.md](AGENTS.md) — conventions for anyone working here, human or agent
 
 ## Licence
