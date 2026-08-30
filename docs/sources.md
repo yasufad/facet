@@ -6,7 +6,7 @@ Three upstream codebases inform this one, each in a different way.
 | --- | --- | --- |
 | GPUI | [zed-industries/zed](https://github.com/zed-industries/zed), `crates/gpui` | read it, port nothing |
 | Taffy | [DioxusLabs/taffy](https://github.com/DioxusLabs/taffy) | port it, algorithm for algorithm |
-| Wails v3 | [wailsapp/wails](https://github.com/wailsapp/wails), `v3/` on master | borrow the code |
+| Wails v3 | [wailsapp/wails](https://github.com/wailsapp/wails), `v3/` on master | vendor the shell, drop the webview |
 
 Clone them wherever suits you; nothing here assumes a path.
 
@@ -42,15 +42,29 @@ behaviour and should come across with the code.
 
 Grid is out of scope. Port the flexbox path and the shared tree plumbing it needs.
 
-## What to borrow from Wails
+## What to vendor from Wails
+
+Wails is MIT, so vendoring is clean provided the notices travel. It is vendored
+rather than imported because its window is inseparable from its webview — see the
+rendering section of `docs/architecture.md`.
+
+Two layers come across almost untouched:
+
+- `v3/pkg/w32` — Win32 bindings, around thirteen thousand lines, standalone
+- `v3/pkg/mac` — Cocoa helpers
+
+Above them, take the shell and leave the webview behind:
 
 - Window creation and the native event loop for Win32, Cocoa and GTK
-- Application lifecycle
+- Application lifecycle and single-instance handling
 - Menus, tray, dialogs, notifications
 - Screen and display information, clipboard
 - The `wails3` build and packaging tooling
 
-An agent writing a window event loop by hand has misread the brief.
+The per-platform window files mix window and webview concerns in one type, so this
+part is surgery rather than a copy. Wails' side of the split is still the bulk of
+the value, and an agent writing a window event loop from scratch has misread the
+brief.
 
 ## Where they meet
 
@@ -69,5 +83,8 @@ stops at outlines, so that is ours to choose or write.
 
 ## What none of them provides
 
-The renderer. GPUI's talks to Metal and Vulkan from Rust; Taffy and Wails have no
-opinion. Written from scratch in Go.
+- **The renderer.** GPUI's talks to Metal and Vulkan from Rust; Taffy and Wails have
+  no opinion. Written from scratch in Go.
+- **Client-area input.** Wails leaves pointer, wheel and key input to the webview.
+  With the webview gone, `platform/` reads them from the native event stream on each
+  platform.
