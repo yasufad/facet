@@ -4,21 +4,15 @@ Status: planning. Sections marked *open* are not decided.
 
 ## Overview
 
-A GUI framework for Go. You write Go, you get a native desktop application.
+Facet is a GUI framework for Go. You write Go, you get a native desktop application.
 
 The design follows GPUI, the framework behind the Zed editor: application state lives
 in an entity map rather than a pointer graph, invalidation is precise rather than
 diff-based, and the element tree is rebuilt every frame from retained state. Those
 ideas are the port. The Rust is not.
 
-Two upstream codebases sit alongside this one as references, cloned into `../`:
-
-    ../gpui      Zed's GUI framework — the conceptual source
-    ../wails     Wails v3 — the platform layer we borrow from
-
-GPUI supplies the model. Wails supplies working, per-OS window management, event
-loops, menus, tray, dialogs and packaging, in Go, which is code we take rather than
-write.
+GPUI supplies the model; Wails v3 supplies the per-OS shell. `docs/sources.md` sets
+out which layer draws on which.
 
 ## Layers
 
