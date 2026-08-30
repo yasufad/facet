@@ -55,9 +55,13 @@ func New(opts Options) (Platform, error) {
 	return p, nil
 }
 
-// Quit stops the event loop.
+// Quit stops the event loop. It dispatches onto the platform thread because
+// PostQuitMessage posts to the calling thread's queue, and Quit may be called
+// from any goroutine.
 func (p *windowsPlatform) Quit() {
-	p.dispatcher.Quit()
+	p.dispatcher.Dispatch(func() {
+		p.dispatcher.Quit()
+	})
 }
 
 // Dispatch runs f on the platform thread.
@@ -66,15 +70,19 @@ func (p *windowsPlatform) Dispatch(f func()) {
 }
 
 // NewWindow creates a window from opts. The window is created on the platform
-// thread.
+// thread; this method blocks until creation completes.
 func (p *windowsPlatform) NewWindow(opts WindowOptions) (Window, error) {
 	var (
 		w   *windowsWindow
 		err error
+		wg  sync.WaitGroup
 	)
+	wg.Add(1)
 	p.dispatcher.Dispatch(func() {
+		defer wg.Done()
 		w, err = newWindowsWindow(p, opts)
 	})
+	wg.Wait()
 	if err != nil {
 		return nil, err
 	}
