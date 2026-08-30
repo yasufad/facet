@@ -3,6 +3,13 @@
 Implement the `scene` package in Facet. It is the renderer's entire input language:
 what `element` paints into and what `render` consumes.
 
+## Prerequisites
+
+This package depends on `geometry` and `colour`, which must be implemented and merged
+before it can compile. If they are not there yet, wait — do not stub them. A
+placeholder gets imported, drifts from the real API, and turns the merge into a
+rewrite.
+
 ## Read first
 
 1. `AGENTS.md` — conventions, commit style, GB English
