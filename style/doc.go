@@ -31,10 +31,10 @@
 // # Mutators and Fluent Chaining
 //
 // Refinement exposes in-place mutators on *Refinement (such as SetOpacity,
-// SetBackground, SetDisplay). It does not expose value-receiver fluent methods:
-// returning Refinement by value on every call incurs struct-copy overhead on
-// each property in the chain (~19 ns per call at 48 bytes, growing with struct
-// size).
+// SetBackground, SetDisplay, SetFlexGrow) and an in-place MergeFrom method.
+// It does not expose value-receiver fluent methods: returning Refinement by
+// value on every call incurs struct-copy overhead on each property in the chain
+// (~19 ns per call at 48 bytes, growing with struct size).
 //
 // In Facet, the fluent builder chain lives on the element (e.g. *Div in the
 // element package), which is already addressable and mutates its internal
@@ -45,17 +45,18 @@
 // This gives div().Flex().Bg(c) clean fluent reading with zero struct copies
 // and zero allocations. Benchmark measurements:
 //
-//	control (48-byte copy)         2.08 ns
-//	SetOpacity                     1.30 ns
-//	SetBackground (colour.Rgba)    2.41 ns
-//	sequence of 4 mutators        17.95 ns
+//	control (48-byte copy)         2.13 ns
+//	SetOpacity                     1.31 ns
+//	SetBackground (colour.Rgba)    2.37 ns
+//	sequence of 4 mutators         6.22 ns
+//	MergeFrom                     20.45 ns
 //
 // # Colour Storage
 //
 // Background colour is stored directly as colour.Rgba in both Style and
 // Refinement, matching scene.Quad. Storing Rgba avoids unnecessary conversions
-// to and from Hsla on the hottest styling paths. SetBgHsla converts at set
-// time for callers working in HSL.
+// to and from Hsla on the hottest styling paths. SetBackgroundHsla converts at
+// set time for callers working in HSL.
 //
 // # Compound Property Granularity
 //
@@ -71,9 +72,9 @@
 // Setting a slice property replaces the slice reference; code never appends
 // to or mutates a slice stored in a Refinement.
 //
-// Refinement copies slice headers directly during Merge and Refine. Because it
-// contains slice fields, Refinement is non-comparable (cannot be used with == or
-// as map keys).
+// Refinement copies slice headers directly during MergeFrom and Refine. Because
+// it contains slice fields, Refinement is non-comparable (cannot be used with ==
+// or as map keys).
 //
 // # Style{} vs Default() Asymmetry
 //
