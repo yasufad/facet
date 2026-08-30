@@ -51,9 +51,10 @@ func TestZeroValueOverride(t *testing.T) {
 		t.Fatalf("Default().Opacity = %v, want 1.0", base.Opacity)
 	}
 
-	r := Refinement{}.Opacity(0.0)
+	var r Refinement
+	r.SetOpacity(0.0)
 	if r.IsEmpty() {
-		t.Fatalf("Refinement{}.Opacity(0.0).IsEmpty() = true, want false")
+		t.Fatalf("Refinement.SetOpacity(0.0).IsEmpty() = true, want false")
 	}
 
 	base.Refine(r)
@@ -70,9 +71,10 @@ func TestOmittedFieldPreservation(t *testing.T) {
 	base := Default()
 	base.Opacity = 0.75
 	base.FlexGrow = 3.0
-	base.Background = red.Hsla()
+	base.Background = red
 
-	r := Refinement{}.Bg(blue)
+	var r Refinement
+	r.SetBackground(blue)
 	base.Refine(r)
 
 	if base.Opacity != 0.75 {
@@ -81,8 +83,8 @@ func TestOmittedFieldPreservation(t *testing.T) {
 	if base.FlexGrow != 3.0 {
 		t.Errorf("FlexGrow = %v, want 3.0", base.FlexGrow)
 	}
-	if base.Background != blue.Hsla() {
-		t.Errorf("Background = %v, want %v", base.Background, blue.Hsla())
+	if base.Background != blue {
+		t.Errorf("Background = %v, want %v", base.Background, blue)
 	}
 }
 
@@ -90,8 +92,14 @@ func TestRefinementMerge(t *testing.T) {
 	red := colour.Rgb(0xff0000)
 	green := colour.Rgb(0x00ff00)
 
-	r1 := Refinement{}.Opacity(0.5).FlexGrow(2.0).Bg(red)
-	r2 := Refinement{}.Opacity(0.0).Bg(green)
+	var r1 Refinement
+	r1.SetOpacity(0.5)
+	r1.SetFlexGrow(2.0)
+	r1.SetBackground(red)
+
+	var r2 Refinement
+	r2.SetOpacity(0.0)
+	r2.SetBackground(green)
 
 	// r1 merged with r2: r2 overrides Opacity (to 0.0) and Background (to green),
 	// while FlexGrow remains 2.0 from r1.
@@ -103,8 +111,8 @@ func TestRefinementMerge(t *testing.T) {
 	if base.Opacity != 0.0 {
 		t.Errorf("Opacity = %v, want 0.0 (overridden by r2)", base.Opacity)
 	}
-	if base.Background != green.Hsla() {
-		t.Errorf("Background = %v, want %v (overridden by r2)", base.Background, green.Hsla())
+	if base.Background != green {
+		t.Errorf("Background = %v, want %v (overridden by r2)", base.Background, green)
 	}
 	if base.FlexGrow != 2.0 {
 		t.Errorf("FlexGrow = %v, want 2.0 (retained from r1)", base.FlexGrow)
@@ -119,35 +127,29 @@ func TestRefinementMerge(t *testing.T) {
 	if invBase.Opacity != 0.5 {
 		t.Errorf("inverse Opacity = %v, want 0.5 (overridden by r1)", invBase.Opacity)
 	}
-	if invBase.Background != red.Hsla() {
-		t.Errorf("inverse Background = %v, want %v (overridden by r1)", invBase.Background, red.Hsla())
+	if invBase.Background != red {
+		t.Errorf("inverse Background = %v, want %v (overridden by r1)", invBase.Background, red)
 	}
 	if invBase.FlexGrow != 2.0 {
 		t.Errorf("inverse FlexGrow = %v, want 2.0 (set by r1)", invBase.FlexGrow)
 	}
 }
 
-func TestFluentBuilder(t *testing.T) {
-	yellow := colour.Rgb(0xffff00)
+func TestHighWordProperty(t *testing.T) {
+	var r Refinement
+	r.SetTestHigh(0.25)
 
-	r := Refinement{}.
-		Block().
-		Opacity(0.85).
-		Bg(yellow).
-		FlexGrow(1.5)
+	var s Style
+	s.Refine(r)
+	if s.testHigh != 0.25 {
+		t.Errorf("Refine skipped high-word property: testHigh = %v, want 0.25", s.testHigh)
+	}
 
-	s := Default().Refined(r)
-
-	if s.Display != DisplayBlock {
-		t.Errorf("Display = %v, want %v", s.Display, DisplayBlock)
-	}
-	if s.Opacity != 0.85 {
-		t.Errorf("Opacity = %v, want 0.85", s.Opacity)
-	}
-	if s.Background != yellow.Hsla() {
-		t.Errorf("Background = %v, want %v", s.Background, yellow.Hsla())
-	}
-	if s.FlexGrow != 1.5 {
-		t.Errorf("FlexGrow = %v, want 1.5", s.FlexGrow)
+	var r1 Refinement
+	var r2 Refinement
+	r2.SetTestHigh(0.25)
+	merged := r1.Merge(r2)
+	if merged.testHigh != 0.25 {
+		t.Errorf("Merge skipped high-word property: testHigh = %v, want 0.25", merged.testHigh)
 	}
 }
