@@ -268,7 +268,14 @@ and every project appears in `NOTICE`.
 
 Invariants: changes here are ports and patches, not features. Record what was
 changed and why, so the next update against a newer upstream is a merge rather than
-an excavation.
+an excavation. `third_party/README` is that record.
+
+When vendored code fights you, work out what it knows before restructuring it. Its
+awkward shapes are usually paid for: `mainthread_windows.go` posts to a hidden
+window instead of the thread queue because a modal inner loop swallows thread-queued
+messages, and it carries the issue link to prove it. Its same-thread requirement was
+restructured away once, and the deadlock it prevented came straight back in another
+form. Read the scars before cutting.
 
 ## Order of work
 
