@@ -14,6 +14,14 @@
 // standalone package with its own Dispatcher type, so the platform backend
 // owns the instance rather than reaching into a global. The technique and
 // the citations are unchanged.
+//
+// Further modified: the hidden window is created in Run, not in New. The
+// window belongs to the thread that created it, and GetMessage only
+// retrieves messages for the calling thread's windows. Creating the window
+// in New (on the caller's thread) and running the loop in Run (on a
+// different goroutine's thread) left PostMessage posting to a thread whose
+// queue GetMessage never read. New now just stores the class name; Run
+// creates the window on the thread it will pump.
 package mainthread
 
 import (
@@ -55,48 +63,14 @@ type Dispatcher struct {
 	next uint32
 }
 
-// New creates a Dispatcher and its hidden window. It must be called on the
-// thread that will serve as the main thread; that thread is locked to the OS
-// thread. The window class is registered with the given name, which should be
-// unique to the application.
+// New creates a Dispatcher. The hidden window is not created here; it is
+// created in Run, on the thread that will pump the message loop, because the
+// window belongs to the thread that created it and GetMessage only retrieves
+// messages for the calling thread's windows. The class name should be unique
+// to the application.
 func New(className string) *Dispatcher {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	cn := w32.MustStringToUTF16Ptr(className)
-
-	wcx := w32.WNDCLASSEX{
-		Size:      uint32(unsafe.Sizeof(w32.WNDCLASSEX{})),
-		WndProc:   syscall.NewCallback(w32.WindowProc(dispatchWndProc)),
-		Instance:  w32.GetModuleHandle(""),
-		ClassName: cn,
-	}
-	w32.RegisterClassEx(&wcx)
-
-	hwnd := w32.CreateWindowEx(
-		0,
-		cn,
-		w32.MustStringToUTF16Ptr("__facet_hidden_mainthread"),
-		w32.WS_DISABLED,
-		w32.CW_USEDEFAULT,
-		w32.CW_USEDEFAULT,
-		0,
-		0,
-		0,
-		0,
-		w32.GetModuleHandle(""),
-		nil,
-	)
-	if hwnd == 0 {
-		panic("mainthread: CreateWindowEx failed for hidden window")
-	}
-
-	threadID, _ := w32.GetWindowThreadProcessId(hwnd)
-
 	return &Dispatcher{
-		hwnd:      hwnd,
-		threadID:  threadID,
-		className: cn,
+		className: w32.MustStringToUTF16Ptr(className),
 		fns:       make(map[uint32]func()),
 	}
 }
@@ -119,10 +93,45 @@ func dispatchWndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintptr) uintptr 
 
 // Run starts the message loop. It blocks until Quit is called (which posts
 // WM_QUIT) or the loop exits for another reason. It must be called on the
-// same thread that called New.
+// thread that will serve as the main thread; that thread is locked to the OS
+// thread and the hidden window is created here, on that thread, because the
+// window belongs to the thread that created it and GetMessage only retrieves
+// messages for the calling thread's windows.
 func (d *Dispatcher) Run() int {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
+
+	// Register the window class and create the hidden window on this
+	// thread, so the window's thread is the one pumping messages below.
+	wcx := w32.WNDCLASSEX{
+		Size:      uint32(unsafe.Sizeof(w32.WNDCLASSEX{})),
+		WndProc:   syscall.NewCallback(w32.WindowProc(dispatchWndProc)),
+		Instance:  w32.GetModuleHandle(""),
+		ClassName: d.className,
+	}
+	w32.RegisterClassEx(&wcx)
+
+	hwnd := w32.CreateWindowEx(
+		0,
+		d.className,
+		w32.MustStringToUTF16Ptr("__facet_hidden_mainthread"),
+		w32.WS_DISABLED,
+		w32.CW_USEDEFAULT,
+		w32.CW_USEDEFAULT,
+		0,
+		0,
+		0,
+		0,
+		w32.GetModuleHandle(""),
+		nil,
+	)
+	if hwnd == 0 {
+		panic("mainthread: CreateWindowEx failed for hidden window")
+	}
+	d.hwnd = hwnd
+
+	threadID, _ := w32.GetWindowThreadProcessId(hwnd)
+	d.threadID = threadID
 
 	globalDispatcher.Store(d)
 	defer globalDispatcher.Store(nil)

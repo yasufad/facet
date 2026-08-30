@@ -37,16 +37,6 @@ type windowsWindow struct {
 	scaleFactor float32
 }
 
-// windowFromHWND recovers a *windowsWindow from an HWND. The window's user
-// data slot stores the pointer.
-func windowFromHWND(hwnd w32.HWND) *windowsWindow {
-	ptr := w32.GetWindowLongPtr(hwnd, w32.GWLP_USERDATA)
-	if ptr == 0 {
-		return nil
-	}
-	return (*windowsWindow)(unsafe.Pointer(ptr))
-}
-
 // windowClassName is the registered window class name for Facet windows.
 const windowClassName = "FacetWindow"
 
@@ -67,12 +57,21 @@ func registerWindowClass() {
 	})
 }
 
-// windowWndProc is the window procedure for all Facet windows. It
-// dispatches to the window's handler method.
+// activePlatform is the platform whose message loop is running. The wndproc
+// is a package-level function (Win32 gives it no user data), so it recovers
+// the platform from this global to look up windows by HWND. Set in Run,
+// cleared when Run returns. Only one platform runs at a time.
+var activePlatform *windowsPlatform
+
+// windowWndProc is the window procedure for all Facet windows. It looks up
+// the window by HWND in the platform's window map and dispatches to the
+// window's handler method.
 func windowWndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintptr) uintptr {
-	w := windowFromHWND(hwnd)
-	if w != nil {
-		return w.wndProc(hwnd, msg, wParam, lParam)
+	if activePlatform != nil {
+		w := activePlatform.windowByHWND(hwnd)
+		if w != nil {
+			return w.wndProc(hwnd, msg, wParam, lParam)
+		}
 	}
 	return w32.DefWindowProc(hwnd, msg, wParam, lParam)
 }
@@ -140,9 +139,12 @@ func newWindowsWindow(owner *windowsPlatform, opts WindowOptions) (*windowsWindo
 		scaleFactor: scale,
 	}
 
-	// Store the window pointer in the HWND's user data slot so the wndproc
-	// can recover it.
-	w32.SetWindowLongPtr(hwnd, w32.GWLP_USERDATA, uintptr(unsafe.Pointer(w)))
+	// Register the window in the platform's HWND map so the wndproc can
+	// find it. The map keeps the Go pointer visible to the garbage
+	// collector; storing it in GWLP_USERDATA would hide it, and a caller
+	// dropping its Window handle would leave the wndproc dereferencing
+	// freed memory on the next WM_* message.
+	owner.registerWindow(hwnd, w)
 
 	// Apply min/max size constraints if set.
 	if opts.MinSize.Width != 0 || opts.MinSize.Height != 0 {
@@ -180,8 +182,10 @@ func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintpt
 		w.owner.refreshDisplays()
 
 	case w32.WM_DESTROY:
-		// Clear user data so the wndproc does not recover a dangling pointer.
-		w32.SetWindowLongPtr(hwnd, w32.GWLP_USERDATA, 0)
+		// Remove the window from the platform's HWND map so the wndproc
+		// stops dispatching messages to it. Without this the map leaks
+		// one entry per closed window.
+		w.owner.unregisterWindow(hwnd)
 		w.emit(FocusEvent{Focused: false, Time: time.Now()})
 
 	case w32.WM_SIZE:
@@ -209,6 +213,9 @@ func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintpt
 			w.emit(ScaleChangedEvent{ScaleFactor: newScale, Time: time.Now()})
 		}
 		// lParam points to the suggested window rect for the new DPI.
+		// This is sound: lParam holds a pointer to a RECT owned by the
+		// OS, valid only for the duration of this message. We read it
+		// here and do not retain the pointer beyond the call.
 		rect := (*w32.RECT)(unsafe.Pointer(lParam))
 		w32.SetWindowPos(hwnd, 0,
 			int(rect.Left), int(rect.Top),

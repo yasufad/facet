@@ -5,7 +5,6 @@ package platform
 import (
 	"fmt"
 	"sync"
-	"unsafe"
 
 	"github.com/yasufad/facet/third_party/mainthread"
 	"github.com/yasufad/facet/third_party/w32"
@@ -18,7 +17,7 @@ type windowsPlatform struct {
 
 	dispatcher *mainthread.Dispatcher
 
-	mu sync.Mutex // protects the handler fields below
+	mu sync.Mutex // protects the fields below
 
 	activationHandler func()
 	quitHandler       func() bool
@@ -28,6 +27,18 @@ type windowsPlatform struct {
 
 	// cached displays, refreshed on display configuration change.
 	displays []Display
+
+	// windows maps each HWND to its *windowsWindow so the wndproc can
+	// recover the window from the handle the OS passes it. The map keeps
+	// the Go pointer visible to the garbage collector — storing it in
+	// GWLP_USERDATA instead would hide it from the collector, and a caller
+	// dropping its Window handle would leave the wndproc dereferencing
+	// freed memory on the next WM_* message.
+	//
+	// Accessed only on the platform thread (the thread that runs the
+	// message loop), so the mutex is shared with the handler fields above
+	// rather than needing its own.
+	windows map[w32.HWND]*windowsWindow
 }
 
 // New creates a Windows platform. It must be called on the goroutine that
@@ -44,6 +55,7 @@ func New(opts Options) (Platform, error) {
 	p := &windowsPlatform{
 		options:    opts,
 		dispatcher: mainthread.New(opts.Name),
+		windows:    make(map[w32.HWND]*windowsWindow),
 	}
 
 	displays, err := enumerateDisplays()
@@ -237,6 +249,33 @@ func (p *windowsPlatform) primaryScale() float32 {
 	return d.ScaleFactor
 }
 
+// registerWindow records a window in the platform's HWND map so the wndproc
+// can find it. Called on the platform thread during window creation.
+func (p *windowsPlatform) registerWindow(hwnd w32.HWND, w *windowsWindow) {
+	p.mu.Lock()
+	p.windows[hwnd] = w
+	p.mu.Unlock()
+}
+
+// unregisterWindow removes a window from the HWND map. Called on the platform
+// thread from WM_DESTROY. After this returns, the wndproc will not find the
+// window for its HWND and will pass messages to DefWindowProc.
+func (p *windowsPlatform) unregisterWindow(hwnd w32.HWND) {
+	p.mu.Lock()
+	delete(p.windows, hwnd)
+	p.mu.Unlock()
+}
+
+// windowByHWND looks up a window by its HWND. Called from the wndproc on the
+// platform thread. Returns nil if the HWND is not a Facet window (or has
+// been destroyed).
+func (p *windowsPlatform) windowByHWND(hwnd w32.HWND) *windowsWindow {
+	p.mu.Lock()
+	w := p.windows[hwnd]
+	p.mu.Unlock()
+	return w
+}
+
 // refreshDisplays re-enumerates displays and fires the display change
 // handler if the configuration changed.
 func (p *windowsPlatform) refreshDisplays() {
@@ -252,8 +291,3 @@ func (p *windowsPlatform) refreshDisplays() {
 		handler()
 	}
 }
-
-// _ = unsafe.Pointer(nil) ensures unsafe is imported for future use in
-// platform-specific code. The window implementation uses it; this file does
-// not yet, but the import is required for the build constraint to be useful.
-var _ = unsafe.Pointer(nil)

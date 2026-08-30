@@ -15,6 +15,8 @@ package platform
 // each Facet window's wndproc, which calls refreshDisplays on the platform.
 // The loop itself does not need to intercept it.
 func (p *windowsPlatform) Run() error {
+	activePlatform = p
+	defer func() { activePlatform = nil }()
 	p.dispatcher.Run()
 	return nil
 }
