@@ -1,115 +1,128 @@
-# style: review of the first milestone
+# style: response to the plan
 
-The refinement semantics are right, which is the part that mattered. I verified them
-directly rather than from the tests: `Opacity(0)` overrides a default of 1, a
-refinement omitting opacity leaves it alone, a later refinement wins on merge, and
-nothing allocates anywhere. The reasoning in `doc.go` for rejecting pointer fields
-and sentinels holds up.
+Items 1, 2, 4 and 6 are right as planned — go ahead. Item 3 needs redirecting and
+item 5 needs one more rule. Details below, then what done looks like.
 
-Six things before the property list. All of them are cheap now and expensive at fifty
-properties.
+## Approved as planned
 
-Your second walkthrough described the same tree as the first — nothing had changed
-between them — so if this is the first you are seeing of the list, that is why.
+**1. Per-word guards.** Exactly right, including writing the high-word test first and
+confirming it fails against the current code.
 
-## 1 — Merge and Refine ignore any property in the high word
+**2. `Rgba` in `Style.Background` and `Refinement.background`, `BgHsla` converting at
+set time.** Right, and for the reason given.
 
-    style/refinement.go:34    if other.mask.lo != 0 {
-    style/style.go:35         if r.mask.lo != 0 {
+**4. Per-edge bits for compound properties.** Right. Note it makes item 1 load-bearing
+rather than theoretical: inset, margin, padding, border widths and corner radii at
+four bits each is twenty before anything else, so the property list will cross bit 64.
 
-Both guard the *entire* value-copy block on the low word. A property at bit 64 or
-above gets its mask bit carried across by `or()` and its value never copied. I set
-bit 64 in a throwaway in-package test and merged:
+**6. `Default()` as the only valid constructor, `Refinement{}`'s zero value
+meaningful.** Right, including naming the asymmetry.
 
-    Merge skipped the value copy for a high-word property: opacity = 0.9, want 0.25
-    Refine skipped the value copy for a high-word property: opacity = 0.9, want 0.25
+## 3 — The receiver: my diagnosis was wrong, and so is the fix
 
-That is worse than dropping the property: the resolved mask says it was refined while
-the value is the base's, so nothing downstream can tell.
+**First, correct something I told you.** I wrote that the 19 ns "reads like the
+methods are not inlining." They inline. `go build -gcflags=-m ./style` lists
+`can inline Refinement.Opacity`, `Flex`, `BgHsla` and `FlexGrow` — everything except
+`Bg`, which the `c.Hsla()` call excludes. The plan's reasoning about the inlining
+budget rests on a claim of mine that is false. Sorry.
 
-It passes today only because all four properties sit at bits 0 to 3. The mask is 128
-bits precisely because fifty-odd are coming — and per-edge padding, margin, inset,
-border widths and corner radii are twenty bits before anything else.
+**What the 19 ns actually is.** Three probe methods — field store only, `mask.set`
+only, both with a constant shift:
 
-Keep the optimisation, make it per-word: guard the low-word properties on `lo`, the
-high-word ones on `hi`. Write the test first and confirm it fails against what is
-there now.
+    control (plain 48-byte copy)      2.55 ns
+    field store only                 20.12 ns
+    mask.set only                    19.36 ns
+    mask constant shift + field      18.61 ns
 
-## 2 — Bg converts on every call, and stores the wrong type
+All the same. Not the mask, not the shift, not the field. It is the
+value-receiver-returns-value pattern itself — copy in, mutate, copy out — already
+costing ~19 ns at 48 bytes, and it grows with the struct.
 
-    control: store 48 bytes    2.6 ns
-    Opacity(0.5)              18.8 ns
-    BgHsla(hsla)              19.9 ns
-    Bg(rgba)                  75.7 ns
+So value receivers are the problem. The proposed fix is what fails.
 
-`Bg` calls `c.Hsla()`. That conversion is fifty-six of the seventy-six nanoseconds,
-on the call users write most.
+**`Refinement{}.Flex()` does not compile with a pointer receiver.** A composite
+literal is not addressable:
 
-It also converts the wrong way. `scene.Quad.Background` is `colour.Rgba`, so a colour
-set as Rgba becomes Hsla on the way in and Rgba again at paint — twice per colour per
-frame to arrive where it started. GPUI stores Hsla because GPUI's scene consumes
-Hsla; ours does not.
+    cannot call pointer method Flex on R
 
-Store `Rgba` in `Refinement.background` and `Style.Background` both. `BgHsla` keeps
-converting at set time, where it is the uncommon case and paid once.
+That breaks the plan's own benchmark expression, and it breaks
+`div().Flex().Gap(4).Bg(c)` — the expression this package exists to make read well.
+Returning `*Refinement` also puts an aliasable pointer in every element and escapes
+to the heap as soon as one is stored, which is the allocation the bitset was chosen
+to avoid.
 
-## 3 — The builder chain is still unmeasured
+The "≈2 ns for the entire 4-call chain" is stated as a result before anything was
+measured, and cannot have been measured: the expression it names does not build.
+Do not put a number in `doc.go` that a benchmark did not produce.
 
-The three benchmarks measure `Refine` and `Merge`, which run once per element per
-frame. Builder methods run once per *property* per element per frame. I measured the
-chain:
+**Where the chain belongs.** GPUI has this same problem in a language where the copy
+would be free, and still avoided it. `styled.rs:22`:
 
-    Refinement{}.Flex().Bg(c).Opacity(0.8).FlexGrow(1)    108 ns
+    pub trait Styled: Sized {
+        fn style(&mut self) -> &mut StyleRefinement;
 
-Four properties, 48-byte struct — several hundred bytes once the list is full. And a
-single builder call costs 19 ns against a 2.6 ns copy control, seven times the copy
-it performs, which reads like the methods are not inlining: a value receiver
-returning 48 bytes is likely past the budget, and it grows.
+and every fluent method, `styled.rs:45`:
 
-Add the chain benchmark, find out why 19 ns, and let that decide the receiver. A
-pointer receiver mutating in place keeps the bitset and drops both copies, at the
-cost of value semantics in the refinement closure. Number and decision into `doc.go`.
+    fn flex(mut self) -> Self {
+        self.style().display = Some(Display::Flex);
+        self
+    }
 
-## 4, 5, 6 — Three decisions `doc.go` does not answer
+The fluent chain is on the **element**. The element is the receiver; the refinement is
+reached by mutable reference and never copied.
 
-**Compound granularity.** Is `Padding` one bit or four? Per-edge is what lets
-`hover(s => s.PaddingLeft(4))` leave the other three alone; one bit is smaller and
-makes that impossible. Same for margin, inset, border widths, corner radii. Nothing
-compound exists yet, so it is still free — and it fixes the mask layout and the API
-shape.
+That is the decision, and it is settled here rather than by you, because it crosses
+into `element`:
 
-**Properties that are not plain values.** Shadows are a slice, font family a string.
-Both allocate when set and both make `Refinement` non-comparable, ruling out `==` and
-map keys. Neither is fatal; both want an answer now rather than at the property that
-hits them.
+- `style` exposes **mutators on `*Refinement`** — `SetDisplay`, `SetOpacity`,
+  `SetBackground` and so on. No fluent chain on `Refinement`, no value-receiver
+  builders.
+- `element` puts the chain on `*Div`, which is already addressable:
+  `func (d *Div) Flex() *Div { d.style.SetDisplay(DisplayFlex); return d }`.
 
-**`Style{}` is invisible.** `Default()` gives opacity 1, the zero value gives 0 and
-renders nothing. That is defensible — a resolved style needs defaults — but say it:
-`Default()` is the only valid way to obtain a `Style`. `Refinement`'s zero value is
-meaningful by contrast, and that asymmetry is worth a sentence.
+`div().Flex().Bg(c)` still reads as one expression, nothing is copied, nothing
+escapes, and the 19 ns goes away without the API paying for it.
 
-## Then the property list
+**What to benchmark instead.** Not a chain — there is no chain in this package any
+more. Measure a single mutator against the 2.55 ns control, and measure setting four
+properties on one addressable `Refinement` in sequence. Those are the numbers for
+`doc.go`, alongside the note that the fluent chain lives in `element` and why.
 
-Roughly GPUI's set: display, position, inset, size and min/max, margin, padding, flex
-direction, wrap, grow, shrink, basis, alignment and justification, gap, background,
-border colour and widths, corner radii, shadows, opacity, overflow, text colour, font
-family, size, weight, style and line height. Plus the conversion into `layout`'s
-`Dimension`, `LengthPercentage` and `LengthPercentageAuto` — this package is the only
-place those two vocabularies meet.
+## 5 — Slices need an aliasing rule, not just a comparability note
+
+"Refinements copy slice headers and strings directly" shares the backing array. Two
+refinements holding the same `[]BoxShadow`, one of them appended to, is a mutation the
+other sees — and with refinements layered per state, they will hold the same slice
+routinely.
+
+State the rule in `doc.go` and hold to it: a slice-valued property is immutable once
+set. Setting it replaces the slice; nothing appends to one already stored. Non-
+comparability is worth recording too, but it is the smaller half.
 
 ## Done when
 
-A high-word property survives `Merge` and `Refine`, and the test proving it fails
-against the current guard. `Bg` stores `Rgba` and costs what `Opacity` costs. The
-chain benchmark exists and its number is in `doc.go` with the receiver decision it
-drove. The three questions above are answered there too.
+Per-word guards in `Merge` and `Refine`, with a high-word test that fails against the
+current single guard.
+
+`Background` is `Rgba` in both types; `Bg` costs what `Opacity` costs.
+
+No value-receiver builders on `Refinement`. Mutators on `*Refinement`, benchmarked
+against the 2.55 ns control, with the numbers and the element-owns-the-chain decision
+recorded in `doc.go`.
+
+Compound granularity, the slice immutability rule, and the `Default()`/`Style{}`
+asymmetry answered in `doc.go`.
+
+Then the property list.
 
 ## Worth carrying
 
-A guard that is correct for the properties that exist today is not correct. Item 1 is
-that exactly: four properties, all low-word, a fully green suite over code that
-silently drops the sixty-fifth. It is the same shape as two `platform` defects that
-survived their tests because every test configured the field it was about to check.
+A plan that states the result of a measurement it has not taken is not a plan. Item 3
+named a number for an expression that does not compile — the compile error and the
+real cost were each about a minute's work to find. When a decision is supposed to be
+settled by measurement, take the measurement first and let it decide, including when
+you are confident you know the answer.
 
-And benchmark the path users write. A benchmark that misses the hot path is worse
-than none — it produces a number that looks like reassurance.
+And I made the mirror of that mistake: I offered "not inlining" as the explanation
+without checking `-gcflags=-m`, and it sent you at the wrong fix. A hypothesis handed
+over as though it were a finding is worse than no hypothesis.
