@@ -9,18 +9,53 @@ This is the package where everything below finally runs. `platform` produces eve
 that sees all of it, so every seam in `docs/architecture.md` is closed here or not at
 all.
 
-## Prerequisites
+## Response to the plan — read this before anything else
 
-`element` must be merged first. `window` implements `element.Frame`, and elements
-call into that interface to request layout, register hit regions and paint. Writing
-`window` against an imagined `Frame` produces two halves that do not meet.
+**You are blocked, and waiting is the work.** Layer 2 of the plan creates
+`element/doc.go`, `element/frame.go`, `element/element.go` and `element/div.go`.
+`element` is assigned to another agent and that agent is writing those files now. Two
+agents on the same four files collide, and the plan's `Element` — three methods, no
+per-phase state mechanism, no identity — quietly settles the two decisions
+`prompts/element.md` exists to have decided properly.
 
-The interface itself is decided jointly and belongs to `element` — see "The Frame
-interface" below for what `window` is able to supply. If you find `Frame` cannot be
-implemented as declared, say so rather than widening it here.
+Drop Layer 2 entirely. `Frame` arrives from `element`; you implement it. Nothing in
+`window/` can be written until it lands. The section below on `Frame` says what
+`window` is able to supply, and that is your input to that agent's design, not a
+licence to write it yourself.
 
-Everything in "Decisions to make first" can be worked out before `element` lands,
-and should be, because it is the substance of this package.
+**Two things you found are real, and both belong to other packages.**
+
+`layout.ComputeLayout` genuinely cannot be called from outside `layout` —
+`availableSpace` is unexported and `definiteAvail`, `minContent` and `maxContent`
+are all lower-case, so no caller can name the type or obtain a value. Both
+`ComputeLayout` and `ComputeLayoutWithMeasure` are dead API to every package above.
+That is a good find in a package marked finished. It is `layout`'s to fix, under its
+own prompt. Do not export it from here.
+
+The `Frame` you proposed takes `input.DispatchNodeID` and returns
+`*input.DispatchTree`, which `element` was not permitted to import. Chasing that
+through, neither `element` nor `ui` could name an action, a key context or a focus
+handle, so no widget could declare a click. The table was wrong, not your instinct:
+`element` and `ui` now import `input`, as of `8b223e1`. Report a layering conflict
+next time rather than routing around it — that test failing is the design asking to
+be decided.
+
+**Decisions 1, 2, 3, 5 and 6 are accepted.** The two-frame model is understood
+correctly, including that pointer and key events resolve against `rendered`. The idle
+answer — zero draws, zero presents, event loop asleep — is right and stated as a
+number, which is what makes it checkable. Decision 3 puts surviving state in entities
+with no unevicted map, and matches what `element`'s agent is being asked for
+independently.
+
+**Decision 4 has a gap.** The swapchain resizes on the event and relayout waits for
+the next frame. Say what is on screen in between — a stretched present, a stale one,
+or nothing.
+
+**Two corrections to the plan's `Frame`.** `TextSystem() *text.System` and
+`TextAtlas() *text.Atlas` hand out mutable internals wholesale; the need is to shape
+text at the window's scale factor, so expose that. And a scene assertion is the
+verification here — running `examples/quad` and looking at it is not evidence, for
+the reason `docs/packages.md` gives about the render backend.
 
 ## Read first
 
@@ -100,38 +135,28 @@ The first is called out explicitly in `platform`'s doc comment. The second is wh
 
 ## Decisions to make first
 
-Write the answers in `doc.go`. Each is cheap now and expensive after the loop exists.
+Write the answers in `doc.go`. Five of the six are settled above; what remains is
+decision 4's gap, and everything here stays as the record of what had to be answered.
 
 **What schedules a frame.** `app`'s effects flush and mark views dirty; `platform`
 delivers a paint or resize event. Those are two independent sources and they have to
-produce one frame, not two, and not zero. Say who calls draw, what happens when a
-notification arrives mid-frame, and what stops a frame that only redraws because the
-last frame redrew.
+produce one frame, not two, and not zero.
 
-**Whether a frame that changed nothing presents.** GPUI keeps a `needs_present`
-flag, because presenting with vsync blocks for up to a frame interval and doing that
-for an unchanged scene burns the main thread and the GPU for nothing. Decide, and
-say what the idle cost of an open Facet window is.
+**Whether a frame that changed nothing presents.** Presenting with vsync blocks for
+up to a frame interval, so doing it for an unchanged scene burns the main thread and
+the GPU for nothing.
 
-**Where per-element state that survives the frame lives.** `docs/packages.md` says
-elements are values discarded after paint and anything that outlives the frame
-belongs in an entity. GPUI also keeps an element-state map on the frame, keyed by
-element ID, for things like scroll offsets that are not worth an entity. Those two
-answers conflict. Pick one and say which. If it is the map, say what evicts an entry
-when the element stops being rendered — a map keyed by element ID with no eviction
-is a leak that grows with every list the user scrolls.
+**Where per-element state that survives the frame lives.** Entities, with no
+element-keyed map — agreed, and `element` is answering the same question.
 
-**The order of resize.** `platform` reports a resize in logical pixels; `render`
-sizes its swapchain in device pixels; the scale factor can change in the same
-gesture when a window is dragged between displays. Say the order — swapchain, then
-relayout, then paint, or otherwise — and what happens to a frame in flight.
-`examples/quad` resizes the renderer and redraws from the event handler, which is
-enough for one quad and is not a model for this.
+**The order of resize.** `platform` reports logical pixels; `render` sizes its
+swapchain in device pixels; the scale factor can change in the same gesture when a
+window is dragged between displays. Say the order, and what is on screen between the
+swapchain resize and the frame that follows it.
 
 **What a scale-factor change invalidates.** Glyph masks are rasterised at a
-particular scale and cached by `text`; atlas tiles are allocated in device pixels. A
-window moving from a 1.0 display to a 1.5 one invalidates both. Say what is dropped
-and who drops it.
+particular scale and cached by `text`; atlas tiles are allocated in device pixels.
+Both are dropped, and `window` is what drops them.
 
 ## The Frame interface
 
@@ -148,7 +173,8 @@ What `window` can supply, from what exists today:
     scale factor           for anything that has to snap to device pixels
 
 Keep it narrow. Every method on `Frame` is something `element` may do at any point in
-any phase, and the phase ordering invariant is enforced here or not at all.
+any phase, and the phase ordering invariant is enforced here or not at all. Hand out
+capabilities, not internals: shape a line, do not return the text system.
 
 ## Invariants
 
@@ -184,6 +210,10 @@ hand-wired `examples/quad`.
 Conventional commits, one file per commit, staged by path.
 
 ## Habits from earlier rounds
+
+Stay in your package. Where you need something another package does not expose, say
+so and stop — that is a design decision, and both of the ones you found this round
+were real and were fixed properly at the source.
 
 When a struct of options exists, at least one test passes it empty. Two defects in
 `platform` survived their suites because every test configured the field it was
