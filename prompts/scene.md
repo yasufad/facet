@@ -3,16 +3,19 @@
 Implement the `scene` package in Facet. It is the renderer's entire input language:
 what `element` paints into and what `render` consumes.
 
-## Prerequisites
+## Unblocked
 
-`geometry` and `colour` must be merged before this package can compile — the
-primitives are almost entirely bounds and colours, and there is no useful subset to
-write without them. If they are not in yet, wait. Do not stub them: a placeholder
-gets imported, drifts from the real API, and turns the merge into a rewrite.
+`geometry` and `colour` have both landed and are reviewed. Nothing is waiting.
 
-Reading GPUI's scene and working out the ordering and batching design is useful in
-the meantime, since that is the substance of this package rather than the six
-structs.
+    Bounds[Pixels]  Point  Size  Edges  Corners  Axis  Anchor      geometry
+    Rgba  Hsla  ParseHex  Blend  Mix  Premultiply                  colour
+
+Two things there are worth knowing before you use them. `BoundsToDevicePixels`
+snaps both edges and derives the size, so adjacent rectangles stay adjacent with no
+seam — take device-pixel bounds from it rather than rounding origin and size
+yourself. And `colour` stores straight alpha; `Premultiply` is an explicit
+conversion, so decide deliberately which form a primitive carries and say so in its
+doc comment.
 
 ## Read first
 
