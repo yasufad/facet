@@ -28,8 +28,19 @@ All three sit outside the working directory and need to be granted before they c
 be read; in Claude Code, start with `--add-dir ../gpui --add-dir ../taffy --add-dir
 ../wails`.
 
-`docs/sources.md` says which layer draws on which, and which parts neither of them
-provides. Read it before assuming something has to be written from scratch.
+`docs/sources.md` says which layer draws on which, and which parts none of them
+provide. Read it before assuming something has to be written from scratch.
+
+## Attribution
+
+Facet is Apache-2.0. Taffy, Wails and go-text are MIT, and their notices travel with
+any code we take. When you port or copy upstream code:
+
+- Head the file with an attribution comment naming the upstream project, the file it
+  came from, and its licence.
+- Add the project to `NOTICE` if it is not listed there already.
+
+Reading an upstream project and writing your own implementation needs neither.
 
 ## Working alongside other agents
 
