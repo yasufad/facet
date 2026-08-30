@@ -127,13 +127,29 @@ type Window interface {
 
 	// NativeHandle returns the platform's native window handle — an HWND on
 	// Windows, an NSWindow* on macOS, a GtkWidget* on Linux — as a uintptr.
-	// The render backend casts it to the platform-specific type. platform
-	// does not know D3D, Metal or Vulkan exist; it hands out the handle and
-	// stops.
+	// It is the handle for window operations: positioning, parenting,
+	// activation. platform does not know D3D, Metal or Vulkan exist; it hands
+	// out the handle and stops.
 	//
 	// The value is valid only while the window is open. A caller that stores
 	// it must release the window before using the handle.
 	NativeHandle() uintptr
+
+	// NativeSurface returns the platform's drawing surface — the handle a
+	// graphics API binds its swapchain to — as a uintptr. On Windows this is
+	// the same HWND as NativeHandle, because Direct3D creates its swapchain
+	// against the window. On macOS it is the layer-backed content view (or its
+	// CAMetalLayer), not the NSWindow, because Metal draws into the layer. On
+	// Linux it is the GtkWidget or its underlying window.
+	//
+	// render takes this handle and owns the device, swapchain and shaders.
+	// platform must not know which graphics API will be used. Returning the
+	// window handle alone is not enough on macOS: Metal cannot draw into an
+	// NSWindow, and render would have to do Cocoa work to find its own
+	// surface — which is the seam this boundary exists to prevent.
+	//
+	// The value is valid only while the window is open.
+	NativeSurface() uintptr
 
 	// Focus makes this window the focused, foreground window.
 	Focus()
