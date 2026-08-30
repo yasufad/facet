@@ -160,6 +160,16 @@ cgo, raise it rather than adding a build tag.
 This is the only package permitted `unsafe` for platform calls. It surfaces a window
 and an input stream, and never a rendering API.
 
+Window geometry is in logical `Pixels`, not device pixels. A size in device pixels
+means something different on each display, so a minimum size stops being a
+constraint the moment the window is dragged to another monitor. `ScaleFactor()` is
+there for the renderer, which does size its swapchain in device pixels.
+
+Hiding a platform's units is the job; hiding what it measured is not. Wheel events
+keep the distinction between an exact pixel delta from a trackpad and an inexact
+line delta from a mouse notch, and carry the scroll phase, because neither can be
+reconstructed once this layer has flattened them.
+
 ## render
 
 The `Renderer` interface and the glyph and image atlases, with a backend per
