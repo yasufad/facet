@@ -15,13 +15,17 @@
 // owns the instance rather than reaching into a global. The technique and
 // the citations are unchanged.
 //
-// Further modified: the hidden window is created in Run, not in New. The
-// window belongs to the thread that created it, and GetMessage only
-// retrieves messages for the calling thread's windows. Creating the window
-// in New (on the caller's thread) and running the loop in Run (on a
-// different goroutine's thread) left PostMessage posting to a thread whose
-// queue GetMessage never read. New now just stores the class name; Run
-// creates the window on the thread it will pump.
+// The hidden window is created in New, not in Run, matching upstream's
+// initMainLoop. Upstream's comment says it directly:
+//
+//	initMainLoop must be called with the same OSThread that is used to
+//	call runMainLoop() later.
+//
+// Run enforces this with a panic, as upstream does. A clear panic beats a
+// silent hang — which is what happens when PostMessage posts to a window
+// whose thread never pumps messages. The goroutine that constructs the
+// platform is the one that must run it, and that should be the main
+// goroutine.
 package mainthread
 
 import (
@@ -63,14 +67,51 @@ type Dispatcher struct {
 	next uint32
 }
 
-// New creates a Dispatcher. The hidden window is not created here; it is
-// created in Run, on the thread that will pump the message loop, because the
-// window belongs to the thread that created it and GetMessage only retrieves
-// messages for the calling thread's windows. The class name should be unique
-// to the application.
+// New creates a Dispatcher and its hidden window. It must be called on the
+// goroutine that will serve as the main thread; that goroutine is locked to
+// the OS thread permanently — the platform thread is a dedicated thread for
+// the lifetime of the platform, because the hidden window belongs to the
+// thread that created it and GetMessage only pumps that thread's queue.
+// Run must later be called from the same goroutine.
+//
+// The class name should be unique to the application.
 func New(className string) *Dispatcher {
+	runtime.LockOSThread()
+
+	cn := w32.MustStringToUTF16Ptr(className)
+
+	wcx := w32.WNDCLASSEX{
+		Size:      uint32(unsafe.Sizeof(w32.WNDCLASSEX{})),
+		WndProc:   syscall.NewCallback(w32.WindowProc(dispatchWndProc)),
+		Instance:  w32.GetModuleHandle(""),
+		ClassName: cn,
+	}
+	w32.RegisterClassEx(&wcx)
+
+	hwnd := w32.CreateWindowEx(
+		0,
+		cn,
+		w32.MustStringToUTF16Ptr("__facet_hidden_mainthread"),
+		w32.WS_DISABLED,
+		w32.CW_USEDEFAULT,
+		w32.CW_USEDEFAULT,
+		0,
+		0,
+		0,
+		0,
+		w32.GetModuleHandle(""),
+		nil,
+	)
+	if hwnd == 0 {
+		panic("mainthread: CreateWindowEx failed for hidden window")
+	}
+
+	threadID, _ := w32.GetWindowThreadProcessId(hwnd)
+
 	return &Dispatcher{
-		className: w32.MustStringToUTF16Ptr(className),
+		hwnd:      hwnd,
+		threadID:  threadID,
+		className: cn,
 		fns:       make(map[uint32]func()),
 	}
 }
@@ -93,45 +134,14 @@ func dispatchWndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintptr) uintptr 
 
 // Run starts the message loop. It blocks until Quit is called (which posts
 // WM_QUIT) or the loop exits for another reason. It must be called on the
-// thread that will serve as the main thread; that thread is locked to the OS
-// thread and the hidden window is created here, on that thread, because the
-// window belongs to the thread that created it and GetMessage only retrieves
-// messages for the calling thread's windows.
+// same goroutine that called New — the goroutine whose OS thread owns the
+// hidden window. Calling it from a different goroutine panics, because
+// GetMessage would pump a thread whose window lives on another thread and
+// PostMessage would post to a queue nobody reads: a silent hang.
 func (d *Dispatcher) Run() int {
-	runtime.LockOSThread()
-	defer runtime.UnlockOSThread()
-
-	// Register the window class and create the hidden window on this
-	// thread, so the window's thread is the one pumping messages below.
-	wcx := w32.WNDCLASSEX{
-		Size:      uint32(unsafe.Sizeof(w32.WNDCLASSEX{})),
-		WndProc:   syscall.NewCallback(w32.WindowProc(dispatchWndProc)),
-		Instance:  w32.GetModuleHandle(""),
-		ClassName: d.className,
+	if d.threadID != w32.GetCurrentThreadId() {
+		panic("mainthread: Run must be called on the same goroutine that called New")
 	}
-	w32.RegisterClassEx(&wcx)
-
-	hwnd := w32.CreateWindowEx(
-		0,
-		d.className,
-		w32.MustStringToUTF16Ptr("__facet_hidden_mainthread"),
-		w32.WS_DISABLED,
-		w32.CW_USEDEFAULT,
-		w32.CW_USEDEFAULT,
-		0,
-		0,
-		0,
-		0,
-		w32.GetModuleHandle(""),
-		nil,
-	)
-	if hwnd == 0 {
-		panic("mainthread: CreateWindowEx failed for hidden window")
-	}
-	d.hwnd = hwnd
-
-	threadID, _ := w32.GetWindowThreadProcessId(hwnd)
-	d.threadID = threadID
 
 	globalDispatcher.Store(d)
 	defer globalDispatcher.Store(nil)
@@ -153,14 +163,23 @@ func (d *Dispatcher) Quit() {
 }
 
 // Dispatch queues f to run on the main thread. If called from the main
-// thread, f is posted to the hidden window and runs on the next loop
-// iteration. If called from another thread, f is posted and runs when the
-// loop next pumps messages.
+// thread, f runs immediately — this is what makes NewWindow work before Run:
+// the caller is already on the platform thread, so the window is created
+// synchronously without needing the loop to pump. If called from another
+// thread, f is posted to the hidden window and runs when the loop next
+// pumps messages.
 //
 // The post goes to the hidden window rather than the thread queue because a
 // modal inner loop (a dialog, a context menu) swallows thread-queued
 // messages but pumps window messages. This is the bug Wails hit in v2.
 func (d *Dispatcher) Dispatch(f func()) {
+	if d.hwnd == 0 {
+		panic("mainthread: Dispatch called before New")
+	}
+	if d.IsMainThread() {
+		f()
+		return
+	}
 	d.mu.Lock()
 	id := d.next
 	d.next++

@@ -3,8 +3,10 @@
 package platform
 
 // Run starts the native event loop and blocks until Quit is called. It must
-// be called on the same goroutine that called New, because the dispatcher's
-// hidden window was created on that thread.
+// be called on the same goroutine that called New — the goroutine whose OS
+// thread owns the dispatcher's hidden window. Calling it from a different
+// goroutine panics with a message naming the mistake, rather than hanging
+// silently.
 //
 // The loop is owned by the main-thread dispatcher, which runs a standard
 // Win32 GetMessage/TranslateMessage/DispatchMessage loop. The dispatcher's

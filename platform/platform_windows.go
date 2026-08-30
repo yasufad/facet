@@ -42,12 +42,16 @@ type windowsPlatform struct {
 }
 
 // New creates a Windows platform. It must be called on the goroutine that
-// will become the platform thread; that goroutine is locked to the OS thread
-// by the dispatcher's hidden window.
+// will run the platform — typically the main goroutine. That goroutine's OS
+// thread is locked for the duration of the call so the dispatcher's hidden
+// window belongs to the right thread, and [Platform.Run] must later be
+// called from the same goroutine. Calling Run from a different goroutine
+// panics.
 //
-// The platform is not running until [Platform.Run] is called. Methods that
-// touch native handles marshal onto the platform thread through the
-// dispatcher.
+// The platform is not running until [Platform.Run] is called, but windows
+// can be created before Run: NewWindow dispatches onto the platform thread
+// through the hidden window, which already exists. Methods that touch
+// native handles marshal onto the platform thread through the dispatcher.
 func New(opts Options) (Platform, error) {
 	// Make this process DPI-aware so window sizes are in physical pixels.
 	w32.SetProcessDpiAwarenessContext(w32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
