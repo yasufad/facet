@@ -43,20 +43,16 @@ Before and after, render the same glyphs at 10, 12, 14 and 16 pixels and record 
 timings. If `x/image/vector` somehow loses, say so with the numbers and we will look
 again — but decide from output, not from reasoning about it.
 
-## 2 — NOTICE names the wrong licence
+## 2 — NOTICE is missing golang.org/x/image
 
-The go-text entry says MIT and reproduces the entire MIT licence text. go-text/
-typesetting is **Unlicense OR BSD-3-Clause**:
+You corrected go-text to Unlicense OR BSD-3-Clause in `38ed50b` — that one is done,
+and the original error was mine: `AGENTS.md` told you it was MIT. That line is gone,
+replaced by the rule to copy licence name and text out of the upstream `LICENSE`
+file and trust no summary, this one included.
 
-    SPDX-License-Identifier: Unlicense OR BSD-3-Clause
-
-`golang.org/x/image` is BSD-3-Clause, copyright The Go Authors, and is absent from
-`NOTICE` entirely.
-
-This one is not your fault — `AGENTS.md` told you go-text was MIT, and it was wrong.
-That line is gone, replaced by the rule to copy licence name and text out of the
-upstream `LICENSE` file and trust no summary. Both licences are in the module cache
-under `go env GOMODCACHE`. Copy them from there.
+`golang.org/x/image` is still absent. It is BSD-3-Clause, copyright The Go Authors,
+and it is a direct dependency whether or not the rasteriser change lands. Copy the
+text from `go env GOMODCACHE`, not from memory.
 
 ## 3 — go.mod adds a dependency without declaring it
 
