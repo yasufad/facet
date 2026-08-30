@@ -206,6 +206,7 @@ var (
 
 	procRegisterWindowMessageW   = moduser32.NewProc("RegisterWindowMessageW")
 	procSetWindowDisplayAffinity = moduser32.NewProc("SetWindowDisplayAffinity")
+	procShowCursor               = moduser32.NewProc("ShowCursor")
 
 	mainThread HANDLE
 )
@@ -1328,6 +1329,14 @@ func SetCursor(cursor HCURSOR) HCURSOR {
 		uintptr(cursor),
 	)
 	return HCURSOR(ret)
+}
+
+// ShowCursor shows or hides the cursor. It is reference-counted: each call
+// with true increments a display count, each call with false decrements it.
+// The cursor is visible only when the count is non-negative.
+func ShowCursor(show int) int {
+	ret, _, _ := procShowCursor.Call(uintptr(show))
+	return int(int32(ret))
 }
 
 func CreateIcon(instance HINSTANCE, nWidth, nHeight int, cPlanes, cBitsPerPixel byte, ANDbits, XORbits *byte) HICON {
