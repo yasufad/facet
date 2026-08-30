@@ -73,3 +73,23 @@ func ScalePoint(p Point[Pixels], factor float32) Point[ScaledPixels] {
 		Y: p.Y.Scale(factor),
 	}
 }
+
+// PointToDevicePixels converts a logical-pixel point to device pixels,
+// rounding each coordinate to the nearest device pixel. It rounds identically
+// to the origin of BoundsToDevicePixels, so a point converted on its own
+// lands where the same point converted as a Bounds origin lands.
+func PointToDevicePixels(p Point[Pixels], factor float32) Point[DevicePixels] {
+	return Point[DevicePixels]{
+		X: p.X.ToDevicePixels(factor),
+		Y: p.Y.ToDevicePixels(factor),
+	}
+}
+
+// DevicePointToPixels converts a device-pixel point to logical pixels by
+// dividing by the display scale factor, the inverse of PointToDevicePixels.
+func DevicePointToPixels(p Point[DevicePixels], factor float32) Point[Pixels] {
+	return Point[Pixels]{
+		X: p.X.ToPixels(factor),
+		Y: p.Y.ToPixels(factor),
+	}
+}
