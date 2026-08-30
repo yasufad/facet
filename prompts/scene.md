@@ -12,11 +12,11 @@ what `element` paints into and what `render` consumes.
 
 Two things there are worth knowing before you use them.
 
-`BoundsToDevicePixels` rounds origin and size independently, so adjacent rectangles
-can gap or overlap by a pixel — an origin of 0.4 with a size of 9.2 at scale 1.5
-overlaps its neighbour. A fix is assigned to `geometry`. Until it lands, do not
-build anything that depends on adjacency surviving the conversion, and do not work
-around it here: the rounding rule belongs in one place.
+`BoundsToDevicePixels` snaps both edges and derives the size, so rectangles that
+touch in logical pixels touch in device pixels, at every origin and scale factor.
+Convert bounds through it and rely on that. Do not convert a bare `Size` through
+`SizeToDevicePixels` and expect it to match the size of the same rectangle
+converted as a `Bounds` — a size has no edges to snap, so it is approximate.
 
 `colour` stores straight alpha, and `Premultiply` is an explicit conversion. Decide
 deliberately which form a primitive carries and say so in its doc comment.
