@@ -178,6 +178,13 @@ keep the distinction between an exact pixel delta from a trackpad and an inexact
 line delta from a mouse notch, and carry the scroll phase, because neither can be
 reconstructed once this layer has flattened them.
 
+`WindowOptions.Size` is the client area, and a window reports back the size it was
+asked for. On Windows that means deriving the native window style once and using
+that same value both to adjust the frame and to create the window: the two drifted
+apart while they were computed separately, and a request for 640×480 produced a
+625×443 client area. Where a live value exists, read it rather than re-deriving —
+resizing reads the window's current style rather than recomputing from options.
+
 ## render
 
 The `Renderer` interface and the glyph and image atlases, with a backend per
