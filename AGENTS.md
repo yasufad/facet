@@ -18,15 +18,15 @@ it.
 
 `gofmt -l .` must print nothing. There is no linter configured yet.
 
-## Reference checkouts
+## Upstream projects
 
-    ../gpui     Zed's GPUI — the conceptual source
-    ../taffy    the flexbox solver we port
-    ../wails    Wails v3 — the platform layer we borrow from
+    GPUI          https://github.com/zed-industries/zed — crates/gpui
+    Taffy         https://github.com/DioxusLabs/taffy
+    Wails v3      https://github.com/wailsapp/wails — v3/ on master
+    typesetting   https://github.com/go-text/typesetting
 
-All three sit outside the working directory and need to be granted before they can
-be read; in Claude Code, start with `--add-dir ../gpui --add-dir ../taffy --add-dir
-../wails`.
+Clone them wherever suits you and grant your agent access to that location; nothing
+here assumes a path.
 
 `docs/sources.md` says which layer draws on which, and which parts none of them
 provide. Read it before assuming something has to be written from scratch.
