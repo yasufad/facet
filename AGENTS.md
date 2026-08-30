@@ -14,12 +14,19 @@ it.
     go build -o bin/ ./...
     go test ./...
     go test -tags facet_debug ./...
-    go vet ./...
+    go vet -unsafeptr=false ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
 The `facet_debug` build turns on checks too expensive to leave in a release binary,
 and the tests that exercise them are behind the same tag. Skip that run and those
 tests never execute.
+
+`vet`'s `unsafeptr` analyser is off because the vendored Win32 bindings trip it
+seventeen times and the noise buries everything else. It cannot be scoped away —
+`vet` analyses dependencies, so excluding `third_party` from the package list still
+reports it. In exchange, every `unsafe.Pointer` conversion in our own code carries a
+comment saying why it is sound, and `go vet ./...` unfiltered is worth reading by
+hand after touching `platform`. A real bug has already hidden in that output once.
 
 Build output goes to `bin/`, which is gitignored. Plain `go build ./...` drops an
 executable in whatever directory you ran it from; always pass `-o bin/`. Nothing
