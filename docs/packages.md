@@ -209,6 +209,18 @@ SPIR-V bytecode is checked in; a user's build never runs `fxc`, `dxc`, `metal` o
 `glslc`, because needing one would put a platform SDK back into the dependency list
 through the side door. Compiling them is a job for our tooling and CI.
 
+Correctness here is established by reading pixels back, not by checking for errors.
+Almost everything in a graphics backend is an untyped number — a vtable slot, a
+stride, a shader register, a format enum — and getting one wrong is a legal
+operation that produces a black window. Three wrong vtable indices reached working,
+reviewed, fully green code before a `facet_debug` readback path found them: the
+swapchain was created by calling `IsCurrent`, and both draw calls were the indexed
+variants drawing nothing with no index buffer bound.
+
+So every primitive carries a pixel assertion, and each one fails if its own draw
+path is disabled and no others. The readback copies the back buffer to a staging
+texture and is compiled out of release builds.
+
 Invariants: `Renderer` is a layer boundary and changes by explicit decision.
 Backends never see anything above `scene` — no elements, no styles, no entities. A
 new backend is a new subpackage and nothing else.
