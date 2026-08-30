@@ -1,96 +1,51 @@
 # Assignment: render
 
-The shape of this is right. `Renderer` is a clean boundary, the atlas split is
-respected, the six primitives each have a shader, twelve DXBC binaries are committed
-and embedded, `tools/compile_shaders` makes regenerating them a documented command,
-and COM is reached through `syscall` with no cgo. That is a lot of correct
-structure.
+Both diagnoses were right and both fixes are correct. The vtable index is 15,
+`release` tolerates nil and clears what it drops, and the input element semantics
+are fixed. `go run ./examples/quad` now opens a window and stays up instead of
+dying on the first call. The `unsafe` invariant was raised and recorded in
+`docs/packages.md` rather than assumed. That is the round doing what it should.
 
-None of it has ever run.
+One gap left, and it is the same shape as last time one level up.
 
-## The example does not work
+## Nothing verifies that anything is drawn
 
-    $ ./bin/quad.exe
-    CreateSwapChainForHwnd: hr=0x00000001
+`d3d11_debug_test.go` has eleven assertions and every one of them is `err != nil`.
+It proves the API does not error. It does not check a single pixel.
 
-That is the first thing the program does. `hr=1` is `S_FALSE`, and the check is
-right to reject it — the swapchain pointer came back nil.
+I tried to check from outside — `PrintWindow` with `PW_RENDERFULLCONTENT` against
+the live window, sampling three points after drawing a full-window magenta quad. The
+capture succeeded and every pixel came back black. That is **not** evidence the
+renderer is broken: `PrintWindow` is documented as unreliable for flip-model DXGI
+swapchains, because DWM composites those independently of the GDI surface. The
+honest reading is that the question cannot currently be answered from outside the
+package, and it is not answered from inside either.
 
-### Bug 1: the DXGI vtable index is wrong
+So the state is: it does not crash, and all six primitives can be submitted without
+error. Whether the output is correct is unknown.
 
-    // IDXGIFactory2::CreateSwapChainForHwnd is vtbl index 13
-    r1, _, _ = factory.call(13, ...)
+## Add a readback
 
-Index 13 is `IDXGIFactory1::IsCurrent`, which returns `TRUE` — which is exactly the
-`0x00000001` you are seeing, and why the out-pointer stays nil.
-`CreateSwapChainForHwnd` is **15**:
+Copy the back buffer into a staging texture with CPU read access, `Map` it, and
+assert pixel values. The machinery is already there — `ID3D11DeviceContext::Map` at
+vtable 14 and `d3d11MappedSubresource` are in use for the instance buffer, and
+`CopyResource` is the one call you are missing.
 
-    IUnknown          0  QueryInterface, AddRef, Release
-    IDXGIObject       3  SetPrivateData, SetPrivateDataInterface, GetPrivateData, GetParent
-    IDXGIFactory      7  EnumAdapters, MakeWindowAssociation, GetWindowAssociation,
-                         CreateSwapChain, CreateSoftwareAdapter
-    IDXGIFactory1    12  EnumAdapters1, IsCurrent
-    IDXGIFactory2    14  IsWindowedStereoEnabled, CreateSwapChainForHwnd
+Keep it behind `facet_debug` and off the release path; a staging copy per frame is
+not something a shipping renderer should carry.
 
-I changed it to 15 and the call succeeds. `GetAdapter` at 7 and `GetParent` at 6 are
-both correct, so this is a slip rather than a misreading — but a slip nothing could
-catch, because nothing ever called it.
+Then assert things worth asserting:
 
-### Bug 2: the pipeline crashes on its own cleanup
+- A full-window quad of a known colour makes the centre pixel that colour.
+- A quad with a corner radius leaves the corner pixel as the background and the
+  centre as the fill. That checks the shader, not just the plumbing.
+- A red quad drawn over a blue one shows red where they overlap and blue where they
+  do not — the draw order the `scene` R-tree computed, actually reaching the screen.
+- A monochrome sprite uploaded with known coverage samples to the tint colour at
+  full coverage and the background at zero.
 
-With the index fixed it gets further and then dies:
-
-    Exception 0xc0000005
-    d3d11.(*comObject).Release      com.go:114
-    d3d11.(*shaderProgram).release  pipeline.go:29
-    d3d11.(*pipelineManager).release pipeline.go:301
-    d3d11.newPipelineManager        pipeline.go:60
-
-`newPipelineManager` fails partway, calls `release()` to clean up, and `release`
-dereferences a COM pointer that was never set. Two things to fix: `release` must
-tolerate nil members, and the construction failure it is reacting to needs finding —
-it is being swallowed rather than reported.
-
-There will be more after that. Nothing on this path has executed.
-
-## Why every check passed anyway
-
-`go build`, `go test`, `go vet` and `gofmt` are all green, and the example has never
-drawn a pixel. Nothing tests the D3D path, and `go build ./...` compiles the example
-without running it.
-
-The prompt asked for "a program someone can run" and said "a program someone can run"
-rather than a screenshot test deliberately — but running it has to be part of
-finishing, not something the reviewer discovers. Add a smoke test under
-`facet_debug` that does what `platform`'s tests do: create a real window, create the
-renderer on its surface, submit a one-quad scene, present, tear down, assert no
-error. That is the test that would have caught both of these in the first minute.
-
-## The interface review was skipped
-
-The assignment asked for the interface in one commit with no implementation, then a
-stop for review. The whole backend arrived instead.
-
-That step is not ceremony. On `platform` it caught wheel deltas flattened to lines
-and window geometry in device pixels — both cheap to change at interface stage and
-expensive afterwards. Here it would have caught the `unsafe` question below before
-two thousand lines depended on the answer.
-
-## unsafe in render was assumed, not raised
-
-`render/d3d11` imports `unsafe`. `docs/packages.md` says `platform` is the only
-package permitted it, and the prompt said to raise a change rather than assume one:
-"it is a real change to a stated invariant and the answer is probably yes, but it
-should be decided rather than discovered in review."
-
-The answer is yes — COM vtable calls cannot be made without it. Update the `render`
-entry in `docs/packages.md` to permit `unsafe` for COM interop, with the same
-condition `platform` carries: only for memory the OS or driver owns, never for Go
-objects, and every conversion commented.
-
-Also worth noting: you added `examples` to the `unconstrained` list in the layering
-test. That is the right call — an example is an application, not a layer — but it is
-a change to the mechanism that enforces the rules, and those get mentioned.
+Those four would have caught the vtable bug, and they will catch the next four
+things wrong in the shaders, which is where the remaining bugs are.
 
 ## Done when
 
@@ -100,18 +55,19 @@ a change to the mechanism that enforces the rules, and those get mentioned.
     go vet -unsafeptr=false ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-And the one that matters: `go run ./examples/quad` opens a window with a rounded
-quad visible in it, and a `facet_debug` smoke test drives renderer creation and one
-present against a real window.
+A `facet_debug` test reads the back buffer and asserts pixel colours for at least
+the four cases above. `go run ./examples/quad` shows a blue rounded quad with a
+yellow border — say so in your report only if you have looked at it.
 
 Conventional commits, one file per commit, staged by path.
 
 ## Worth carrying
 
-Two thousand lines of plausible COM code, every check green, and the first call was
-to the wrong function. Compiling proves the types line up; it proves nothing about
-whether the numbers are right, and in this package almost everything is a number —
-vtable slots, buffer strides, register indices, format enums. None of them are
-type-checked and all of them are wrong in the same silent way.
+Last round the lesson was that compiling is not evidence in this package, because
+almost everything here is an untyped number — vtable slots, strides, register
+indices, format enums. This round refines it: not erroring is not evidence either.
 
-For this layer, "it builds" is not evidence. Run it.
+Every COM call can succeed and still produce a black window, because a shader bound
+to the wrong register, a stride off by four bytes, or a swapped colour channel are
+all perfectly legal operations. The only assertion that means anything at this layer
+is one that reads the pixels back.
