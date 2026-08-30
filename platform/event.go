@@ -177,8 +177,10 @@ func (ResizeEvent) isEvent() {}
 
 // ScaleChangedEvent reports that the display scale factor for the window's
 // display changed — the window moved to a different display, or the user
-// changed the DPI setting. The new factor is included; the window package
-// uses it to invalidate the glyph atlas and relayout.
+// changed the DPI setting. It is the authoritative per-window signal for a
+// scale-factor change: the window package uses it to invalidate the glyph
+// atlas and relayout. The global display-set signal, for monitors attached or
+// removed, is [Platform.SetDisplayChangeHandler].
 type ScaleChangedEvent struct {
 	ScaleFactor float32
 	Time        time.Time
