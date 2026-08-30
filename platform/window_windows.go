@@ -87,12 +87,10 @@ func newWindowsWindow(owner *windowsPlatform, opts WindowOptions) (*windowsWindo
 	// scale factor. The window corrects itself in WM_DPICHANGED if it lands
 	// on a different display.
 	scale := owner.primaryScale()
-	deviceSize := opts.Size
-	if deviceSize.Width != 0 && deviceSize.Height != 0 {
-		deviceSize = geometry.Size[geometry.Pixels]{
-			Width:  opts.Size.Width.ToDevicePixels(scale),
-			Height: opts.Size.Height.ToDevicePixels(scale),
-		}
+	var deviceWidth, deviceHeight int
+	if opts.Size.Width != 0 && opts.Size.Height != 0 {
+		deviceWidth = int(opts.Size.Width.ToDevicePixels(scale))
+		deviceHeight = int(opts.Size.Height.ToDevicePixels(scale))
 	}
 
 	style := uint(w32.WS_OVERLAPPEDWINDOW)
@@ -116,8 +114,8 @@ func newWindowsWindow(owner *windowsPlatform, opts WindowOptions) (*windowsWindo
 
 	x := int(opts.Position.X.ToDevicePixels(scale))
 	y := int(opts.Position.Y.ToDevicePixels(scale))
-	width := int(deviceSize.Width)
-	height := int(deviceSize.Height)
+	width := deviceWidth
+	height := deviceHeight
 	if opts.Position.X == 0 && opts.Position.Y == 0 {
 		x = w32.CW_USEDEFAULT
 		y = w32.CW_USEDEFAULT
@@ -220,27 +218,27 @@ func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintpt
 		})
 
 	case w32.WM_LBUTTONDOWN:
-		w.emitPointerDownUp(lParam, wParam, ButtonLeft, PointerDown)
+		w.emitPointerDownUp(lParam, wParam, PointerLeft, PointerDown)
 	case w32.WM_LBUTTONUP:
-		w.emitPointerDownUp(lParam, wParam, ButtonLeft, PointerUp)
+		w.emitPointerDownUp(lParam, wParam, PointerLeft, PointerUp)
 	case w32.WM_RBUTTONDOWN:
-		w.emitPointerDownUp(lParam, wParam, ButtonRight, PointerDown)
+		w.emitPointerDownUp(lParam, wParam, PointerRight, PointerDown)
 	case w32.WM_RBUTTONUP:
-		w.emitPointerDownUp(lParam, wParam, ButtonRight, PointerUp)
+		w.emitPointerDownUp(lParam, wParam, PointerRight, PointerUp)
 	case w32.WM_MBUTTONDOWN:
-		w.emitPointerDownUp(lParam, wParam, ButtonMiddle, PointerDown)
+		w.emitPointerDownUp(lParam, wParam, PointerMiddle, PointerDown)
 	case w32.WM_MBUTTONUP:
-		w.emitPointerDownUp(lParam, wParam, ButtonMiddle, PointerUp)
+		w.emitPointerDownUp(lParam, wParam, PointerMiddle, PointerUp)
 	case w32.WM_XBUTTONDOWN:
-		button := ButtonX1
+		button := PointerX1
 		if int(wParam>>16)&w32.MK_XBUTTON2 != 0 {
-			button = ButtonX2
+			button = PointerX2
 		}
 		w.emitPointerDownUp(lParam, wParam, button, PointerDown)
 	case w32.WM_XBUTTONUP:
-		button := ButtonX1
+		button := PointerX1
 		if int(wParam>>16)&w32.MK_XBUTTON2 != 0 {
-			button = ButtonX2
+			button = PointerX2
 		}
 		w.emitPointerDownUp(lParam, wParam, button, PointerUp)
 
@@ -249,15 +247,13 @@ func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintpt
 		// multiples of WHEEL_DELTA (120). Position is in screen coordinates,
 		// so convert to client coordinates.
 		delta := int32(int16(wParam>>16)) / w32.WHEEL_DELTA
-		screen := w32.POINT{
-			X: int32(int16(lParam & 0xFFFF)),
-			Y: int32(int16((lParam >> 16) & 0xFFFF)),
-		}
-		w32.ScreenToClient(hwnd, &screen)
+		sx := int(int16(lParam & 0xFFFF))
+		sy := int(int16((lParam >> 16) & 0xFFFF))
+		cx, cy, _ := w32.ScreenToClient(hwnd, sx, sy)
 		w.emit(WheelEvent{
 			Position: geometry.Point[geometry.DevicePixels]{
-				X: geometry.DevicePixels(screen.X),
-				Y: geometry.DevicePixels(screen.Y),
+				X: geometry.DevicePixels(cx),
+				Y: geometry.DevicePixels(cy),
 			},
 			Delta: ScrollDelta{
 				Unit:   ScrollLines,
@@ -271,15 +267,13 @@ func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintpt
 	case w32.WM_MOUSEHWHEEL:
 		// Horizontal mouse wheel. Delta in wParam high word.
 		delta := int32(int16(wParam>>16)) / w32.WHEEL_DELTA
-		screen := w32.POINT{
-			X: int32(int16(lParam & 0xFFFF)),
-			Y: int32(int16((lParam >> 16) & 0xFFFF)),
-		}
-		w32.ScreenToClient(hwnd, &screen)
+		sx := int(int16(lParam & 0xFFFF))
+		sy := int(int16((lParam >> 16) & 0xFFFF))
+		cx, cy, _ := w32.ScreenToClient(hwnd, sx, sy)
 		w.emit(WheelEvent{
 			Position: geometry.Point[geometry.DevicePixels]{
-				X: geometry.DevicePixels(screen.X),
-				Y: geometry.DevicePixels(screen.Y),
+				X: geometry.DevicePixels(cx),
+				Y: geometry.DevicePixels(cy),
 			},
 			Delta: ScrollDelta{
 				Unit:   ScrollLines,
@@ -462,7 +456,7 @@ func (w *windowsWindow) SetResizable(resizable bool) {
 	} else {
 		style &^= w32.WS_THICKFRAME
 	}
-	w32.SetWindowLong(w.hwnd, w32.GWL_STYLE, style)
+	w32.SetWindowLong(w.hwnd, w32.GWL_STYLE, uint32(style))
 }
 
 // SetAlwaysOnTop controls whether the window stays above other windows.
