@@ -1,92 +1,56 @@
 # Assignment: app
 
-The `app` package is implemented and committed. Three review fixes landed; one was
-right and two introduced new defects. This round undoes the damage and finishes the
-job properly.
+Round two landed all three fixes and they hold up under independent probing.
 
-## State
+    six exported guards      silent            all panic
+    Context accessor check   6764 ns           2.8 ns
+    dispatch, 5 observers    881.6 ns, 3 allocs   117.8 ns, 0 allocs
 
-`c1aa1dd` narrowed the threading check, `37a2a80` made dispatch order deterministic,
-`f0045c5` made `Subscription` closable inline.
+The subscriber slice is exactly right: registration order, walked directly,
+dropped marked in O(1) and compacted on the next pass. That is the shape GPUI's
+`BTreeMap` has, reached the Go way. Leave it alone.
 
-`f0045c5` is correct — leave it alone.
+What remains is the residue of the generation counter, which I suggested without
+thinking it all the way through. It is a small job.
 
-The design underneath is still sound. Keep the lease mechanism, the
-inert-insert-then-activate subscriber model, and `doc.go`. Do not redesign.
+## Defect 1 — the generation counter cannot see a concurrent context
 
-## Defect 1 — the threading invariant is no longer enforced
+It catches a context used after its update ends. It does not catch one used from
+another goroutine while that update is still running, because the generation still
+matches:
 
-`Notify`, `Observe`, `Subscribe`, `Emit`, `Defer` and `OnRelease` are exported
-methods on `App`. `c1aa1dd` removed `checkUI` from all six on the grounds that they
-are "accessor methods called only from within an update". That is not true of
-anything exported: any caller can reach them from any goroutine. Reproduction:
+    UpdateEntity(app, e, func(v *ps, cx *Context[ps]) {
+        var wg sync.WaitGroup
+        wg.Add(1)
+        go func() { defer wg.Done(); cx.Notify() }()  // not caught
+        wg.Wait()
+    })
 
-    func TestBackgroundDeferIsCaught(t *testing.T) {
-        app := NewApp()
-        defer app.Close()
+`go func() { cx.Notify() }()` inside an update is an ordinary mistake, and before
+`c1aa1dd` it panicked. Nothing in the package currently says it no longer does.
 
-        caught := make(chan any, 1)
-        go func() {
-            defer func() { caught <- recover() }()
-            app.Defer(func(*App) {})
-        }()
-        if r := <-caught; r == nil {
-            t.Error("App.Defer from a background goroutine did not panic")
-        }
-    }
+Close it where closing it is free: a build-tagged variant that restores `checkUI`
+on the Context accessors, behind `race`, or a `facet_debug` tag, or both. Release
+builds keep the 2.8ns compare; `go test -race` and CI get full detection, where a
+6µs check costs nothing that matters. Three mechanisms, each still placed where it
+is cheap.
 
-It does not panic. The effect queue is mutated off the UI goroutine with no
-synchronisation.
+Add a test for the case above. It should pass under the tag and be skipped without
+it.
 
-**This part is not a trade-off.** Every exported entry point that touches entity
-state, the effect queue or the subscriber sets enforces the invariant. Restore that
-first, before doing anything about cost. A slow framework is a complaint; silent
-cross-goroutine corruption is a heisenbug in somebody's application months later.
+## Defect 2 — the Threading doc claims more than the code does
 
-Write the test above, and one like it for each of the six. Their absence is why this
-regression passed — the three surviving wrong-goroutine tests only cover the paths
-that kept the check.
+`doc.go` opens the Threading section with:
 
-## Defect 2 — the cost problem is still there
+    A context used from another goroutine panics with a message naming the
+    mistake rather than corrupting state quietly.
 
-12.3ms per thousand update-and-notify cycles is roughly two 6µs checks per update.
-Reducing the number of calls was mitigation, not a fix, and the per-check cost is
-untouched.
+That is no longer true in the during-update case. The bullets underneath describe
+the two mechanisms accurately; it is the summary above them that overclaims.
 
-Solve it as its own problem, with the invariant restored. The routes are a cheaper
-identity mechanism, or compiling the expensive check out behind a build tag and
-saying so plainly.
-
-One candidate worth considering, not an instruction: a **generation counter**.
-`Context[T]` records the update generation it was created in; accessors compare it
-against the App's current generation with an integer compare, which is about a
-nanosecond. That catches the realistic mistake — a context stored and used after its
-update has ended — at every accessor, cheaply. Keep the full goroutine check at the
-boundaries, where a few microseconds a few times per frame is affordable. Two
-mechanisms, each placed where it is cheap. If you can see a hole in that, say so and
-propose something better.
-
-Whatever you land, measure it and put the number in the commit message, and make
-sure the comment above `goroutineID` and the Threading section of `doc.go` describe
-what is actually true.
-
-## Defect 3 — dispatch now allocates
-
-The order requirement from the last round is right and stays. The implementation is
-not: `retain` builds and sorts an id slice on every dispatch.
-
-    BenchmarkRetainDispatch-14   1358210   881.6 ns/op   120 B/op   3 allocs/op
-
-Three allocations per notification, on the per-frame path. `sort.Slice` also goes
-through `reflectlite.Swapper`, and `AGENTS.md` rules out reflection on a per-frame
-path.
-
-Sorting at dispatch time is the wrong shape. GPUI's `SubscriberSet` uses a
-`BTreeMap`, so it is inherently ordered and never sorts when dispatching. Hold
-subscribers in registration order — an ordered slice, or insertion in order — so
-dispatch walks them directly. Dispatch should allocate nothing.
-
-Add a benchmark asserting zero allocations, so this cannot come back quietly.
+State what actually holds: which mistake each mechanism catches, and which one is
+only caught in a debug or race build. A reader deciding whether to trust the
+invariant needs the shape of the hole, not a reassurance.
 
 ## Done when
 
@@ -96,28 +60,27 @@ Add a benchmark asserting zero allocations, so this cannot come back quietly.
     go vet ./app/
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-Every exported entry point that touches state panics when called off the UI
-goroutine, with a test each. Dispatch is in registration order and allocates
-nothing, with a benchmark pinning it. The threading check's real cost is measured,
-stated in a commit message, and described accurately in the code.
+The concurrent-context case is caught under the debug or race build and has a test.
+`doc.go` describes the guarantee that exists. One conventional commit per fix.
 
-Each fix is its own conventional commit whose body says what was wrong.
+`layout` and `colour` are other agents' packages. Do not touch them.
 
-`layout` has failing tests and unformatted files. That is another agent's work in
-progress — do not touch it, and do not let it stop you.
+## What to carry forward
 
-## How this went wrong, so it does not repeat
+Both rounds of review turned up documentation asserting a guarantee stronger than
+the code provided — first "the check is cheap", now "a context used from another
+goroutine panics". Each time the prose was written when it was true and left alone
+when the code moved underneath it.
 
-Both bad fixes were verified against the symptom rather than the invariant. The
-benchmark got faster and the order test passed, so the work looked done. Neither
-change was checked against the property it was supposed to preserve.
-
-When you change how a guarantee is enforced, write the test that fails if the
-guarantee is gone, before changing the enforcement.
+When you change how a guarantee is enforced, the sentence that describes the
+guarantee is part of the change.
 
 ## Constraints that have not changed
 
-The UI runs on one goroutine and a context used from another panics. The entity map
-stays free of mutexes: it is single-goroutine by design, and adding one to make it
-safe from elsewhere would remove the reason the rest of the design works. `app`
-knows nothing about drawing — no geometry, no colours, no elements.
+The UI runs on one goroutine. Every exported entry point that touches entity state,
+the effect queue or the subscriber sets panics when called from another goroutine.
+The entity map stays free of mutexes: it is single-goroutine by design, and adding
+one to make it safe from elsewhere would remove the reason the rest of the design
+works. `app` knows nothing about drawing — no geometry, no colours, no elements.
+Observers and subscribers fire in registration order, and dispatch does not
+allocate.
