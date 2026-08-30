@@ -3,7 +3,6 @@ package input
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/yasufad/facet/platform"
@@ -138,13 +137,22 @@ func (km *Keymap) Explain(input []Keystroke, contextStack []KeyContext) []Candid
 		}
 	}
 
-	sort.SliceStable(matchingIndices, func(i, j int) bool {
-		ci := cands[matchingIndices[i]]
-		cj := cands[matchingIndices[j]]
+	slices.SortStableFunc(matchingIndices, func(i, j int) int {
+		ci := cands[i]
+		cj := cands[j]
 		if ci.depth != cj.depth {
-			return ci.depth > cj.depth
+			if ci.depth > cj.depth {
+				return -1
+			}
+			return 1
 		}
-		return ci.index > cj.index
+		if ci.index > cj.index {
+			return -1
+		}
+		if ci.index < cj.index {
+			return 1
+		}
+		return 0
 	})
 
 	noActionDepth := -1
