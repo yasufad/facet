@@ -11,8 +11,9 @@ type Refinement struct {
 
 	display    Display
 	opacity    float32
-	background colour.Hsla
+	background colour.Rgba
 	flexGrow   float32
+	testHigh   float32
 }
 
 // IsEmpty reports whether no properties have been set in this refinement.
@@ -45,55 +46,46 @@ func (r Refinement) Merge(other Refinement) Refinement {
 			out.flexGrow = other.flexGrow
 		}
 	}
+	if other.mask.hi != 0 {
+		if other.mask.has(propTestHigh) {
+			out.testHigh = other.testHigh
+		}
+	}
 	return out
 }
 
-// Display sets the element's layout strategy.
-func (r Refinement) Display(d Display) Refinement {
+// SetDisplay sets the element's layout strategy.
+func (r *Refinement) SetDisplay(d Display) {
 	r.mask.set(propDisplay)
 	r.display = d
-	return r
 }
 
-// Flex sets the element layout strategy to flexbox.
-func (r Refinement) Flex() Refinement {
-	return r.Display(DisplayFlex)
-}
-
-// Block sets the element layout strategy to block.
-func (r Refinement) Block() Refinement {
-	return r.Display(DisplayBlock)
-}
-
-// Hidden removes the element from layout entirely.
-func (r Refinement) Hidden() Refinement {
-	return r.Display(DisplayNone)
-}
-
-// Opacity sets the element opacity in [0, 1].
-func (r Refinement) Opacity(opacity float32) Refinement {
+// SetOpacity sets the element opacity in [0, 1].
+func (r *Refinement) SetOpacity(opacity float32) {
 	r.mask.set(propOpacity)
 	r.opacity = opacity
-	return r
 }
 
-// Bg sets the background colour from an Rgba value.
-func (r Refinement) Bg(c colour.Rgba) Refinement {
-	r.mask.set(propBackground)
-	r.background = c.Hsla()
-	return r
-}
-
-// BgHsla sets the background colour from an Hsla value.
-func (r Refinement) BgHsla(c colour.Hsla) Refinement {
+// SetBackground sets the background colour from an Rgba value.
+func (r *Refinement) SetBackground(c colour.Rgba) {
 	r.mask.set(propBackground)
 	r.background = c
-	return r
 }
 
-// FlexGrow sets the flex grow factor.
-func (r Refinement) FlexGrow(grow float32) Refinement {
+// SetBgHsla sets the background colour from an Hsla value.
+func (r *Refinement) SetBgHsla(c colour.Hsla) {
+	r.mask.set(propBackground)
+	r.background = c.Rgba()
+}
+
+// SetFlexGrow sets the flex grow factor.
+func (r *Refinement) SetFlexGrow(grow float32) {
 	r.mask.set(propFlexGrow)
 	r.flexGrow = grow
-	return r
+}
+
+// SetTestHigh sets the testHigh property in the high word.
+func (r *Refinement) SetTestHigh(v float32) {
+	r.mask.set(propTestHigh)
+	r.testHigh = v
 }
