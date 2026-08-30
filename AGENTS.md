@@ -94,6 +94,9 @@ Go 1.26.
 - Exported identifiers carry doc comments. Unexported ones do when the reason for
   their existence is not obvious from the name.
 - Comments explain why. What the code does should be readable from the code.
+- A comment that states a guarantee is part of that guarantee. When you change how
+  something is enforced, or what it costs, the sentence describing it changes in the
+  same commit. Prose written when it was true is the easiest thing to leave behind.
 - Wrap errors with context and `%w`: `fmt.Errorf("load font %q: %w", name, err)`.
   Sentinel errors only where callers branch on them.
 - Panic only for programmer error with no recovery — using a context off the UI
