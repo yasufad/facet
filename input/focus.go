@@ -2,7 +2,6 @@ package input
 
 import (
 	"slices"
-	"sync/atomic"
 )
 
 // FocusID uniquely identifies a focusable element across frames.
@@ -12,7 +11,8 @@ var nextFocusID uint64
 
 // NewFocusID generates a new unique FocusID.
 func NewFocusID() FocusID {
-	return FocusID(atomic.AddUint64(&nextFocusID, 1))
+	nextFocusID++
+	return FocusID(nextFocusID)
 }
 
 // FocusTree manages keyboard focus state and the containment hierarchy of
