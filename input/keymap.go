@@ -3,7 +3,6 @@ package input
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 )
 
@@ -181,12 +180,7 @@ func (km *Keymap) BindingsForInput(input []Keystroke, contextStack []KeyContext)
 		}
 	}
 
-	sort.SliceStable(exactMatches, func(i, j int) bool {
-		if exactMatches[i].depth != exactMatches[j].depth {
-			return exactMatches[i].depth > exactMatches[j].depth
-		}
-		return exactMatches[i].index > exactMatches[j].index
-	})
+	slices.SortStableFunc(exactMatches, compareMatchedBindings)
 
 	var activeBindings []KeyBinding
 	noActionDepth := -1
@@ -285,18 +279,29 @@ func (km *Keymap) PossibleNextBindingsForInput(input []Keystroke, contextStack [
 		}
 	}
 
-	sort.SliceStable(next, func(i, j int) bool {
-		if next[i].depth != next[j].depth {
-			return next[i].depth > next[j].depth
-		}
-		return next[i].index > next[j].index
-	})
+	slices.SortStableFunc(next, compareMatchedBindings)
 
 	res := make([]KeyBinding, len(next))
 	for i, m := range next {
 		res[i] = m.binding
 	}
 	return res
+}
+
+func compareMatchedBindings(a, b matchedBinding) int {
+	if a.depth != b.depth {
+		if a.depth > b.depth {
+			return -1
+		}
+		return 1
+	}
+	if a.index > b.index {
+		return -1
+	}
+	if a.index < b.index {
+		return 1
+	}
+	return 0
 }
 
 func (km *Keymap) bindingEnabled(b KeyBinding, contextStack []KeyContext) (int, bool) {
