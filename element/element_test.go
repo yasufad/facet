@@ -223,16 +223,16 @@ func TestFluentBuilderToLayout(t *testing.T) {
 	if st.AspectRatio == nil || *st.AspectRatio != float32(16.0/9.0) {
 		t.Errorf("AspectRatio = %v, want %v", st.AspectRatio, float32(16.0/9.0))
 	}
-	if st.AlignItems == nil || *st.AlignItems != layout.AlignItemsCentre {
+	if st.AlignItems == nil || st.AlignItems.Keyword != layout.AlignItemsCentre.Keyword {
 		t.Errorf("AlignItems = %v, want AlignItemsCentre", st.AlignItems)
 	}
-	if st.AlignSelf == nil || *st.AlignSelf != layout.AlignItemsFlexEnd {
+	if st.AlignSelf == nil || st.AlignSelf.Keyword != layout.AlignItemsFlexEnd.Keyword {
 		t.Errorf("AlignSelf = %v, want AlignItemsFlexEnd", st.AlignSelf)
 	}
-	if st.AlignContent == nil || *st.AlignContent != layout.AlignContentSpaceBetween {
+	if st.AlignContent == nil || st.AlignContent.Keyword != layout.AlignContentSpaceBetween.Keyword {
 		t.Errorf("AlignContent = %v, want AlignContentSpaceBetween", st.AlignContent)
 	}
-	if st.JustifyContent == nil || *st.JustifyContent != layout.AlignContentCentre {
+	if st.JustifyContent == nil || st.JustifyContent.Keyword != layout.AlignContentCentre.Keyword {
 		t.Errorf("JustifyContent = %v, want AlignContentCentre", st.JustifyContent)
 	}
 	if st.FlexDirection != layout.FlexRow {
