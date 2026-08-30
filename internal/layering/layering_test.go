@@ -27,7 +27,7 @@ var permitted = map[string][]string{
 	"colour":   {},
 	"app":      {},
 	"scene":    {"geometry", "colour"},
-	"layout":   {"geometry"},
+	"layout":   {},
 	"platform": {"geometry", "colour", "third_party"},
 	"text":     {"geometry", "colour"},
 	"render":   {"geometry", "colour", "scene", "platform"},
