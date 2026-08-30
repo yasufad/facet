@@ -1,47 +1,63 @@
 # Assignment: platform
 
-Nearly there. A window opens, input arrives, the lifetime fix holds under a test
-with real teeth, `NewWindow` before `Run` works, and `Run` from the wrong goroutine
-panics with a legible message. The same-thread contract is back where upstream had
-it, and `third_party/README` records the restructuring.
+`New(Options{})` works, the dispatcher returns an error instead of panicking on a
+failed syscall, and the first program a user writes runs end to end — window up,
+handle and surface non-zero, scale factor read from the display, visible on screen.
+That was the right fix and the right test.
 
-One defect, in the first line of code anyone writes.
+Running that program surfaced two more, both in window geometry, both invisible to
+the suite because nothing asserts what the sizes mean.
 
-## New(Options{}) panics
+## 1 — NewWindow does not honour the client-size contract
 
-    New(Options{}) panicked: mainthread: CreateWindowEx failed for hidden window
+`WindowOptions.Size` is documented as the client area: "The client area excludes the
+title bar and borders; the full window is larger." It is passed to `CreateWindowEx`
+as the outer size instead.
 
-`Options.Name` becomes the Win32 window class name. Empty, `CreateWindowEx` fails
-and the dispatcher panics.
+    asked 640x480  got 625.3x442.7  delta 14.7x37.3
+    asked 800x600  got 785.3x562.7  delta 14.7x37.3
+    asked 300x200  got 285.3x162.7  delta 14.7x37.3
 
-Two rules at once. `AGENTS.md` asks that zero values be usable where reasonable, and
-an application name has an obvious default — the executable name, or a constant.
-And it asks that panics be reserved for programmer error with no recovery, never for
-input; `New` already returns an error and does not use it.
+The delta is constant because it is the frame — at scale 1.5, 22×56 device pixels of
+border and title bar.
 
-Fix both halves:
+`SetSize` already does this correctly, at `window_windows.go:400`: build a `RECT` for
+the wanted client size, call `AdjustWindowRectEx` with the window's styles, and use
+the adjusted outer size. The creation path at line 123 skips it, so the same
+documented contract behaves two different ways depending on which function you
+called.
 
-- Default `Options.Name` when it is empty, so `New(Options{})` works.
-- Have the dispatcher return an error rather than panic when window creation fails.
-  A panic is right for `Run` on the wrong goroutine — that is a programmer error
-  with no recovery. A failed syscall is not; it is a condition the caller can be
-  told about.
+Use `AdjustWindowRectExForDpi` where it is available — the non-DPI-aware version
+assumes the primary display's scale, which is wrong the moment a window opens on a
+secondary monitor with a different factor.
 
-## Your tests could not see it
+## 2 — SetSize teleports the window
 
-All four pass `Options{Name: "facet-something"}`. Every one configures its way past
-the default path, so the case a user hits first is the only case untested.
+    position before SetSize {200 150}, after {-0.67 -0.67}
 
-Add a test that uses the zero value. More usefully, make one test drive the whole
-sequence a user actually writes, on one goroutine:
+`MoveWindow(w.hwnd, -1, -1, ...)` sets position as well as size, and -1 is not a
+sentinel meaning "leave it" — it is a coordinate. Resizing a window moves it to the
+top-left corner of the screen.
 
-    p, err := New(Options{})
-    w, err := p.NewWindow(WindowOptions{Title: "hello", Size: ...})
-    w.Show()
-    p.Run()
+Use `SetWindowPos` with `SWP_NOMOVE | SWP_NOZORDER`, which says what is meant. The
+size arithmetic in that function is right; only the placement is wrong.
 
-That is the shape of the first program anyone writes against this package, and
-nothing currently exercises it end to end.
+## Why the suite missed both
+
+Five tests, all passing, none asserting what a size means. `TestWindowOpensAndReportsInput`
+checks `Size()` is positive — which 625.3 is.
+
+Add assertions with content:
+
+- Create a window with a known client size and assert `Size()` returns it, at
+  whatever scale factor the test machine reports. Both the 640×480 and 300×200 cases
+  above fail today.
+- Set a position, call `SetSize`, assert the position is unchanged.
+- Round-trip: `SetSize(s)` then `Size()` returns `s`.
+
+"Is positive" and "is non-zero" are the assertions you write when you do not yet
+know what the right answer is. Once the contract is written down — and this one is,
+in the doc comment — the test should check the contract.
 
 ## Done when
 
@@ -51,20 +67,20 @@ nothing currently exercises it end to end.
     go vet -unsafeptr=false ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-`New(Options{})` returns a working platform. A failed syscall inside the dispatcher
-returns an error rather than panicking. A test drives New, NewWindow, Show and Run
-in that order with zero-value options.
+A window created with a 640×480 client size reports 640×480. `SetSize` leaves the
+window where it was. Tests assert both rather than checking for positive numbers.
 
 Conventional commits, one file per commit, staged by path.
 
 ## Worth carrying
 
-Every test in this package supplied a name, so the default was never exercised. A
-suite where each test configures the same field the same way is testing one
-configuration many times — and it will be the configuration the author had in mind,
-never the one a stranger reaches for.
+Both defects are in code that compiles, passes review, and has tests. What neither
+had was a test that knew what the answer should be. `Size()` returning 625.3 is
+indistinguishable from correct unless something asserts 640.
 
-When a struct has an option, something should use it empty.
+The doc comment on `WindowOptions.Size` already stated the contract precisely. It
+was written, then not implemented, and nothing noticed because nothing checked. A
+contract in a comment with no test behind it is a wish.
 
 ## Still true
 
@@ -75,7 +91,6 @@ No cgo. `CGO_ENABLED=0` builds on every target. `unsafe` is permitted here and o
 here, only for memory the OS owns, and every conversion carries a comment. No Go
 pointer goes into OS storage.
 
-When vendored code fights you, work out what it knows before restructuring it. Read
-the scars before cutting.
+When vendored code fights you, work out what it knows before restructuring it.
 
 macOS and Linux remain separate assignments.
