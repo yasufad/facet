@@ -83,13 +83,13 @@ func vkToKeyCode(vk uint32) KeyCode {
 	}
 
 	if vk >= '0' && vk <= '9' {
-		return KeyCode(Key0 + int(vk-'0'))
+		return Key0 + KeyCode(int(vk-'0'))
 	}
 	if vk >= 'A' && vk <= 'Z' {
-		return KeyCode(KeyA + int(vk-'A'))
+		return KeyA + KeyCode(int(vk-'A'))
 	}
 	if vk >= w32.VK_F1 && vk <= w32.VK_F24 {
-		return KeyCode(KeyF1 + int(vk-w32.VK_F1))
+		return KeyF1 + KeyCode(int(vk-w32.VK_F1))
 	}
 
 	return KeyUnknown
@@ -101,16 +101,16 @@ func vkToKeyCode(vk uint32) KeyCode {
 // message) is the correct query.
 func keyStateToModifiers() Modifiers {
 	var m Modifiers
-	if w32.GetKeyState(w32.VK_SHIFT)&0x8000 != 0 {
+	if uint16(w32.GetKeyState(w32.VK_SHIFT))&0x8000 != 0 {
 		m |= Shift
 	}
-	if w32.GetKeyState(w32.VK_CONTROL)&0x8000 != 0 {
+	if uint16(w32.GetKeyState(w32.VK_CONTROL))&0x8000 != 0 {
 		m |= Control
 	}
-	if w32.GetKeyState(w32.VK_MENU)&0x8000 != 0 {
+	if uint16(w32.GetKeyState(w32.VK_MENU))&0x8000 != 0 {
 		m |= Alt
 	}
-	if w32.GetKeyState(w32.VK_LWIN)&0x8000 != 0 || w32.GetKeyState(w32.VK_RWIN)&0x8000 != 0 {
+	if uint16(w32.GetKeyState(w32.VK_LWIN))&0x8000 != 0 || uint16(w32.GetKeyState(w32.VK_RWIN))&0x8000 != 0 {
 		m |= Super
 	}
 	return m
