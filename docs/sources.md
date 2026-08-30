@@ -48,10 +48,14 @@ Wails is MIT, so vendoring is clean provided the notices travel. It is vendored
 rather than imported because its window is inseparable from its webview — see the
 rendering section of `docs/architecture.md`.
 
-Two layers come across almost untouched:
+Three pieces come across almost untouched:
 
 - `v3/pkg/w32` — Win32 bindings, around thirteen thousand lines, standalone
 - `v3/pkg/mac` — Cocoa helpers
+- `v3/pkg/application/mainthread_*.go` — dispatching work onto the platform main
+  thread. Small, and it already handles the case that catches everyone: on Windows
+  a modal inner loop swallows thread-queued messages, so the dispatch goes through
+  a hidden window instead. Facet's foreground executor sits directly on this.
 
 Above them, take the shell and leave the webview behind:
 
@@ -65,6 +69,11 @@ The per-platform window files mix window and webview concerns in one type, so th
 part is surgery rather than a copy. Wails' side of the split is still the bulk of
 the value, and an agent writing a window event loop from scratch has misread the
 brief.
+
+Their file layout is worth keeping: a common interface in one place, per-OS
+implementations in `<feature>_{darwin,linux,windows}.go` behind build tags, and the
+GTK cgo bridge isolated in its own file. It survives contact with four platforms,
+which is more than most such schemes manage.
 
 ## Where they meet
 
