@@ -95,11 +95,24 @@ guarantee has to say which of the three catches it.
 ## scene
 
 The renderer's input language: Quad, Shadow, MonochromeSprite, PolychromeSprite,
-Path, Underline, and the Scene that holds them in draw order.
+Path, Underline, and the Scene that collects them, orders them and groups them into
+batches.
 
-Invariants: plain data, no behaviour beyond construction and ordering. Adding a
-primitive is a decision that touches every renderer backend, so it is not a local
-change.
+Draw order comes from an R-tree ported from GPUI: inserting bounds returns an order
+one above anything they intersect. Three properties follow, and all three are load-
+bearing. Overlapping primitives get strictly increasing orders, so occlusion is
+correct. Primitives that share no screen space may reuse an order, which is what
+makes batching possible at all. And batches must come out in draw order even where
+types interleave — primitives live in per-type slices, so the obvious implementation
+emits every quad then every sprite and quietly draws a glyph beneath the quad
+painted over it.
+
+Clips nest by intersection, and every primitive records the mask in force when it
+was inserted.
+
+Invariants: primitives carry no behaviour beyond construction. Adding a seventh
+touches every renderer backend, so it is a decision to raise rather than a change to
+make.
 
 ## layout
 
