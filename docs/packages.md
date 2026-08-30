@@ -247,12 +247,21 @@ any of it can be replaced without reaching further up.
 
 ## style
 
-Style properties, the refinement model that layers them, and the fluent builder that
-elements expose.
+Style properties, the refinement model that layers them, and the conversion into
+`layout`'s vocabulary. The fluent builder is not here — `style` exposes mutators on
+`*Refinement` and the chain hangs off the element, because `Refinement` is 504 bytes
+and a value receiver copies it twice per call.
+
+A refinement distinguishes unset from set-to-zero with a parallel 128-bit mask, one
+bit per property and four for each compound property, so a hover refinement can set
+one padding edge without disturbing the other three. Slice-valued properties are
+immutable once set: setting replaces the slice, nothing appends to a stored one.
 
 Invariants: no cascade and no stylesheet. Inheritance is explicit and confined to
 text properties. Setting a property is a method on the element, resolved at build
-time rather than looked up later.
+time rather than looked up later. `Default()` is the only valid way to obtain a
+`Style` — the zero value has opacity 0 and renders nothing, while `Refinement`'s zero
+value means nothing set and is correct.
 
 ## input
 
