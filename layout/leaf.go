@@ -7,7 +7,7 @@ package layout
 // measureContentSize reports the intrinsic content size of a leaf given the
 // known dimensions and available space. Taffy passes this as a closure; here it
 // is a function value so the algorithm and tests can supply their own.
-type measureContentSize func(known Size[optF32], avail Size[availableSpace]) Size[float32]
+type measureContentSize func(known Size[optF32], avail Size[AvailableSpace]) Size[float32]
 
 // computeLeafLayout lays out a leaf node (a node with no children).
 //
@@ -20,7 +20,7 @@ func computeLeafLayout(
 	measure measureContentSize,
 ) LayoutOutput {
 	if measure == nil {
-		measure = func(Size[optF32], Size[availableSpace]) Size[float32] { return sizeZeroF32 }
+		measure = func(Size[optF32], Size[AvailableSpace]) Size[float32] { return sizeZeroF32 }
 	}
 	if resolveCalc == nil {
 		resolveCalc = func(uintptr, float32) float32 { return 0 }
@@ -125,7 +125,7 @@ func computeLeafLayout(
 	availHeight = availHeight.mapDefiniteValue(func(size float32) float32 {
 		return f32MaybeClamp(size, nodeMinSize.Height, nodeMaxSize.Height) - rectF32VerticalAxisSum(contentBoxInset)
 	})
-	measureAvail := Size[availableSpace]{Width: availWidth, Height: availHeight}
+	measureAvail := Size[AvailableSpace]{Width: availWidth, Height: availHeight}
 
 	// Measure.
 	var measureKnown Size[optF32]
