@@ -57,9 +57,13 @@ Reading an upstream project and writing your own implementation needs neither.
 ## Working alongside other agents
 
 Several agents may be working here at the same time, each on a different package.
+`docs/packages.md` says what each package owns, what it may import, and the
+invariants it holds. Read your package's entry before you start.
 
 - Stay inside the package you were given. If your change requires touching another
   package's exported API, stop and say so rather than editing it.
+- Import only what your entry in `docs/packages.md` permits. A layering test
+  enforces it; a failure means the design changed and needs deciding, not patching.
 - Interfaces at layer boundaries are contracts. `render.Renderer`,
   `platform.Platform` and `element.Element` change by explicit decision, never as a
   side effect of an implementation. Plan a change that crosses a layer boundary or
