@@ -53,23 +53,41 @@ primitives:
 Six primitives are enough to draw a text editor, so they are enough for a widget
 library. A short list keeps a second renderer backend cheap.
 
-## Rendering — *open*
+## Rendering
 
-Settled: Go owns every layer above the pixel. The framework emits a `scene.Scene`;
-something turns it into pixels inside a native window.
+Go owns every layer above the pixel. `render.Renderer` consumes a `scene.Scene` and
+draws it onto a GPU surface bound to a native window. No webview stands between the
+framework and the screen.
 
-Undecided: what that something is, and how much of Wails comes with it.
+Wails supplies the window and the shell around it, but as vendored source rather
+than as a dependency. Four properties of v3 at the pinned commit decided that:
 
-    a) Wails window, WebGPU surface   webview runs a fixed shader set and a frame
-                                      loop, consuming instance buffers over IPC.
-                                      Per-frame IPC cost is the open risk.
+- `WebviewWindow.NativeWindow()` returns a genuine `HWND`, `NSWindow*` and
+  `GtkWindow*`. Binding a swapchain to a Wails window is possible.
+- The `Window` interface carries unexported methods, so no type declared outside
+  `pkg/application` can satisfy it. A webview-free window cannot be added from the
+  outside.
+- The webview is constructed unconditionally during window setup. Importing Wails
+  means every Facet window carries a WebView2 or WKWebView that is never drawn into.
+- Client-area input never reaches Go. Wails surfaces window lifecycle events and
+  Windows-only non-client mouse events; pointer, wheel and key input belong to the
+  webview and arrive as DOM messages. Per-OS input capture is ours to write either
+  way.
 
-    b) Wails platform layer, own      take Wails' per-OS window and event-loop code,
-       surface                        attach D3D/Metal/GL directly instead of a
-                                      webview. No IPC. More CGO to own.
+The first property makes importing Wails tempting; the last three make it a cost
+with no return. `platform/` therefore vendors what it needs — see `docs/sources.md`.
 
-Both keep `render.Renderer` as the seam, so this decision does not reach the layers
-above `scene`.
+### Surface and input
+
+Per platform, `platform/` owns three things: a window whose client area belongs to
+us, a swapchain bound to it, and input delivered from the native event stream.
+
+    Windows   HWND, Direct3D 11
+    macOS     NSWindow with a layer-backed view, Metal
+    Linux     GTK window, Vulkan or OpenGL
+
+`render.Renderer` sits above that split and never sees it. A backend for a different
+API is a package, not a rewrite.
 
 ## State and reactivity
 
