@@ -50,14 +50,21 @@ provide. Read it before assuming something has to be written from scratch.
 
 ## Attribution
 
-Facet is Apache-2.0. Taffy, Wails and go-text are MIT, and their notices travel with
-any code we take. When you port or copy upstream code:
+Facet is Apache-2.0. Upstream notices travel with any code we take. When you port or
+copy upstream code:
 
 - Head the file with an attribution comment naming the upstream project, the file it
   came from, and its licence.
 - Add the project to `NOTICE` if it is not listed there already.
 
 Reading an upstream project and writing your own implementation needs neither.
+
+Copy the licence name and text out of the upstream `LICENSE` file. Never write them
+from memory, and do not trust a summary — including this one. Two attributions in
+this repository have been wrong: a copyright holder who appears nowhere in Taffy's
+licence, and go-text recorded as MIT when it is Unlicense OR BSD-3-Clause. Both read
+plausibly. Reproducing the actual notice is the one thing these licences ask of us,
+so it is the one thing worth checking at the source.
 
 ## Working alongside other agents
 
