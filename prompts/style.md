@@ -1,128 +1,103 @@
-# style: response to the plan
+# style: second review
 
-Items 1, 2, 4 and 6 are right as planned — go ahead. Item 3 needs redirecting and
-item 5 needs one more rule. Details below, then what done looks like.
+Four of the six are closed. `Background` is `Rgba` in both types and `SetBackground`
+costs 2.41 ns against a 2.08 ns control, so the conversion is genuinely gone. The
+value-receiver builders are gone and the mutators read well. `doc.go` answers
+compound granularity, slice immutability and the `Default()` asymmetry, and records
+the numbers behind the receiver decision.
 
-## Approved as planned
+The per-word guard works. I disabled the `hi` block and `TestHighWordProperty` failed,
+which is what a test is for.
 
-**1. Per-word guards.** Exactly right, including writing the high-word test first and
-confirming it fails against the current code.
+Three things left, then the property list.
 
-**2. `Rgba` in `Style.Background` and `Refinement.background`, `BgHsla` converting at
-set time.** Right, and for the reason given.
+## 1 — The Merge half of that test cannot fail
 
-**4. Per-edge bits for compound properties.** Right. Note it makes item 1 load-bearing
-rather than theoretical: inset, margin, padding, border widths and corner radii at
-four bits each is twenty before anything else, so the property list will cross bit 64.
+Look again at what happened when I disabled the guard: the `Refine` assertion fired
+and the `Merge` assertion did not.
 
-**6. `Default()` as the only valid constructor, `Refinement{}`'s zero value
-meaningful.** Right, including naming the asymmetry.
+`Merge` early-returns `return other` when the receiver's mask is empty
+(`style/refinement.go:31`), and the test merges into an empty `r1` — so it never
+reaches the guarded copy block. It passes via the early return whether the fix is
+there or not. With a non-empty receiver it fails as it should:
 
-## 3 — The receiver: my diagnosis was wrong, and so is the fix
+    Merge dropped high-word value: testHigh = 0, want 0.25
 
-**First, correct something I told you.** I wrote that the 19 ns "reads like the
-methods are not inlining." They inline. `go build -gcflags=-m ./style` lists
-`can inline Refinement.Opacity`, `Flex`, `BgHsla` and `FlexGrow` — everything except
-`Bg`, which the `c.Hsla()` call excludes. The plan's reasoning about the inlining
-budget rests on a claim of mine that is false. Sorry.
+One line fixes it: set something on `r1` before merging. Then re-break the `hi` guard
+and confirm *both* halves fail before putting it back.
 
-**What the 19 ns actually is.** Three probe methods — field store only, `mask.set`
-only, both with a constant shift:
+This is the trap the earlier note was about, in its exact form: half a test proving
+the fix, half proving nothing, and both green. When a function has an early return,
+a test aimed at the main path has to get past it first.
 
-    control (plain 48-byte copy)      2.55 ns
-    field store only                 20.12 ns
-    mask.set only                    19.36 ns
-    mask constant shift + field      18.61 ns
+## 2 — testHigh is scaffolding, and it ships
 
-All the same. Not the mask, not the shift, not the field. It is the
-value-receiver-returns-value pattern itself — copy in, mutate, copy out — already
-costing ~19 ns at 48 bytes, and it grows with the struct.
+`propTestHigh` at bit 64, a `testHigh` field on both `Refinement` and `Style`, and a
+`SetTestHigh` mutator live in `mask.go`, `refinement.go` and `style.go`. It is a
+style property that is not a style property, and it reserves bit 64 for nothing.
 
-So value receivers are the problem. The proposed fix is what fails.
+It cannot move into a `_test.go` file — a test file cannot add a struct field — but
+it does not need to exist. Bit indices are arbitrary: **give a real property the high
+word.** Put `flexGrow` at 64 and the high-word path is covered by a genuine property
+with genuine tests, permanently, with no fake field and no reserved bit. Then delete
+`testHigh` entirely.
 
-**`Refinement{}.Flex()` does not compile with a pointer receiver.** A composite
-literal is not addressable:
+The fake property was the right way to reproduce the bug and the wrong thing to keep.
 
-    cannot call pointer method Flex on R
+## 3 — Merge still has the pattern the builders just lost
 
-That breaks the plan's own benchmark expression, and it breaks
-`div().Flex().Gap(4).Bg(c)` — the expression this package exists to make read well.
-Returning `*Refinement` also puts an aliasable pointer in every element and escapes
-to the heap as soon as one is stored, which is the allocation the bitset was chosen
-to avoid.
+    BenchmarkRefinementMerge      56.74 ns
+    BenchmarkStyleRefineNonEmpty  29.22 ns
 
-The "≈2 ns for the entire 4-call chain" is stated as a result before anything was
-measured, and cannot have been measured: the expression it names does not build.
-Do not put a number in `doc.go` that a benchmark did not produce.
+`Merge` takes a value receiver, does `out := r`, and returns a value: copy in, mutate,
+copy out. That is the same shape that cost 19 ns per builder call, on the same
+48-byte struct that per-edge compound properties will grow to several hundred bytes.
+`Refine` avoids it by taking `*Style`.
 
-**Where the chain belongs.** GPUI has this same problem in a language where the copy
-would be free, and still avoided it. `styled.rs:22`:
+Settle it now and the same way: `func (r *Refinement) MergeFrom(other *Refinement)`,
+measured against what it replaces. Leaving `Merge` by value while the builders went
+pointer is an inconsistency that reads as an oversight later, and it gets more
+expensive with every property added.
 
-    pub trait Styled: Sized {
-        fn style(&mut self) -> &mut StyleRefinement;
+## Two smaller things
 
-and every fluent method, `styled.rs:45`:
+`SetBgHsla` should be `SetBackgroundHsla`, to match `SetBackground`.
 
-    fn flex(mut self) -> Self {
-        self.style().display = Some(Display::Flex);
-        self
-    }
+The `doc.go` line "sequence of 4 mutators 17.95 ns" is mostly the per-iteration
+zeroing of a 48-byte struct and the sink store, not the mutators — four calls at
+~2 ns each is ~8 ns. Either measure the four calls against an addressable receiver
+hoisted out of the loop, or say what the number includes. A recorded benchmark is
+read later by someone who will not re-derive it.
 
-The fluent chain is on the **element**. The element is the receiver; the refinement is
-reached by mutable reference and never copied.
+## Then the property list
 
-That is the decision, and it is settled here rather than by you, because it crosses
-into `element`:
+With the model settled, the rest is mechanical: display, position, inset, size and
+min/max, margin, padding, flex direction, wrap, grow, shrink, basis, alignment and
+justification, gap, background, border colour and widths, corner radii, shadows,
+opacity, overflow, text colour, font family, size, weight, style and line height.
 
-- `style` exposes **mutators on `*Refinement`** — `SetDisplay`, `SetOpacity`,
-  `SetBackground` and so on. No fluent chain on `Refinement`, no value-receiver
-  builders.
-- `element` puts the chain on `*Div`, which is already addressable:
-  `func (d *Div) Flex() *Div { d.style.SetDisplay(DisplayFlex); return d }`.
+Plus the conversion into `layout`'s `Dimension`, `LengthPercentage` and
+`LengthPercentageAuto` — this package is the only place those two vocabularies meet.
 
-`div().Flex().Bg(c)` still reads as one expression, nothing is copied, nothing
-escapes, and the 19 ns goes away without the API paying for it.
+Per-edge bits, as `doc.go` now says, which means the property list crosses bit 64 and
+item 1's guard stops being theoretical.
 
-**What to benchmark instead.** Not a chain — there is no chain in this package any
-more. Measure a single mutator against the 2.55 ns control, and measure setting four
-properties on one addressable `Refinement` in sequence. Those are the numbers for
-`doc.go`, alongside the note that the fluent chain lives in `element` and why.
+Two things you should know while writing it, both decided since your last round:
 
-## 5 — Slices need an aliasing rule, not just a comparability note
-
-"Refinements copy slice headers and strings directly" shares the backing array. Two
-refinements holding the same `[]BoxShadow`, one of them appended to, is a mutation the
-other sees — and with refinements layered per state, they will hold the same slice
-routinely.
-
-State the rule in `doc.go` and hold to it: a slice-valued property is immutable once
-set. Setting it replaces the slice; nothing appends to one already stored. Non-
-comparability is worth recording too, but it is the smaller half.
+- The fluent chain lives on `*Div` in `element`, which another agent is building now.
+  Keep the mutators complete and orthogonal — one per settable property — and do not
+  add a chain here.
+- `element` and `ui` may now import `input`, so a widget can declare a click. It does
+  not change anything in `style`, but it is why the layering table moved.
 
 ## Done when
 
-Per-word guards in `Merge` and `Refine`, with a high-word test that fails against the
-current single guard.
+The Merge high-word assertion fails when the `hi` guard is disabled, and you have
+checked that it does.
 
-`Background` is `Rgba` in both types; `Bg` costs what `Opacity` costs.
+`testHigh` is gone and a real property occupies the high word.
 
-No value-receiver builders on `Refinement`. Mutators on `*Refinement`, benchmarked
-against the 2.55 ns control, with the numbers and the element-owns-the-chain decision
-recorded in `doc.go`.
+`Merge` does not copy the struct in and out, with the measurement that decided it in
+`doc.go`.
 
-Compound granularity, the slice immutability rule, and the `Default()`/`Style{}`
-asymmetry answered in `doc.go`.
-
-Then the property list.
-
-## Worth carrying
-
-A plan that states the result of a measurement it has not taken is not a plan. Item 3
-named a number for an expression that does not compile — the compile error and the
-real cost were each about a minute's work to find. When a decision is supposed to be
-settled by measurement, take the measurement first and let it decide, including when
-you are confident you know the answer.
-
-And I made the mirror of that mistake: I offered "not inlining" as the explanation
-without checking `-gcflags=-m`, and it sent you at the wrong fix. A hypothesis handed
-over as though it were a finding is worse than no hypothesis.
+Then the full property list, and this prompt is retired.
