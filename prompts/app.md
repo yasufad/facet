@@ -1,72 +1,97 @@
 # Assignment: app
 
-Implement the `app` package in Facet: the entity map, contexts, the effect queue and
-the executors. This is the reactive core, and it is the package everything else
-assumes is correct. Take the time.
+The `app` package is implemented — the entity map, contexts, effect queue and
+executors all exist and their tests pass. This assignment is to land it properly and
+fix two defects found in review.
 
-## Read first
+## State
 
-1. `AGENTS.md` — conventions, commit style, GB English
-2. `docs/packages.md` — the `app` entry
-3. `docs/architecture.md` — the state, frame and threading sections
-4. `_upstream/gpui/crates/gpui/docs/contexts.md` — written by GPUI's authors on
-   exactly this, and the single most useful thing to read
-5. `_upstream/gpui/crates/gpui/src/app.rs` and `src/app/entity_map.rs`
-6. `_upstream/gpui/crates/scheduler` — the executor
+Fourteen files in `app/`, none of them committed. `go build`, `go vet`, `gofmt` and
+`go test ./app/` are all clean. The design is sound: keep it. In particular keep the
+lease mechanism that makes a re-entrant update panic rather than alias, the
+inert-insert-then-activate subscriber model, and `doc.go`, which is good.
 
-Run `go run ./tools/upstream` if `_upstream/` is not there.
+Do not redesign. Two things are wrong; fix those.
 
-## Build
+## Defect 1 — the threading check costs 6.25µs
 
-**Entities.** `Entity[T]` is a handle — an identifier into a map the app owns — not
-a pointer. Reads and writes go through a context. Handles are cheap to copy and
-compare. A weak handle that does not keep its value alive is needed too, because
-observers must not resurrect what they watch.
+`goroutineID()` benchmarks at 6253 ns/op:
 
-**Contexts.** `App` for the global surface, `Context[T]` for working on one entity,
-and an async context that survives across an await point. Get the split right: what
-each may reach, and which of them can exist at the same time. `contexts.md` is
-explicit about this.
+    func BenchmarkGoroutineID(b *testing.B) {
+        for b.Loop() {
+            _ = goroutineID()
+        }
+    }
 
-**Reactivity.** `Notify` marks an entity dirty. `Observe` runs when another entity
-notifies. `Subscribe` receives typed events an entity emits. Effects queue during an
-update and flush once at its end, so a burst of mutations produces one frame rather
-than one each. Work out the flush order and what happens when an effect causes
-another.
+`checkUI` calls it from thirteen public entry points — every read, update, notify,
+observe, subscribe and emit. A frame touching a thousand entities spends six
+milliseconds on the check, out of a sixteen millisecond budget.
 
-**Executors.** A foreground executor bound to the UI goroutine and a background pool,
-with `Task[T]` for a result that arrives later and a way to return to the foreground
-to touch state.
+The invariant is right and stays. The mechanism or the frequency has to change.
+Candidates, in the order I would try them:
 
-## Decisions already made
+- Assert at boundaries rather than accessors: `update`, the `App` entry points that
+  can be reached from outside an update, and `AsyncApp`. Be careful — an early
+  return based on "we are already inside an update" is not sound, because a
+  background goroutine can call while the UI goroutine is mid-update.
+- Find a cheaper identity. Six microseconds is high even for `runtime.Stack`;
+  measure whether the pool or the buffer size is the cost before concluding the
+  approach is doomed.
+- Gate the full check behind a build tag if it cannot be made cheap, and say so
+  plainly rather than leaving a claim that it is free.
 
-The UI runs on one goroutine. A context used from another panics with a message
-naming the mistake rather than corrupting state quietly. That check is not optional
-and must be cheap enough to leave on in release builds.
+Measure first, then choose, and put the number in the commit message.
 
-The entity map is not lock-free by accident — it is single-threaded by design. Do not
-add a mutex to make it safe from other goroutines; that would remove the reason the
-rest of the design works.
+Whatever you land, the comment above `goroutineID` and the Threading section of
+`doc.go` must stop claiming the check is cheap unless it has become cheap. Two
+places currently say a few hundred nanoseconds and "cheap enough to leave on in
+release builds". Both were written before anyone measured.
 
-`app` knows nothing about drawing. No geometry, no colours, no elements. If a
-concept here needs one of those, it is in the wrong package.
+## Defect 2 — observer dispatch order is nondeterministic
 
-Reference counting decides when an entity is dropped. Cycles between entities holding
-strong handles will leak — decide what to do about that and write it down.
+`subscriberSet.retain` iterates a Go map, so subscribers fire in a different order
+each pass. Five distinct orders across 200 runs of a five-observer set:
+
+    abcde:105  bcdea:28  cdeab:16  deabc:27  eabcd:24
+
+GPUI keys its `SubscriberSet` on a `BTreeMap` of `(entity, subscriber_id)`, so
+dispatch is in registration order and reproducible. `remove()` has the same problem.
+
+Dispatch must be in registration order. The monotonic `id` already exists; it is
+just not being sorted on. Add a test that pins the order, because this is the kind
+of regression that reappears quietly.
+
+## Defect 3 — Subscription cannot be closed inline
+
+`Subscription` is returned by value while `Close` and `Detach` have pointer
+receivers, so `app.Subscribe(...).Close()` does not compile. Return a pointer, or
+move the state behind one.
+
+## Then commit it
+
+Fourteen files, untracked. Conventional commits, one file per commit, as
+`AGENTS.md` requires. Order them so the tree builds at every commit — types before
+the code that uses them. The commit for a fix explains what was wrong; the rest
+need no body.
 
 ## Done when
 
     go build -o bin/ ./...
-    go test ./...
+    go test ./app/
     go test ./internal/layering
+    go vet ./app/
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-`doc.go` states what the package owns and its invariants. This package earns real
-tests: effect ordering, observer and subscriber lifetimes, notification during a
-flush, dropping an entity that others observe, and the cross-goroutine panic.
+The order test passes. The cost of the threading check is measured, stated in a
+commit message, and described accurately wherever the code talks about it. Every
+file is committed.
 
-## Out of scope
+`layout` currently has failing tests and unformatted files. That is another agent's
+work in progress, not yours — do not touch it, and do not let it stop you.
 
-Views, rendering, windows. A view is an entity whose notification schedules a
-repaint, but the repaint belongs to `window` and the render method belongs to
-`element`. `app` provides the mechanism and stops there.
+## Constraints that have not changed
+
+The UI runs on one goroutine and a context used from another panics. The entity map
+stays free of mutexes: it is single-goroutine by design, and adding one to make it
+safe from elsewhere would remove the reason the rest of the design works. `app`
+knows nothing about drawing — no geometry, no colours, no elements.
