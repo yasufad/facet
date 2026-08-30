@@ -1,82 +1,100 @@
 # Assignment: text
 
-Implement the `text` package in Facet: font loading and matching, segmentation,
-shaping, line breaking, and glyph rasterisation. This is the deepest pit in any GUI
-framework, so the boundary matters as much as the implementation.
+The shaping side of this package is in good shape — font loading and matching,
+script and bidi segmentation, the run cache, line breaking and wrapping. Keep it.
 
-## Unblocked
+The rasteriser goes. So do three errors in shared files.
 
-`geometry` and `colour` have both landed and are reviewed, so the half that was
-being held — metrics, line layout and rasterisation — is open. If you started with
-font loading, matching, segmentation and shaping as instructed, carry straight on
-into the rest.
+## 1 — Replace the custom rasteriser with golang.org/x/image/vector
 
-Metrics speak in `geometry.Pixels`.
+`raster.go` and `outline.go` were written because a dependency looked forbidden.
+It was not: `text/` already imports `golang.org/x/image/math/fixed`, which
+typesetting's API forces on it. `golang.org/x/image` is a dependency of this package
+already, and `x/image/vector` is part of it.
 
-For rasterisation, take glyph bounds through `BoundsToDevicePixels`. It snaps both
-edges and derives the size, so adjacent runs tile exactly at every origin and scale
-factor. Do not round yourself, and do not convert a bare `Size` through
-`SizeToDevicePixels` expecting it to match — a size has no edges to snap, so it is
-approximate and documented as such.
+The rule has been corrected in `AGENTS.md`: a dependency a package genuinely needs
+is not blocked. Declare it, contain it, record its licence. Do not hand-write a
+worse replacement to avoid one.
 
-## Read first
+The custom rasteriser is also worse, structurally. From `raster.go`:
 
-1. `AGENTS.md` — conventions, commit style, GB English
-2. `docs/packages.md` — the `text` entry
-3. `docs/architecture.md` — the Text section, including the open question
-4. `_upstream/gpui/crates/gpui/src/text_system.rs` and the `text_system/` directory
-5. The `github.com/go-text/typesetting` documentation
+    const supersample = 4   // "gives 16 coverage levels per pixel"
+    ...
+    if acc.cover[row+x*supersample+sx] != 0 {   // binary in/out per subsample
 
-Run `go run ./tools/upstream` if `_upstream/` is not there.
+Each subsample is a yes-or-no test, so a pixel can carry seventeen distinct coverage
+values before being scaled to a byte. That is not a tuning parameter, it is the
+ceiling of the algorithm, and text is where it shows: at 10 to 14 pixels the stem
+edges land on those steps and stems come out unevenly weighted. `x/image/vector`
+computes analytic area coverage — exact, all 256 levels — with SIMD paths on amd64
+and arm64.
 
-## Build
+One note on the claim in `docs/architecture.md` that the masks are "visually
+indistinguishable from FreeType's light autohinter at the same supersampling
+factor": FreeType does not supersample. There is no shared factor to hold constant,
+so that comparison cannot be made. Be wary of a qualifier that makes a claim true by
+making it unfalsifiable — it is the sentence that stopped anyone questioning this.
 
-**Font loading and matching.** Enumerate system fonts, load from bytes, and resolve
-a family, weight, style and stretch to a face. Fallback when a face lacks a glyph —
-the request is for text, not for a font, and something must draw it.
+Delete `raster.go` and `outline.go`, rasterise through `x/image/vector`, and keep
+the mask type and the atlas exactly as they are: `RasterMask` is our type and
+nothing above `text` should notice the change.
 
-**Shaping.** Segment by script and bidi level, shape each run, and cache the result.
-Cache by run rather than by string: the same word in the same font at the same size
-appears constantly, and re-shaping it is the easiest performance mistake to make.
+Before and after, render the same glyphs at 10, 12, 14 and 16 pixels and record the
+timings. If `x/image/vector` somehow loses, say so with the numbers and we will look
+again — but decide from output, not from reasoning about it.
 
-**Line layout.** Wrap to a width, break at the right opportunities, and report the
-metrics a caller needs — ascent, descent, line height, and the mapping between byte
-offsets and x positions in both directions. Text editing and hit testing both need
-that mapping, and it is fiddly enough to deserve its own tests.
+## 2 — NOTICE names the wrong licence
 
-**Rasterisation.** Turn outlines into coverage bitmaps and place them in a glyph
-atlas keyed by face, size, subpixel offset and any transform.
+The go-text entry says MIT and reproduces the entire MIT licence text. go-text/
+typesetting is **Unlicense OR BSD-3-Clause**:
 
-## Decisions already made
+    SPDX-License-Identifier: Unlicense OR BSD-3-Clause
 
-`go-text/typesetting` is the dependency, and the only third-party import permitted
-in this package. Add it to `go.mod` and say so in the commit.
+`golang.org/x/image` is BSD-3-Clause, copyright The Go Authors, and is absent from
+`NOTICE` entirely.
 
-Nothing above `text` knows that dependency exists. Expose shaped lines and glyph
-runs in our own types. If typesetting turns out to be the wrong choice later, the
-blast radius must be this package.
+This one is not your fault — `AGENTS.md` told you go-text was MIT, and it was wrong.
+That line is gone, replaced by the rule to copy licence name and text out of the
+upstream `LICENSE` file and trust no summary. Both licences are in the module cache
+under `go env GOMODCACHE`. Copy them from there.
 
-## Still open, and yours to settle
+## 3 — go.mod adds a dependency without declaring it
 
-Rasterisation is not decided. `typesetting` stops at outlines. The candidates are
-`golang.org/x/image/vector`, rasterising on the GPU in a compute pass as GPUI does,
-or writing a scanline rasteriser. Try one, measure it, and write down what you found
-and what you chose — that goes into `docs/architecture.md` and closes the last open
-item there.
+`golang.org/x/image` is now a direct requirement. `AGENTS.md` asks the commit that
+adds a dependency to say which package needs it and why. Say it: typesetting returns
+`fixed.Int26_6`, so `x/image/math/fixed` is unavoidable, and `x/image/vector` is the
+rasteriser.
+
+## 4 — docs/architecture.md
+
+Two things. The Text section's rejection of `x/image/vector` as "not permitted" was
+wrong and should be replaced by what you actually find in the comparison above.
+
+And line 3 still reads "Status: planning. Sections marked *open* are not decided."
+There are no `*open*` markers left — rasterisation was the last one. Five packages
+are built. Say where the project actually is.
 
 ## Done when
 
     go build -o bin/ ./...
     go test ./...
-    go test ./internal/layering
+    go test -tags facet_debug ./...
+    go vet ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-`doc.go` states what the package owns and its invariants. Tests cover offset-to-
-position mapping in both directions, wrapping at the awkward boundaries, and
-fallback when a face lacks a glyph. Include something non-Latin and something
-right-to-left; a text stack that only works in English is not finished.
+`text/` compiles — it currently does not (`undefined: font` in `metrics.go`,
+`cannot index acc` in `raster.go`). Glyph masks come from `x/image/vector`, with the
+comparison recorded. `NOTICE` matches the upstream licence files. The dependency is
+declared in its commit.
 
-## Out of scope
+One conventional commit per change, staged by path. `NOTICE`, `go.mod` and
+`docs/architecture.md` are shared files — stage them by name and check
+`git show --name-only` afterwards, so another agent's work does not travel with
+yours.
 
-Text editing, selection models, input methods, and anything that draws. This package
-produces shaped, measured, rasterised text and stops.
+## One more thing
+
+`atlas.go:116` calls `geometry.BoundsToDevicePixels(logical, 1.0)` with a hardcoded
+scale factor. The atlas needs the real display scale; at any other factor the tiles
+will disagree with the geometry around them by a pixel. That conversion now snaps
+both edges and derives the size, so it is correct once you feed it the true scale.
