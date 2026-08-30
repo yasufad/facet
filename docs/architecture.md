@@ -57,6 +57,39 @@ primitives:
 Six primitives are enough to draw a text editor, so they are enough for a widget
 library. A short list keeps a second renderer backend cheap.
 
+## What using Facet requires
+
+Go, and nothing else. `go get`, `go build`, an application. No C compiler, no Xcode
+command line tools, no GTK development headers, no shader toolchain, no CLI of ours
+to install first.
+
+That is a constraint on us, not a hope. It follows from the premise: a framework
+whose pitch is pure Go in, native application out, that then asks for a C toolchain
+at the last step, has not delivered the premise.
+
+**No cgo.** `CGO_ENABLED=0` builds everywhere, and cross-compiling from one machine
+to all three targets keeps working. Windows needs nothing special — Win32 and the
+COM vtables behind Direct3D are reachable through `syscall` and
+`golang.org/x/sys/windows`, which is how the Wails bindings we vendor already do it.
+macOS and Linux go through `github.com/ebitengine/purego`, which calls
+`objc_msgSend` and `dlopen`ed C without a C compiler; Ebitengine ships that way.
+
+This one has a real chance of hurting. Cocoa expects the main thread and an
+`NSApplication` run loop, and struct-returning Objective-C messages have awkward
+calling conventions. If a platform genuinely cannot be reached without cgo, that is
+a decision to raise and record here — not a build tag to slip in quietly, and not a
+reason to ship a worse macOS.
+
+**Shaders ship as bytecode.** HLSL, MSL and SPIR-V are compiled by us, ahead of
+time, and embedded with `go:embed`. A user's build never invokes `fxc`, `dxc`,
+`metal` or `glslc`, because requiring any of them would put a platform SDK back in
+the dependency list through the side door. Compiling shaders is a job for our
+tooling and CI, and the bytecode is checked in.
+
+What a user's machine still has to provide is a GPU driver. Direct3D 11 and Metal
+are always present. Vulkan on Linux usually is but is not guaranteed, which is the
+argument for an OpenGL fallback there rather than a second first-class backend.
+
 ## Rendering
 
 Go owns every layer above the pixel. `render.Renderer` consumes a `scene.Scene` and
