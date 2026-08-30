@@ -4,6 +4,17 @@ Implement the `text` package in Facet: font loading and matching, segmentation,
 shaping, line breaking, and glyph rasterisation. This is the deepest pit in any GUI
 framework, so the boundary matters as much as the implementation.
 
+## Prerequisites
+
+`geometry` and `colour` must be merged before this package compiles in full, but
+most of it does not need them. Font loading, matching, script and bidi segmentation,
+shaping and the run cache deal in typesetting's own types and byte offsets — start
+there. Metrics, line layout and rasterisation speak in pixels and colours, so hold
+those until the dependencies land.
+
+Do not stub them. A placeholder gets imported, drifts from the real API, and turns
+the merge into a rewrite.
+
 ## Read first
 
 1. `AGENTS.md` — conventions, commit style, GB English
