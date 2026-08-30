@@ -109,7 +109,7 @@ func (n outputNode) writeTree(sb *strings.Builder, hasSibling bool, prefix strin
 }
 
 // parseAvailableSpace parses "Npx", "min-content", "max-content", or empty.
-func parseAvailableSpace(s string) availableSpace {
+func parseAvailableSpace(s string) AvailableSpace {
 	s = strings.TrimSpace(s)
 	switch strings.ToLower(s) {
 	case "", "max-content":
@@ -289,8 +289,7 @@ func getComputedExpectations(tree *TaffyTree, id NodeID) outputNode {
 		location: layout.Location,
 		size:     layout.Size,
 	}
-	for i := 0; i < tree.ChildCount(id); i++ {
-		child := tree.ChildID(id, i)
+	for _, child := range tree.Children(id) {
 		out.children = append(out.children, getComputedExpectations(tree, child))
 	}
 	return out
@@ -308,7 +307,7 @@ func runXMLTest(t *testing.T, path string) {
 		t.Fatalf("parse %s: %v", path, err)
 	}
 
-	avail := Size[availableSpace]{
+	avail := Size[AvailableSpace]{
 		Width:  parseAvailableSpace(xt.Viewport.Width),
 		Height: parseAvailableSpace(xt.Viewport.Height),
 	}
