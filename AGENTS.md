@@ -127,3 +127,7 @@ own.
 Instructions that apply to one package go in `.claude/rules/`, scoped with `paths:`
 frontmatter so they load only when the matching files are touched. Add one there
 rather than growing this file.
+
+`prompts/` holds one assignment per package: what to build, what to read, what has
+already been decided, and what done means. If you have been told to implement a
+package, read `prompts/<package>.md` first.
