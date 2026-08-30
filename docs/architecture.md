@@ -33,6 +33,7 @@ Each layer depends only on those below it. Seams marked *interface* are swap poi
     app/           entity map, contexts, effect queue
     ─────────────────────────────────────────────────────────────
     scene/         paint primitives — the renderer's input language
+    input/         keymaps, actions, focus tree, dispatch
     render/        Renderer                                    *interface*
     platform/      Platform, Window, Display, Clipboard        *interface*
     ─────────────────────────────────────────────────────────────
