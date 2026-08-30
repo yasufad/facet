@@ -22,6 +22,18 @@ Wails v3 is a working per-OS shell already written in Go. That is code we take.
 
 ## What to read in GPUI
 
+Start with the two pages its authors wrote about the parts that are hardest to infer
+from the source:
+
+- `crates/gpui/docs/contexts.md` — how `App`, `Context` and `AsyncApp` relate, and
+  which of them may touch what
+- `crates/gpui/docs/key_dispatch.md` — the focus tree and how a keystroke finds its
+  action
+
+The checkout also carries the ten crates gpui depends on. `refineable` underpins
+style refinement, `scheduler` is the executor, and `sum_tree` is the B-tree behind
+lists and text; the rest are support.
+
 | Layer      | Read about                                  | Take                                              |
 | ---------- | ------------------------------------------- | ------------------------------------------------- |
 | `app/`     | the app, the entity map, subscriptions      | entity handles, the update cycle, effect ordering |
