@@ -171,10 +171,4 @@ type Window interface {
 	// Close from the taskbar. Returning false prevents the close; returning
 	// true or nil allows it. The handler is called on the platform thread.
 	SetCloseHandler(handler func() bool)
-
-	// SetDisplayChangeHandler sets a handler called when the window moves to
-	// a different display, or the display configuration changes. The handler
-	// queries [Window.ScaleFactor] for the new value. It is called on the
-	// platform thread.
-	SetDisplayChangeHandler(handler func())
 }
