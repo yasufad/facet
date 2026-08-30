@@ -8,7 +8,7 @@ import "github.com/yasufad/facet/third_party/w32"
 // with no native equivalent falls back to IDC_ARROW.
 func cursorToResource(c Cursor) uint16 {
 	switch c {
-	case CursorDefault, CursorArrow:
+	case CursorDefault:
 		return w32.IDC_ARROW
 	case CursorText:
 		return w32.IDC_IBEAM
@@ -20,14 +20,19 @@ func cursorToResource(c Cursor) uint16 {
 		return w32.IDC_CROSS
 	case CursorNotAllowed:
 		return w32.IDC_NO
-	case CursorResizeAll:
+	case CursorMove:
 		return w32.IDC_SIZEALL
 	case CursorResizeHorizontal:
 		return w32.IDC_SIZEWE
 	case CursorResizeVertical:
 		return w32.IDC_SIZENS
-	case CursorResizeTopLeftBottomRight:
+	case CursorResizeNorthWestSouthEast:
 		return w32.IDC_SIZENWSE
+	case CursorNone:
+		// CursorNone is handled by hiding the cursor, not by loading a
+		// resource. Return the default; the caller checks for None
+		// separately.
+		return w32.IDC_ARROW
 	default:
 		return w32.IDC_ARROW
 	}
