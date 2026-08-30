@@ -4,26 +4,26 @@
 //
 // The package wraps github.com/go-text/typesetting, which supplies font loading
 // and matching, script and bidi segmentation, HarfBuzz-equivalent shaping and
-// line wrapping in pure Go. typesetting is the only third-party dependency
-// permitted here. Nothing above this package knows it exists: shaped lines,
-// glyph runs, metrics and rasterised glyphs are exposed in this package's own
-// types, so that swapping the shaping engine would be a change confined to
-// text.
+// line wrapping in pure Go. Nothing above this package knows it exists: shaped
+// lines, glyph runs, metrics and rasterised glyphs are exposed in this
+// package's own types, so that swapping the shaping engine would be a change
+// confined to text.
 //
-// One auxiliary import is forced by typesetting's own API: golang.org/x/image/
-// math/fixed. typesetting expresses font sizes and advances as fixed.Int26_6,
-// so constructing a shaping.Input requires naming that type. It carries no
-// behaviour of its own and travels with typesetting; it is not an independent
-// dependency decision.
+// Two imports from golang.org/x/image are unavoidable. math/fixed is the
+// fixed-point type typesetting's API speaks in: font sizes and advances are
+// fixed.Int26_6, so constructing a shaping.Input requires naming it. vector
+// is the glyph rasteriser: it computes analytic area coverage with SIMD paths
+// on amd64 and arm64, and is faster than a hand-written scanline rasteriser
+// at every size measured. The comparison is recorded in
+// docs/architecture.md.
 //
 // # Rasterisation
 //
-// typesetting stops at glyph outlines. This package rasterises them itself,
-// with a pure-Go scanline rasteriser using supersampled antialiasing. The
-// alternatives — golang.org/x/image/vector and a GPU compute pass — were
-// rejected: the first is a third-party import the dependency rule forbids in
-// this package, and the second belongs to render, which sits above text. The
-// choice and the measurement behind it are recorded in docs/architecture.md.
+// typesetting stops at glyph outlines. This package rasterises them through
+// golang.org/x/image/vector, which computes analytic area coverage — all 256
+// levels — rather than the 17 levels a 4×4 supersample ceiling allows. GPU
+// compute, as GPUI does, belongs to render, which sits above text; the text
+// package produces data and does not draw.
 //
 // # Invariants
 //
