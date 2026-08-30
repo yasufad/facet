@@ -9,8 +9,8 @@
 package layout
 
 // computeBlockLayout lays out a block container.
-func computeBlockLayout(t LayoutTree, node NodeID, in LayoutInput) LayoutOutput {
-	style := t.CoreContainerStyle(node)
+func computeBlockLayout(t layoutTree, node NodeID, in LayoutInput) LayoutOutput {
+	style := t.coreContainerStyle(node)
 	known := in.KnownDimensions
 	parentSize := in.ParentSize
 	avail := in.AvailableSpace
@@ -76,21 +76,21 @@ func computeBlockLayout(t LayoutTree, node NodeID, in LayoutInput) LayoutOutput 
 		innerHeight = optSubF32(styledKnown.Height, pbSum.Height)
 	}
 
-	childAvail := Size[availableSpace]{
+	childAvail := Size[AvailableSpace]{
 		Width:  fromOptF32(innerWidth),
 		Height: avail.Height.maybeSubF32(rectF32VerticalAxisSum(margin)).maybeSubF32(rectF32VerticalAxisSum(paddingBorder)),
 	}
 
 	// Lay out children stacked vertically.
-	childCount := t.ChildCount(node)
+	childCount := t.childCount(node)
 	totalHeight := float32(0)
 	maxWidth := float32(0)
 	for i := 0; i < childCount; i++ {
-		child := t.ChildID(node, i)
-		childStyle := t.CoreContainerStyle(child)
+		child := t.childID(node, i)
+		childStyle := t.coreContainerStyle(child)
 		if childStyle.boxGenerationMode() == boxGenNone {
-			t.SetUnroundedLayout(child, newLayoutWithOrder(uint32(i)))
-			t.ComputeChildLayout(child, layoutInputHidden)
+			t.setUnroundedLayout(child, newLayoutWithOrder(uint32(i)))
+			t.computeChildLayout(child, layoutInputHidden)
 			continue
 		}
 		if childStyle.positionVal() == positionAbsolute {
@@ -107,7 +107,7 @@ func computeBlockLayout(t LayoutTree, node NodeID, in LayoutInput) LayoutOutput 
 			Size[optF32]{Width: innerWidth, Height: innerHeight},
 			childAvail,
 			sizingInherentSize, lineBoolFalse)
-		childLayout := t.CoreContainerStyle(child)
+		childLayout := t.coreContainerStyle(child)
 		_ = childLayout
 		// Set the child's position.
 		cl := newLayoutWithOrder(uint32(i))
@@ -117,7 +117,7 @@ func computeBlockLayout(t LayoutTree, node NodeID, in LayoutInput) LayoutOutput 
 		if style.directionVal().isRtl() && innerWidth.isSome() {
 			cl.Location.X = innerWidth.v - childOut.Size.Width
 		}
-		t.SetUnroundedLayout(child, cl)
+		t.setUnroundedLayout(child, cl)
 		totalHeight += childOut.Size.Height
 		if childOut.Size.Width > maxWidth {
 			maxWidth = childOut.Size.Width
