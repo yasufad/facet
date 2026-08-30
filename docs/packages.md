@@ -140,19 +140,25 @@ The operating system: windows, the native event loop, main-thread dispatch,
 displays, cursors, clipboard, menus, tray, dialogs and notifications. Also raw
 input, because with no webview in the picture nothing else is reading it.
 
-    platform/win32     HWND, Win32 message loop
-    platform/cocoa     NSWindow, layer-backed view
-    platform/gtk       GTK window, cgo bridge
+    platform/win32     HWND, Win32 message loop     syscall
+    platform/cocoa     NSWindow, layer-backed view  purego
+    platform/gtk       GTK window                   purego
 
 The interface lives in `platform`; each backend is a subpackage behind build tags,
-following the layout Wails uses — `<feature>_{darwin,linux,windows}.go` with the
-cgo bridge isolated in its own file.
+following the layout Wails uses — `<feature>_{darwin,linux,windows}.go`.
 
 Much of this is vendored from Wails rather than written. See `docs/sources.md` for
 what comes across, and put it in `third_party/`.
 
-Invariants: this is the only package permitted to use cgo or `unsafe` for platform
-calls. It surfaces a window and an input stream, and never a rendering API.
+Invariants: no cgo, here or anywhere. `CGO_ENABLED=0` builds on every target and
+cross-compilation keeps working — see the requirements section of
+`docs/architecture.md` for why that is a constraint rather than a preference. Win32
+goes through `syscall` and `golang.org/x/sys/windows`; Cocoa and GTK go through
+`github.com/ebitengine/purego`. If a platform turns out to be unreachable without
+cgo, raise it rather than adding a build tag.
+
+This is the only package permitted `unsafe` for platform calls. It surfaces a window
+and an input stream, and never a rendering API.
 
 ## render
 
@@ -165,6 +171,11 @@ graphics API.
 
 A backend takes a native handle from `platform`, owns a swapchain, and draws a
 `scene.Scene`.
+
+Shaders are compiled ahead of time and embedded with `go:embed`. HLSL, MSL and
+SPIR-V bytecode is checked in; a user's build never runs `fxc`, `dxc`, `metal` or
+`glslc`, because needing one would put a platform SDK back into the dependency list
+through the side door. Compiling them is a job for our tooling and CI.
 
 Invariants: `Renderer` is a layer boundary and changes by explicit decision.
 Backends never see anything above `scene` — no elements, no styles, no entities. A
