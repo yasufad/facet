@@ -6,6 +6,8 @@ import (
 	"github.com/yasufad/facet/app"
 	"github.com/yasufad/facet/colour"
 	"github.com/yasufad/facet/geometry"
+	"github.com/yasufad/facet/layout"
+	"github.com/yasufad/facet/style"
 )
 
 func TestOneElementThroughThreePhases(t *testing.T) {
@@ -147,6 +149,106 @@ func TestEmptyDiv(t *testing.T) {
 	// An empty unstyled Div has alpha 0 background, so no quad should be inserted.
 	if len(frame.quads) != 0 {
 		t.Errorf("expected 0 quads for empty div, got %d", len(frame.quads))
+	}
+}
+
+func TestFluentBuilderToLayout(t *testing.T) {
+	frame := newFakeFrame()
+	frame.remSize = 16
+
+	d := NewDiv().
+		Flex().
+		Absolute().
+		Visible().
+		Overflow(style.OverflowScroll).
+		ScrollbarWidth(12).
+		AllowConcurrentScroll(true).
+		RestrictScrollToAxis(true).
+		InsetTop(style.Px(10)).
+		InsetRight(style.Px(20)).
+		InsetBottom(style.Px(30)).
+		InsetLeft(style.Px(40)).
+		MarginTop(style.Px(5)).
+		MarginRight(style.Px(6)).
+		MarginBottom(style.Px(7)).
+		MarginLeft(style.Px(8)).
+		PaddingTop(style.Px(1)).
+		PaddingRight(style.Px(2)).
+		PaddingBottom(style.Px(3)).
+		PaddingLeft(style.Px(4)).
+		BorderTop(1).
+		BorderRight(2).
+		BorderBottom(3).
+		BorderLeft(4).
+		Width(style.Px(100)).
+		Height(style.Px(200)).
+		MinWidth(style.Px(50)).
+		MinHeight(style.Px(60)).
+		MaxWidth(style.Px(300)).
+		MaxHeight(style.Px(400)).
+		AspectRatio(16.0 / 9.0).
+		GapRow(style.Px(15)).
+		GapCol(style.Px(25)).
+		AlignItems(style.AlignItemsCentre).
+		AlignSelf(style.AlignItemsFlexEnd).
+		AlignContent(style.AlignContentSpaceBetween).
+		JustifyContent(style.AlignContentCentre).
+		FlexDirection(style.FlexDirectionRow).
+		FlexWrap(style.FlexWrapWrap).
+		FlexBasis(style.Px(80)).
+		FlexGrow(1.5).
+		FlexShrink(0.5).
+		TextAlign(style.TextAlignCentre)
+
+	frame.phase = phaseLayoutRequested
+	id := d.RequestLayout(frame)
+
+	st, ok := frame.styles[id]
+	if !ok {
+		t.Fatalf("style not found for layout node %v", id)
+	}
+
+	if st.Display != layout.DisplayFlex {
+		t.Errorf("Display = %v, want DisplayFlex", st.Display)
+	}
+	if st.Position != layout.PositionAbsolute {
+		t.Errorf("Position = %v, want PositionAbsolute", st.Position)
+	}
+	if st.Overflow.X != layout.OverflowScroll || st.Overflow.Y != layout.OverflowScroll {
+		t.Errorf("Overflow = %v, want OverflowScroll", st.Overflow)
+	}
+	if st.ScrollbarWidth != 12 {
+		t.Errorf("ScrollbarWidth = %v, want 12", st.ScrollbarWidth)
+	}
+	if st.AspectRatio == nil || *st.AspectRatio != float32(16.0/9.0) {
+		t.Errorf("AspectRatio = %v, want %v", st.AspectRatio, float32(16.0/9.0))
+	}
+	if st.AlignItems == nil || *st.AlignItems != layout.AlignItemsCentre {
+		t.Errorf("AlignItems = %v, want AlignItemsCentre", st.AlignItems)
+	}
+	if st.AlignSelf == nil || *st.AlignSelf != layout.AlignItemsFlexEnd {
+		t.Errorf("AlignSelf = %v, want AlignItemsFlexEnd", st.AlignSelf)
+	}
+	if st.AlignContent == nil || *st.AlignContent != layout.AlignContentSpaceBetween {
+		t.Errorf("AlignContent = %v, want AlignContentSpaceBetween", st.AlignContent)
+	}
+	if st.JustifyContent == nil || *st.JustifyContent != layout.AlignContentCentre {
+		t.Errorf("JustifyContent = %v, want AlignContentCentre", st.JustifyContent)
+	}
+	if st.FlexDirection != layout.FlexRow {
+		t.Errorf("FlexDirection = %v, want FlexRow", st.FlexDirection)
+	}
+	if st.FlexWrap != layout.FlexWrapWrap {
+		t.Errorf("FlexWrap = %v, want FlexWrapWrap", st.FlexWrap)
+	}
+	if st.FlexGrow != 1.5 {
+		t.Errorf("FlexGrow = %v, want 1.5", st.FlexGrow)
+	}
+	if st.FlexShrink != 0.5 {
+		t.Errorf("FlexShrink = %v, want 0.5", st.FlexShrink)
+	}
+	if st.TextAlign != layout.TextAlignCentre {
+		t.Errorf("TextAlign = %v, want TextAlignCentre", st.TextAlign)
 	}
 }
 
