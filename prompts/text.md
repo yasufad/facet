@@ -4,16 +4,18 @@ Implement the `text` package in Facet: font loading and matching, segmentation,
 shaping, line breaking, and glyph rasterisation. This is the deepest pit in any GUI
 framework, so the boundary matters as much as the implementation.
 
-## Prerequisites
+## Unblocked
 
-`geometry` and `colour` must be merged before this package compiles in full, but
-most of it does not need them. Font loading, matching, script and bidi segmentation,
-shaping and the run cache deal in typesetting's own types and byte offsets — start
-there. Metrics, line layout and rasterisation speak in pixels and colours, so hold
-those until the dependencies land.
+`geometry` and `colour` have both landed and are reviewed, so the half that was
+being held — metrics, line layout and rasterisation — is open. If you started with
+font loading, matching, segmentation and shaping as instructed, carry straight on
+into the rest.
 
-Do not stub them. A placeholder gets imported, drifts from the real API, and turns
-the merge into a rewrite.
+Metrics speak in `geometry.Pixels`. When rasterising, note that
+`BoundsToDevicePixels` snaps both edges and derives the size rather than rounding
+origin and size independently; glyph bounds should go through it rather than
+re-deriving the rule, or atlas tiles will disagree with the geometry around them by
+a pixel.
 
 ## Read first
 
