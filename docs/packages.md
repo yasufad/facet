@@ -213,6 +213,10 @@ Invariants: `Renderer` is a layer boundary and changes by explicit decision.
 Backends never see anything above `scene` — no elements, no styles, no entities. A
 new backend is a new subpackage and nothing else.
 
+Like `platform`, `render` backends are permitted `unsafe` for COM and graphics driver
+interop, with the same condition: only for memory the OS or driver owns, never for Go
+objects, and every conversion commented.
+
 ## text
 
 Font loading and matching, script and bidi segmentation, shaping, line breaking,
