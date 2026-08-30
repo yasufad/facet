@@ -1,51 +1,56 @@
 # Assignment: render
 
-Both diagnoses were right and both fixes are correct. The vtable index is 15,
-`release` tolerates nil and clears what it drops, and the input element semantics
-are fixed. `go run ./examples/quad` now opens a window and stays up instead of
-dying on the first call. The `unsafe` invariant was raised and recorded in
-`docs/packages.md` rather than assumed. That is the round doing what it should.
+This round did the thing. Readback through a staging texture, six pixel tests, and
+two more wrong vtable indices found the only way they ever could have been —
+`DrawInstanced` at 20 was `DrawIndexedInstanced`, silently drawing nothing with no
+index buffer bound, and `Draw` at 12 was `DrawIndexed`. Every COM call succeeded
+throughout.
 
-One gap left, and it is the same shape as last time one level up.
+The tests have teeth. I put the `DrawInstanced` index back to 20 and five of the six
+failed; restoring it passed them. The path test correctly survived, because it uses
+`Draw`. That is a test suite that can actually tell you something.
 
-## Nothing verifies that anything is drawn
+One gap, and it is a coverage regression rather than a defect.
 
-`d3d11_debug_test.go` has eleven assertions and every one of them is `err != nil`.
-It proves the API does not error. It does not check a single pixel.
+## Three primitives lost their coverage
 
-I tried to check from outside — `PrintWindow` with `PW_RENDERFULLCONTENT` against
-the live window, sampling three points after drawing a full-window magenta quad. The
-capture succeeded and every pixel came back black. That is **not** evidence the
-renderer is broken: `PrintWindow` is documented as unreliable for flip-model DXGI
-swapchains, because DWM composites those independently of the GDI surface. The
-honest reading is that the question cannot currently be answered from outside the
-package, and it is not answered from inside either.
+`e9eba45` had a smoke test that inserted all six primitives and checked the calls
+succeeded. `5018eff` replaced it with pixel tests covering three. The other three
+now have nothing at all:
 
-So the state is: it does not crash, and all six primitives can be submitted without
-error. Whether the output is correct is unknown.
+    Quad                pixel-asserted
+    MonochromeSprite    pixel-asserted
+    Path                pixel-asserted
+    Shadow              no coverage
+    PolychromeSprite    no coverage
+    Underline           no coverage
 
-## Add a readback
+They went from weak coverage to none. That is worse than where the round started for
+half the primitive set.
 
-Copy the back buffer into a staging texture with CPU read access, `Map` it, and
-assert pixel values. The machinery is already there — `ID3D11DeviceContext::Map` at
-vtable 14 and `d3d11MappedSubresource` are in use for the instance buffer, and
-`CopyResource` is the one call you are missing.
+It matters more than usual here because of the hit rate: two of the paths that *were*
+tested had wrong vtable indices. Each of the untested three has its own shader, its
+own instanced draw call, and its own set of untyped numbers — a stride, a register,
+a format enum, a slot. There is no reason to expect them to be in better shape than
+the ones that were wrong.
 
-Keep it behind `facet_debug` and off the release path; a staging copy per frame is
-not something a shipping renderer should carry.
+Shadow is the one I would bet on being broken. A Gaussian blur of a rounded
+rectangle is easy to get subtly wrong and impossible to notice without measuring —
+a blur radius off by a factor, a sigma in the wrong units, the inset and drop cases
+swapped. PolychromeSprite samples a different texture format, BGRA rather than R8,
+which is a separate path through the atlas. Underline has a wavy variant with its
+own maths.
 
-Then assert things worth asserting:
+Add a pixel assertion for each:
 
-- A full-window quad of a known colour makes the centre pixel that colour.
-- A quad with a corner radius leaves the corner pixel as the background and the
-  centre as the fill. That checks the shader, not just the plumbing.
-- A red quad drawn over a blue one shows red where they overlap and blue where they
-  do not — the draw order the `scene` R-tree computed, actually reaching the screen.
-- A monochrome sprite uploaded with known coverage samples to the tint colour at
-  full coverage and the background at zero.
-
-Those four would have caught the vtable bug, and they will catch the next four
-things wrong in the shaders, which is where the remaining bugs are.
+- **Shadow** — a shadow under an opaque quad: fully opaque directly beneath the
+  quad's edge, partially covered a few pixels out, background well outside. That
+  checks the blur actually falls off rather than being a hard rectangle or nothing.
+- **PolychromeSprite** — upload a two-colour image and assert both colours land in
+  the right halves. That catches a swapped channel order, which BGRA makes easy.
+- **Underline** — a straight underline of known colour and thickness: coloured on
+  the line, background a few pixels above. Then the wavy variant, asserting it is
+  coloured somewhere the straight one is not.
 
 ## Done when
 
@@ -55,19 +60,16 @@ things wrong in the shaders, which is where the remaining bugs are.
     go vet -unsafeptr=false ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-A `facet_debug` test reads the back buffer and asserts pixel colours for at least
-the four cases above. `go run ./examples/quad` shows a blue rounded quad with a
-yellow border — say so in your report only if you have looked at it.
+All six primitives have a pixel assertion. Regressing any single draw call's vtable
+index makes at least one test fail — worth checking, the way I checked yours.
 
 Conventional commits, one file per commit, staged by path.
 
 ## Worth carrying
 
-Last round the lesson was that compiling is not evidence in this package, because
-almost everything here is an untyped number — vtable slots, strides, register
-indices, format enums. This round refines it: not erroring is not evidence either.
+Replacing a weak test with a strong one is right. Replacing a weak test with a strong
+one that covers less is a trade, and it needs to be deliberate — the primitives that
+lost coverage were not mentioned in the report, so it read as pure improvement.
 
-Every COM call can succeed and still produce a black window, because a shader bound
-to the wrong register, a stride off by four bytes, or a swapped colour channel are
-all perfectly legal operations. The only assertion that means anything at this layer
-is one that reads the pixels back.
+When a test is deleted, the thing it covered either has better coverage now or has
+none. Say which.
