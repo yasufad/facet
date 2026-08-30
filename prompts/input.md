@@ -74,3 +74,38 @@ about to check.
 Assertions should know the answer. A test that a size "is positive" passed while the
 size was wrong by a window frame. Where a contract is written down, the test checks
 the contract.
+
+## Decisions from the plan review
+
+The plan is sound and these are the corrections. Everything not mentioned stands.
+
+**Drop `Keystroke.KeyChar`.** `platform.KeyEvent` carries no character on purpose —
+text arrives as a separate `TextEvent` so key identity and text input stay
+decoupled. GPUI's `Keystroke` has `key_char`; ours has no source for it. If you
+conclude it is genuinely needed, that is a `platform` interface change and gets
+raised, not assumed.
+
+**Resolve `secondary` with a build tag.** Cmd on macOS, Ctrl elsewhere. `platform`
+exposes `Super` but never says which OS it is running on, so put the answer in
+`secondary_darwin.go` and `secondary_other.go` — the same shape the rest of the tree
+uses for platform variance, and no new dependency.
+
+**Defer `ActionRegistry` and JSON deserialisation.** There is no command palette, no
+settings system and no external keymap file to load. Built now it will be designed
+against imagined requirements. The `Action` interface and lookup by name are enough
+for dispatch; add the registry when something asks for it.
+
+**Leave tab navigation out.** Tab order follows document and layout order, which
+this package cannot see. A focus hierarchy is not the same thing: a focus parent is
+not necessarily the previous sibling in layout. `element` knows tree order and will
+own tab order; `input` owns which node has focus. Drop `TabIndex`, `TabStop` and
+`NextTabStop`.
+
+**No `reflect.DeepEqual` for action equality.** It puts reflection on the dispatch
+path, and it accommodates actions that should not exist. Require actions to be
+comparable Go values so `==` works. An action carrying a slice or a map is carrying
+state that belongs somewhere else.
+
+Keep exactly as planned: the explanation type designed in from the start rather than
+retrofitted, capture and bubble as distinct phases, the precedence rules written
+down as an ordered list before the code, and all four hard cases in the test plan.
