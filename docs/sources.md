@@ -4,15 +4,31 @@ Three upstream codebases inform this one, each in a different way.
 
 | Project | Where | What we do with it |
 | --- | --- | --- |
-| GPUI | [zed-industries/zed](https://github.com/zed-industries/zed), `crates/gpui` | read it, port nothing |
+| GPUI | [zed-industries/zed](https://github.com/zed-industries/zed), `crates/gpui` | read it; port a self-contained algorithm where that beats rewriting |
 | Taffy | [DioxusLabs/taffy](https://github.com/DioxusLabs/taffy) | port it, algorithm for algorithm |
 | Wails v3 | [wailsapp/wails](https://github.com/wailsapp/wails), `v3/` on master | vendor the shell, drop the webview |
 
 Clone them wherever suits you; nothing here assumes a path.
 
-GPUI is a design document that happens to be written in Rust. None of it transfers
-directly: different language, different memory model, different renderer. What
-transfers is the model.
+GPUI is mostly a design document that happens to be written in Rust: different
+language, different memory model, different renderer, so what usually transfers is
+the model rather than the code. Where a self-contained algorithm is worth having
+exactly — the R-tree that assigns draw order, for instance — port it and attribute
+it like any other port.
+
+### Licences in the Zed checkout
+
+Zed is two licences in one repository, and our checkout holds crates from both
+sides. Check `license` in a crate's `Cargo.toml` before porting from it.
+
+    crates/gpui and its siblings      Apache-2.0, portable with attribution
+    crates/gpui_shared_string         no licence stated — read only
+    crates/gpui_util                  no licence stated — read only
+    the Zed application itself        GPL, and deliberately not in our checkout
+
+`crates/ztracing` is GPL-3.0-or-later and was removed from `upstream.pins` for that
+reason. Facet is Apache-2.0; a crate nobody may port from should not sit in the tree
+beside nine they can.
 
 Taffy is a flexbox implementation whose behaviour we want exactly. It is ported,
 which is a different act from reading — the algorithm and its edge cases come across
