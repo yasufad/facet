@@ -81,6 +81,15 @@ func (c compactLength) isIntrinsic() bool {
 // LengthPercentage is a length or a percentage.
 type LengthPercentage struct{ cl compactLength }
 
+// LPLength constructs an absolute length.
+func LPLength(v float32) LengthPercentage { return lpLength(v) }
+
+// LPPercent constructs a percentage (in [0,1], not [0,100]).
+func LPPercent(v float32) LengthPercentage { return lpPercent(v) }
+
+// LPZero returns a zero length.
+func LPZero() LengthPercentage { return lpZero }
+
 // lpLength constructs an absolute length.
 func lpLength(v float32) LengthPercentage { return LengthPercentage{cl: clLengthVal(v)} }
 
@@ -92,6 +101,18 @@ var lpZero = LengthPercentage{cl: clLengthVal(0)}
 
 // LengthPercentageAuto is a length, a percentage, or auto.
 type LengthPercentageAuto struct{ cl compactLength }
+
+// LPALength constructs an absolute length.
+func LPALength(v float32) LengthPercentageAuto { return lpaLength(v) }
+
+// LPAPercent constructs a percentage.
+func LPAPercent(v float32) LengthPercentageAuto { return lpaPercent(v) }
+
+// LPAAuto constructs the auto keyword.
+func LPAAuto() LengthPercentageAuto { return lpaAuto() }
+
+// LPAZero returns a zero length.
+func LPAZero() LengthPercentageAuto { return lpaZero }
 
 // lpaLength constructs an absolute length.
 func lpaLength(v float32) LengthPercentageAuto { return LengthPercentageAuto{cl: clLengthVal(v)} }
@@ -133,6 +154,33 @@ func (l LengthPercentageAuto) resolveToOption(context optF32) optF32 {
 
 // Dimension is a length, percentage, auto, or an intrinsic sizing keyword.
 type Dimension struct{ cl compactLength }
+
+// DimLength constructs an absolute length.
+func DimLength(v float32) Dimension { return dimLength(v) }
+
+// DimPercent constructs a percentage.
+func DimPercent(v float32) Dimension { return dimPercent(v) }
+
+// DimAuto constructs the auto keyword.
+func DimAuto() Dimension { return dimAuto() }
+
+// DimMinContent constructs the min-content keyword.
+func DimMinContent() Dimension { return dimMinContent() }
+
+// DimMaxContent constructs the max-content keyword.
+func DimMaxContent() Dimension { return dimMaxContent() }
+
+// DimFitContent constructs fit-content with a length limit.
+func DimFitContent(v float32) Dimension { return dimFitContentPx(v) }
+
+// DimFitContentPercent constructs fit-content with a percentage limit.
+func DimFitContentPercent(v float32) Dimension { return dimFitContentPercent(v) }
+
+// DimStretch constructs the stretch keyword.
+func DimStretch() Dimension { return dimStretch() }
+
+// DimContent constructs the content keyword (valid only for flex-basis).
+func DimContent() Dimension { return dimContent() }
 
 // dimLength constructs an absolute length.
 func dimLength(v float32) Dimension { return Dimension{cl: clLengthVal(v)} }
