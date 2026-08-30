@@ -16,7 +16,7 @@ const (
 	alignItemsFlexEnd
 	alignItemsSelfStart
 	alignItemsSelfEnd
-	alignItemsCenter
+	alignItemsCentre
 	alignItemsBaseline
 	alignItemsStretch
 )
@@ -29,7 +29,7 @@ const (
 	alignContentEnd
 	alignContentFlexStart
 	alignContentFlexEnd
-	alignContentCenter
+	alignContentCentre
 	alignContentStretch
 	alignContentSpaceBetween
 	alignContentSpaceEvenly
@@ -38,7 +38,7 @@ const (
 
 // reversed returns the RTL-reversed keyword: Start<->End, FlexStart<->FlexEnd.
 // Stretch maps to End to preserve the layout algorithms' historical handling.
-// Center and the distribution keywords are direction-symmetric.
+// Centre and the distribution keywords are direction-symmetric.
 func (k alignContentKeyword) reversed() alignContentKeyword {
 	switch k {
 	case alignContentStart:
@@ -80,7 +80,9 @@ type JustifyItems = AlignItems
 // JustifySelf is an alias for AlignItems.
 type JustifySelf = AlignItems
 
-// AlignItems constructors matching Taffy's associated constants.
+// AlignItems values matching Taffy's associated constants. These are exported
+// package-level variables rather than constants because Go does not support
+// struct constants.
 var (
 	AlignItemsStart         = AlignItems{Keyword: alignItemsStart, Safety: alignmentUnsafe}
 	AlignItemsEnd           = AlignItems{Keyword: alignItemsEnd, Safety: alignmentUnsafe}
@@ -88,7 +90,7 @@ var (
 	AlignItemsFlexEnd       = AlignItems{Keyword: alignItemsFlexEnd, Safety: alignmentUnsafe}
 	AlignItemsSelfStart     = AlignItems{Keyword: alignItemsSelfStart, Safety: alignmentUnsafe}
 	AlignItemsSelfEnd       = AlignItems{Keyword: alignItemsSelfEnd, Safety: alignmentUnsafe}
-	AlignItemsCenter        = AlignItems{Keyword: alignItemsCenter, Safety: alignmentUnsafe}
+	AlignItemsCentre        = AlignItems{Keyword: alignItemsCentre, Safety: alignmentUnsafe}
 	AlignItemsBaseline      = AlignItems{Keyword: alignItemsBaseline, Safety: alignmentUnsafe}
 	AlignItemsStretch       = AlignItems{Keyword: alignItemsStretch, Safety: alignmentUnsafe}
 	AlignItemsSafeStart     = AlignItems{Keyword: alignItemsStart, Safety: alignmentSafe}
@@ -97,7 +99,7 @@ var (
 	AlignItemsSafeFlexEnd   = AlignItems{Keyword: alignItemsFlexEnd, Safety: alignmentSafe}
 	AlignItemsSafeSelfStart = AlignItems{Keyword: alignItemsSelfStart, Safety: alignmentSafe}
 	AlignItemsSafeSelfEnd   = AlignItems{Keyword: alignItemsSelfEnd, Safety: alignmentSafe}
-	AlignItemsSafeCenter    = AlignItems{Keyword: alignItemsCenter, Safety: alignmentSafe}
+	AlignItemsSafeCentre    = AlignItems{Keyword: alignItemsCentre, Safety: alignmentSafe}
 )
 
 // isSafe reports whether the safe overflow-position modifier is set.
@@ -141,13 +143,15 @@ type AlignContent struct {
 // JustifyContent is an alias for AlignContent.
 type JustifyContent = AlignContent
 
-// AlignContent constructors matching Taffy's associated constants.
+// AlignContent values matching Taffy's associated constants. These are exported
+// package-level variables rather than constants because Go does not support
+// struct constants.
 var (
 	AlignContentStart         = AlignContent{Keyword: alignContentStart, Safety: alignmentUnsafe}
 	AlignContentEnd           = AlignContent{Keyword: alignContentEnd, Safety: alignmentUnsafe}
 	AlignContentFlexStart     = AlignContent{Keyword: alignContentFlexStart, Safety: alignmentUnsafe}
 	AlignContentFlexEnd       = AlignContent{Keyword: alignContentFlexEnd, Safety: alignmentUnsafe}
-	AlignContentCenter        = AlignContent{Keyword: alignContentCenter, Safety: alignmentUnsafe}
+	AlignContentCentre        = AlignContent{Keyword: alignContentCentre, Safety: alignmentUnsafe}
 	AlignContentStretch       = AlignContent{Keyword: alignContentStretch, Safety: alignmentUnsafe}
 	AlignContentSpaceBetween  = AlignContent{Keyword: alignContentSpaceBetween, Safety: alignmentUnsafe}
 	AlignContentSpaceEvenly   = AlignContent{Keyword: alignContentSpaceEvenly, Safety: alignmentUnsafe}
@@ -156,7 +160,7 @@ var (
 	AlignContentSafeEnd       = AlignContent{Keyword: alignContentEnd, Safety: alignmentSafe}
 	AlignContentSafeFlexStart = AlignContent{Keyword: alignContentFlexStart, Safety: alignmentSafe}
 	AlignContentSafeFlexEnd   = AlignContent{Keyword: alignContentFlexEnd, Safety: alignmentSafe}
-	AlignContentSafeCenter    = AlignContent{Keyword: alignContentCenter, Safety: alignmentSafe}
+	AlignContentSafeCentre    = AlignContent{Keyword: alignContentCentre, Safety: alignmentSafe}
 )
 
 // isSafe reports whether the safe overflow-position modifier is set.
