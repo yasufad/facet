@@ -1,0 +1,24 @@
+Flexbox XML fixtures ported from Taffy.
+
+Source
+  tests/xml/flex/ in https://github.com/DioxusLabs/taffy
+  at commit b3b387132be1dda0e9d08d5044692236532c166d
+  (pinned in upstream.pins).
+
+  These are MIT-licensed files from Taffy, carried under the Taffy entry
+  in NOTICE.
+
+Coverage
+  2508 of 2656 upstream fixtures are included. The 148 excluded are:
+
+    136  balance_*                        feature-gated upstream, not in this port
+      4  bevy_issue_10343_grid__*         grid
+      4  bevy_issue_21240__*              grid, despite living in tests/xml/flex/
+      4  overflow_start_edge_absolute_child__*
+                                          absolute positioning inside a block
+                                          container, beyond the flexbox port
+
+  The exclusion list is enforced by TestFlexFixtureDrift in flex_test.go,
+  which compares this directory against the upstream checkout and fails on
+  anything unaccounted for in either direction. The test skips when
+  _upstream/taffy is not present.
