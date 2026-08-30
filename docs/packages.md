@@ -54,14 +54,17 @@ This is the reactive core and it knows nothing about drawing. Notification,
 observation, subscription and the update cycle live here; so does `Task[T]`, because
 the executor and the effect queue cannot be separated.
 
-Invariants: the UI runs on one goroutine and a context never leaves it — using one
-elsewhere panics with a message naming the mistake. Effects queue during an update
-and flush once at its end, so a burst of mutations produces one frame. An
-`Entity[T]` is an identifier, never a pointer to the value.
+Invariants: the UI runs on one goroutine and a context never leaves it. Every
+exported entry point that touches entity state, the effect queue or the subscriber
+sets panics when called from another goroutine — an exported method is reachable
+from anywhere, so none of them may assume a caller already inside an update. Effects
+queue during an update and flush once at its end, so a burst of mutations produces
+one frame. An `Entity[T]` is an identifier, never a pointer to the value.
 
 Observers and subscribers fire in registration order. Go map iteration is random, so
 this has to be arranged deliberately; without it, order-dependent bugs appear in one
-run out of five and are close to impossible to reproduce.
+run out of five and are close to impossible to reproduce. Hold them in order rather
+than sorting when dispatching — dispatch is a per-frame path and must not allocate.
 
 ## scene
 
