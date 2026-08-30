@@ -1,161 +1,111 @@
 # Assignment: platform
 
-The interface is written and reviewed — twelve files, one concept each, every check
-clean, `platform` importing only `geometry` and `colour`. The shape is right:
-`uintptr` rather than `unsafe.Pointer` across the boundary, no graphics API in
-sight, and you stopped for review before building on it, which is why the four
-corrections below cost an afternoon instead of a rewrite.
+A window opens on Windows and reports input. That is the first thing in this project
+you can actually see, and it works — the smoke test posts a real `WM_MOUSEMOVE` and
+asserts it arrives as a `PointerEvent`, which is testing the message path rather
+than the type system.
 
-Fix these, then build the Windows backend. macOS and Linux remain separate
-assignments; design so they fit, and say in a comment where you know a platform will
-differ.
+All four interface corrections landed correctly: `ScrollDelta` carries its unit,
+`ScrollPhase` carries the gesture, window geometry is in logical `Pixels`,
+`NativeSurface` is separate from `NativeHandle`, and the display-change paths are
+down to two with both documented. The vendoring preserved the Winc and W32 Authors
+copyrights as well as Wails', which is more care than the licence strictly required.
 
-## Correction 1 — WheelEvent discards trackpad precision
+Three things to fix. The first is a crash.
 
-    // Delta is normalised to lines ... The platform converts from its native
-    // units — Windows multiples of 120, macOS pixel-based deltas
+## 1 — The window can be freed while Windows still holds a pointer to it
 
-Normalising pixel deltas to lines is lossy in the direction that matters. A mouse
-wheel emits discrete notches; a trackpad or a Windows precision touchpad emits
-pixel-exact deltas with momentum. They are different inputs, and the consumer has to
-know which arrived: pixel deltas apply directly, line deltas multiply by a line
-height. GPUI keeps them apart for this reason, in `interactive.rs`:
+    // window_windows.go:145
+    w32.SetWindowLongPtr(hwnd, w32.GWLP_USERDATA, uintptr(unsafe.Pointer(w)))
 
-    pub enum ScrollDelta {
-        Pixels(Point<Pixels>),   // exact
-        Lines(Point<f32>),       // inexact
-    }
+    // window_windows.go:43
+    ptr := w32.GetWindowLongPtr(hwnd, w32.GWLP_USERDATA)
+    return (*windowsWindow)(unsafe.Pointer(ptr))
 
-Carry the distinction, and carry a scroll phase with it — GPUI's `TouchPhase` is
-`Started`, `Moved`, `Ended`, `Cancelled`. Without a phase there is no rubber-banding
-and no way to cancel momentum when a finger lands.
+A Go pointer is stored in Win32 memory, and `windowsPlatform` holds no window
+references — there is no slice or map of windows anywhere. So once a caller drops
+its `Window` handle, which is entirely legal (call `Show()`, keep nothing), the only
+thing pointing at that `windowsWindow` is a `uintptr` the garbage collector cannot
+see. It gets collected, and the next `WM_*` message dereferences freed memory inside
+the wndproc.
 
-Both are unrecoverable once flattened here. Nothing upstairs can reconstruct
-precision this layer threw away.
+Be precise about the mechanism, because it changes how you look for it: Go does not
+relocate heap objects, so the address stays valid. This is a liveness bug, not a
+relocation bug — the object is freed, not moved. It fires under GC pressure and
+presents as random corruption, which is the worst kind to chase.
 
-## Correction 2 — window geometry belongs in logical pixels
+Keep a `map[w32.HWND]*windowsWindow` on the platform behind the mutex it already
+has, and look the window up by `HWND` in the wndproc. The Go pointer stays visible
+to the collector, no Go pointer crosses into OS memory, and the unsafe conversion
+disappears rather than being justified.
 
-`SetSize`, `Size`, `SetPosition`, `SetMinSize` and `SetMaxSize` all take
-`geometry.Size[DevicePixels]`. GPUI uses `Bounds<Pixels>`.
+Delete the entry when the window is destroyed, or you have swapped a crash for a
+leak.
 
-Ask for an 800×600 window in device pixels on a 2× display and you get one
-physically half the size intended, so every caller does scale arithmetic — which is
-what typed units exist to prevent. Worse, a minimum size in device pixels changes
-meaning when the window moves to a monitor with a different scale factor: the same
-constraint becomes a different physical size, and the window can end up violating
-it.
+## 2 — go vet was red, so nobody read it
 
-Move window geometry to `Pixels` and leave `ScaleFactor()` for anyone who needs
-device units. This does not affect the renderer: the swapchain is sized in device
-pixels, but that is `render`'s business, downstream of `ScaleFactor()`.
+The report said `go vet ./...` exits 0 with expected warnings. It exits 1, with
+nineteen findings, and one of them was defect 1 — pointing at line 47 exactly.
 
-## Correction 3 — NativeHandle is one handle short on macOS
+The check has been changed in `AGENTS.md` to `go vet -unsafeptr=false ./...`, which
+is green. The analyser cannot be scoped to skip `third_party`: `vet` analyses
+dependencies, so excluding those packages from the list still reports them.
+Seventeen findings from vendored bindings drowned two of ours.
 
-Metal draws into a `CAMetalLayer` on the content view, not into the `NSWindow`. If
-`platform` owns the layer-backed view, as `docs/architecture.md` says, then `render`
-needs the view. Return the drawing surface rather than the window, or add a second
-accessor for it.
+The trade is that `unsafeptr` no longer runs at all, so it is now on you: every
+`unsafe.Pointer` conversion in our own code carries a comment saying why it is
+sound. There are two, and after fixing defect 1 there will be one —
+`window_windows.go:212`, where `lParam` points at an OS-owned `RECT`. That one is
+legitimate and needs a sentence saying so.
 
-Get this right now even though macOS is not your assignment. Otherwise `render`
-ends up doing Cocoa work to find its own surface, which is the seam this boundary
-exists to prevent.
+Run `go vet ./...` unfiltered by hand after touching this package and read what it
+says about `platform/`. Ignore the `third_party/` lines; they are not ours.
 
-## Correction 4 — three ways to hear about a display change
+## 3 — Half the vendoring changes are unrecorded
 
-`SetDisplayChangeHandler` exists on both `Platform` and `Window`, and there is also
-a `ScaleChangeEvent`. Decide which is authoritative and delete or document the
-others. A consumer that has to guess which one fires will subscribe to all three and
-handle the change twice.
+`ole32.go` does this properly: it says `RegisterDragDrop` and `RevokeDragDrop` were
+removed and why. Copy that pattern to the rest.
 
-## The interface stays a layer boundary
+Unrecorded right now:
 
-`platform.Platform` is one of the three contracts `AGENTS.md` names. It changed once,
-under review, which is how it should change. From here on a change to it is planned
-and raised, not made in passing while implementing a backend — `render`, `window`
-and `input` inherit whatever shape it has, and the cost of a late change is theirs.
+    constants.go     gained MK_* and WHEEL_DELTA
+    user32.go        gained ShowCursor
+    idroptarget.go   skipped entirely, needs the webview2 COM bridge
 
-The two constraints that shaped it still hold, and the corrections above are both
-cases of them being applied more carefully rather than new rules:
+Write `third_party/README` recording what was vendored from where, at which pinned
+commit, what was skipped, and what was changed. `AGENTS.md` asks third_party to make
+the next upstream bump a merge rather than an excavation, and right now those three
+divergences are invisible to whoever does it.
 
-**A native handle, never a graphics API.** `platform` hands out a handle and stops.
-`render` takes it and owns the device, the swapchain and the shaders. `platform`
-must not import `render` and must not know D3D exists. Correction 3 is this rule:
-the handle has to be the one the graphics API can actually draw into.
-
-**Input is a stream, not callbacks into the framework.** `platform` reads the native
-event stream and surfaces typed events; `input` and `window` decide what they mean.
-Nothing above should learn that Windows reports wheel deltas in multiples of 120 —
-but Correction 1 is the limit of that principle. Hiding the *units* is the job.
-Hiding whether the input was precise is destroying information, not abstracting it.
-
-## Vendor, do not write
-
-`docs/sources.md` says what comes from Wails and how. Two pieces come across nearly
-untouched and should be vendored into `third_party/` before you write anything:
-
-- `v3/pkg/w32` — Win32 bindings, around thirteen thousand lines, standalone
-- `v3/pkg/application/mainthread_windows.go` — main-thread dispatch. It posts to a
-  hidden window rather than the thread queue, because a modal inner loop swallows
-  thread-queued messages. That is a bug they hit in v2 and fixed with a citation in
-  the comment. Vendor it rather than rediscovering it.
-
-Wails is MIT. Every vendored file keeps an attribution header naming the upstream
-file, and Wails goes into `NOTICE` with text copied from its `LICENSE`, not from
-memory. Two attributions in this repository have already been wrong.
-
-The window code itself is surgery, not a copy: `webview_window_windows.go` is three
-thousand lines with window and webview concerns in one type. Take the window, leave
-the webview. Facet creates no WebView2.
-
-Sync the checkouts with `go run ./tools/upstream` if `_upstream/` is not there.
-
-## Then the Windows backend
-
-An `HWND` with a message loop we own, a client area nothing else draws into, input
-delivered from `WM_*` messages, and the shell pieces above. It must run on this
-machine: a window that opens, resizes, reports its scale factor, and reports input.
+`layout/testdata/flex/README` is the pattern to follow — it does the same job for
+the ported fixtures.
 
 ## Done when
 
     go build -o bin/ ./...
     go test ./...
     go test -tags facet_debug ./...
-    go vet ./...
+    go vet -unsafeptr=false ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-The layering test passes: `platform` imports `geometry`, `colour` and `third_party`,
-nothing else of ours. A window opens on Windows and reports input. The interface is
-documented well enough that whoever writes the macOS backend does not need to ask
-you what a method means.
+No Go pointer is stored in OS memory. The remaining `unsafe.Pointer` conversion
+carries its justification. `third_party/README` records the vendoring, the skips and
+the modifications.
 
-The four corrections are in, each its own commit, before any backend code. A scroll
-from a precision touchpad arrives distinguishable from a mouse wheel notch — test
-that against the real `WM_POINTER` or `WM_MOUSEWHEEL` path rather than asserting it
-in the type system alone.
+A test that exercises the lifetime would be worth having: create a window, drop
+every Go reference to it, force `runtime.GC()`, then pump a message and confirm the
+handler still fires. That fails today and passes after the fix.
 
-Conventional commits, one file per commit, staged by path — `NOTICE` is shared and
-other agents are working in this tree.
+Conventional commits, one file per commit, staged by path.
 
-## No cgo
+## Still true
 
-`CGO_ENABLED=0` must build on every target, and it must keep building. A user
-installs Go and runs `go build`; they do not install a C compiler, Xcode command
-line tools or GTK development headers. The requirements section of
-`docs/architecture.md` says why that is a constraint rather than a preference.
+`platform.Platform` is a layer boundary. It changed once under review, which is how
+it should change; from here a change is planned and raised, not made in passing.
 
-Windows makes this easy and is the reason to start here: the `w32` bindings you are
-vendoring already reach Win32 through `syscall.NewLazyDLL` and
-`golang.org/x/sys/windows`, with no C anywhere. Keep it that way.
+No cgo. `CGO_ENABLED=0` builds on every target and keeps building. Windows reaches
+Win32 through `syscall`; macOS and Linux will go through `purego` when their turn
+comes. `unsafe` is permitted here and only here — and after defect 1 is fixed, only
+for memory the OS owns, never for our own objects.
 
-macOS and Linux, when their turn comes, go through
-`github.com/ebitengine/purego` — `objc_msgSend` and `dlopen` without a C compiler.
-Ebitengine ships that way, so it is proven, but Cocoa expects the main thread and an
-`NSApplication` run loop and struct-returning messages have awkward calling
-conventions. Design the interface now so those fit; you do not have to solve them.
-
-If a platform turns out to be genuinely unreachable without cgo, that is a decision
-to raise and record, not a build tag to add quietly.
-
-`unsafe` is permitted here, and only here, for platform calls. Everything above is
-ordinary Go, and stays that way only if the unsafe parts do not leak upward through
-the interface.
+macOS and Linux remain separate assignments.
