@@ -171,6 +171,14 @@ func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintpt
 		w32.DestroyWindow(hwnd)
 		return 0
 
+	case w32.WM_DISPLAYCHANGE:
+		// Display configuration changed (monitor attached/removed, DPI
+		// changed, resolution changed). Refresh the platform's display
+		// cache and fire the display change handler. WM_DISPLAYCHANGE is
+		// broadcast to all top-level windows; each window triggers the
+		// refresh, which is idempotent.
+		w.owner.refreshDisplays()
+
 	case w32.WM_DESTROY:
 		// Clear user data so the wndproc does not recover a dangling pointer.
 		w32.SetWindowLongPtr(hwnd, w32.GWLP_USERDATA, 0)
