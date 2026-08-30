@@ -78,10 +78,29 @@ mainthread/
     the instance rather than reaching into a global. The technique and
     the citations are unchanged.
 
-    The hidden window is created in Run, not in New. The window belongs
-    to the thread that created it, and GetMessage only retrieves
-    messages for the calling thread's windows. Creating the window in
-    New (on the caller's thread) and running the loop in Run (on a
-    different goroutine's thread) left PostMessage posting to a thread
-    whose queue GetMessage never read. New now just stores the class
-    name; Run creates the window on the thread it will pump.
+    The hidden window is created in New, matching upstream's
+    initMainLoop. Upstream's comment says it directly:
+
+      initMainLoop must be called with the same OSThread that is used
+      to call runMainLoop() later.
+
+    Run enforces this with a panic — "Run must be called on the same
+    goroutine that called New" — as upstream does. A clear panic beats
+    a silent hang, which is what happens when PostMessage posts to a
+    window whose thread never pumps messages.
+
+    New locks the OS thread permanently (no defer unlock), rather than
+    for the duration of the call as upstream does. Upstream calls
+    initMainLoop and runMainLoop in quick succession from main, so the
+    goroutine stays on the same thread between them. Facet's tests run
+    sequentially with goroutines yielding between them, so the thread
+    can be reused. A permanent lock ensures the goroutine that
+    constructs the platform stays on the thread that owns the hidden
+    window for the platform's lifetime.
+
+    Dispatch runs f immediately when called from the main thread,
+    matching upstream's dispatchOnMainThread, which checks
+    invokeRequired and runs directly when not required. This is what
+    makes NewWindow work before Run: the caller is already on the
+    platform thread, so the window is created synchronously without
+    needing the loop to pump.
