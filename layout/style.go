@@ -9,17 +9,17 @@ package layout
 
 // Style is the typed CSS style information for a single node.
 type Style struct {
-	Display        display
+	Display        Display
 	ItemIsTable    bool
 	ItemIsReplaced bool
-	BoxSizing      boxSizing
-	Direction      direction
+	BoxSizing      BoxSizing
+	Direction      Direction
 
-	Overflow       Point[overflow]
+	Overflow       Point[Overflow]
 	ScrollbarWidth float32
-	Contain        contain
+	Contain        Contain
 
-	Position position
+	Position Position
 	Inset    Rect[LengthPercentageAuto]
 
 	Size        Size[Dimension]
@@ -37,10 +37,10 @@ type Style struct {
 	AlignContent   *AlignContent
 	JustifyContent *AlignContent
 
-	TextAlign textAlign
+	TextAlign TextAlign
 
-	FlexDirection flexDirection
-	FlexWrap      flexWrap
+	FlexDirection FlexDirection
+	FlexWrap      FlexWrap
 	FlexBasis     Dimension
 	FlexGrow      float32
 	FlexShrink    float32
