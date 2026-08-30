@@ -10,12 +10,16 @@ what `element` paints into and what `render` consumes.
     Bounds[Pixels]  Point  Size  Edges  Corners  Axis  Anchor      geometry
     Rgba  Hsla  ParseHex  Blend  Mix  Premultiply                  colour
 
-Two things there are worth knowing before you use them. `BoundsToDevicePixels`
-snaps both edges and derives the size, so adjacent rectangles stay adjacent with no
-seam — take device-pixel bounds from it rather than rounding origin and size
-yourself. And `colour` stores straight alpha; `Premultiply` is an explicit
-conversion, so decide deliberately which form a primitive carries and say so in its
-doc comment.
+Two things there are worth knowing before you use them.
+
+`BoundsToDevicePixels` rounds origin and size independently, so adjacent rectangles
+can gap or overlap by a pixel — an origin of 0.4 with a size of 9.2 at scale 1.5
+overlaps its neighbour. A fix is assigned to `geometry`. Until it lands, do not
+build anything that depends on adjacency surviving the conversion, and do not work
+around it here: the rounding rule belongs in one place.
+
+`colour` stores straight alpha, and `Premultiply` is an explicit conversion. Decide
+deliberately which form a primitive carries and say so in its doc comment.
 
 ## Read first
 
