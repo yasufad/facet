@@ -89,10 +89,16 @@ func (app *App) Close() {
 	app.rc.markShutdown()
 }
 
-// checkUI panics if the calling goroutine is not the UI goroutine. It is the
-// single enforcement point for the threading invariant; every public method
-// that touches entity state calls it. The cost is one goroutine-identity
-// lookup, pooled so it allocates nothing on the steady-state path.
+// checkUI panics if the calling goroutine is not the UI goroutine. It is
+// called at update boundaries and at public entry points that do not go
+// through update (ReadEntity, Flush, Close). Accessor methods called only
+// from within an update — Notify, Emit, Defer, Observe, Subscribe,
+// OnRelease — do not check, because the update boundary already did.
+//
+// The check costs about 6µs (runtime.Stack to read the goroutine header).
+// That is too expensive to pay at every accessor on a frame that touches a
+// thousand entities, so it is paid at boundaries instead. See
+// goroutine.go for the measurement.
 func (app *App) checkUI() {
 	if goroutineID() != app.uiGoroutine {
 		panic("app: context used from a goroutine other than the UI goroutine")
@@ -192,7 +198,6 @@ func (app *App) pushEffect(e effect) {
 // created; it returns the value, which the App then stores. The returned
 // handle is owning (count one).
 func New[T any](app *App, build func(cx *Context[T]) T) Entity[T] {
-	app.checkUI()
 	var handle Entity[T]
 	app.update(func(cx *App) {
 		id := cx.entities.reserveID(cx.rc)
@@ -226,7 +231,6 @@ func ReadEntity[T any](app *App, handle Entity[T]) *T {
 // It is a top-level function because Go does not permit methods to declare
 // type parameters; Entity.Update wraps it.
 func UpdateEntity[T any](app *App, handle Entity[T], f func(v *T, cx *Context[T])) {
-	app.checkUI()
 	app.update(func(cx *App) {
 		v := cx.entities.lease(handle.id)
 		t, ok := v.(T)
@@ -245,7 +249,6 @@ func UpdateEntity[T any](app *App, handle Entity[T], f func(v *T, cx *Context[T]
 // entity per flush: a hundred Notify calls during one update collapse to a
 // single observer run.
 func (app *App) Notify(id entityID) {
-	app.checkUI()
 	app.pushEffect(notifyEffect{emitter: id})
 }
 
@@ -258,7 +261,6 @@ func (app *App) Notify(id entityID) {
 // to a specific observer entity through a weak handle, so the observer is not
 // kept alive by what it watches.
 func (app *App) Observe(entity anyEntity, onNotify func(cx *App) bool) Subscription {
-	app.checkUI()
 	sub, activate := app.observers.insert(entity.id, observerHandler(onNotify))
 	app.Defer(func(*App) { activate() })
 	return sub
@@ -267,7 +269,6 @@ func (app *App) Observe(entity anyEntity, onNotify func(cx *App) bool) Subscript
 // Subscribe registers a callback for typed events emitted by entity. The
 // registration is activated at the end of the current flush.
 func (app *App) Subscribe(entity anyEntity, eventType reflect.Type, onEvent func(cx *App, event any) bool) Subscription {
-	app.checkUI()
 	sub, activate := app.subscribers.insert(entity.id, subscriberEntry{eventType: eventType, handler: onEvent})
 	app.Defer(func(*App) { activate() })
 	return sub
@@ -276,7 +277,6 @@ func (app *App) Subscribe(entity anyEntity, eventType reflect.Type, onEvent func
 // Emit queues delivery of event to the entity's subscribers of its type. The
 // event is delivered during the flush, after the update returns.
 func (app *App) Emit(id entityID, event any, eventType reflect.Type) {
-	app.checkUI()
 	app.pushEffect(emitEffect{emitter: id, eventType: eventType, event: event})
 }
 
@@ -285,7 +285,6 @@ func (app *App) Emit(id entityID, event any, eventType reflect.Type) {
 // available to user code that needs to run after entities on the stack have
 // been returned to the map.
 func (app *App) Defer(f func(*App)) {
-	app.checkUI()
 	app.pushEffect(deferEffect{callback: f})
 }
 
@@ -294,7 +293,6 @@ func (app *App) Defer(f func(*App)) {
 // Release handles the entity owns and to Close subscriptions it holds. The
 // registration is activated at the end of the current flush.
 func (app *App) OnRelease(entity anyEntity, onRelease func(value any, app *App)) Subscription {
-	app.checkUI()
 	sub, activate := app.releases.insert(entity.id, releaseHandler(onRelease))
 	app.Defer(func(*App) { activate() })
 	return sub

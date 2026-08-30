@@ -25,22 +25,19 @@ func TestContextFromWrongGoroutinePanics(t *testing.T) {
 	<-done
 }
 
-func TestNotifyFromWrongGoroutinePanics(t *testing.T) {
+func TestFlushFromWrongGoroutinePanics(t *testing.T) {
 	app := NewApp()
 	defer app.Close()
-
-	c := newCounter(t, app, 0)
-	defer c.Release()
 
 	done := make(chan struct{})
 	go func() {
 		defer func() {
 			if r := recover(); r == nil {
-				t.Error("Notify from another goroutine did not panic")
+				t.Error("Flush from another goroutine did not panic")
 			}
 			close(done)
 		}()
-		app.Notify(c.EntityID())
+		app.Flush()
 	}()
 	<-done
 }
@@ -112,5 +109,20 @@ func drainAndAwait[R any](app *App, task Task[R]) (R, error) {
 			return r.v, r.err
 		case <-app.Foreground().Pending():
 		}
+	}
+}
+
+func BenchmarkGoroutineID(b *testing.B) {
+	for b.Loop() {
+		_ = goroutineID()
+	}
+}
+
+func BenchmarkCheckUI(b *testing.B) {
+	app := NewApp()
+	defer app.Close()
+	b.ResetTimer()
+	for b.Loop() {
+		app.checkUI()
 	}
 }
