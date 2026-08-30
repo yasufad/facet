@@ -75,7 +75,9 @@ var defaultStyle = Style{
 	FlexBasis:      dimAutoVal,
 }
 
-// newStyle returns a copy of the default style.
+// NewStyle returns a copy of the default style.
+func NewStyle() Style { return defaultStyle }
+
 func newStyle() Style { return defaultStyle }
 
 // --- CoreStyle ---
