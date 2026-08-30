@@ -140,6 +140,10 @@ Instructions that apply to one package go in `.claude/rules/`, scoped with `path
 frontmatter so they load only when the matching files are touched. Add one there
 rather than growing this file.
 
-`prompts/` holds one assignment per package: what to build, what to read, what has
-already been decided, and what done means. If you have been told to implement a
-package, read `prompts/<package>.md` first.
+`prompts/` holds one assignment per package with work outstanding: what to build,
+what to read, what has already been decided, and what done means. If you have been
+told to implement a package, read `prompts/<package>.md` first.
+
+An assignment is retired once its package is finished, so a missing file means the
+work is done, not that it was never scoped. What the package guarantees lives in
+`docs/packages.md`, which outlives the assignment.
