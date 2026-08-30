@@ -1,13 +1,18 @@
 package style
 
 // Property indices for the parallel bitset mask.
+//
+// Inset, margin, padding, border widths, and corner radii use 4 bits each
+// (one per edge or corner). Size and gap use 2 bits each (width/height or
+// row/column). Scalar and enum properties use 1 bit each.
 const (
 	propDisplay uint8 = iota
 	propOpacity
 	propBackground
-	propFlexGrow
 
-	propTestHigh uint8 = 64
+	// propFlexGrow is placed in the high word (bit 64) so high-word mask
+	// operations are exercised by a genuine property on the main path.
+	propFlexGrow uint8 = 64
 )
 
 // mask is a 128-bit bitset indicating which properties have been explicitly
