@@ -1,10 +1,10 @@
 // Ported from Taffy src/style/available_space.rs (MIT).
 package layout
 
-// availableSpace is the amount of space available to a node in a given axis:
+// AvailableSpace is the amount of space available to a node in a given axis:
 // a definite number of pixels, or an indefinite min-content/max-content
 // constraint.
-type availableSpace struct {
+type AvailableSpace struct {
 	kind availableKind
 	val  float32
 }
@@ -17,20 +17,29 @@ const (
 	availableMaxContent
 )
 
+// Definite constructs a definite available space with the given length in pixels.
+func Definite(v float32) AvailableSpace { return AvailableSpace{kind: availableDefinite, val: v} }
+
+// MinContent returns an indefinite min-content available space constraint.
+func MinContent() AvailableSpace { return AvailableSpace{kind: availableMinContent} }
+
+// MaxContent returns an indefinite max-content available space constraint.
+func MaxContent() AvailableSpace { return AvailableSpace{kind: availableMaxContent} }
+
 // definiteAvail constructs a definite available space.
-func definiteAvail(v float32) availableSpace { return availableSpace{kind: availableDefinite, val: v} }
+func definiteAvail(v float32) AvailableSpace { return Definite(v) }
 
 var (
-	minContent = availableSpace{kind: availableMinContent}
-	maxContent = availableSpace{kind: availableMaxContent}
-	availZero  = availableSpace{kind: availableDefinite, val: 0}
+	minContent = AvailableSpace{kind: availableMinContent}
+	maxContent = AvailableSpace{kind: availableMaxContent}
+	availZero  = AvailableSpace{kind: availableDefinite, val: 0}
 )
 
 // isDefinite reports whether the value is a definite number of pixels.
-func (a availableSpace) isDefinite() bool { return a.kind == availableDefinite }
+func (a AvailableSpace) isDefinite() bool { return a.kind == availableDefinite }
 
 // intoOption returns the definite value, or none for a constraint.
-func (a availableSpace) intoOption() optF32 {
+func (a AvailableSpace) intoOption() optF32 {
 	if a.kind == availableDefinite {
 		return some(a.val)
 	}
@@ -38,7 +47,7 @@ func (a availableSpace) intoOption() optF32 {
 }
 
 // unwrapOr returns the definite value or a default.
-func (a availableSpace) unwrapOr(def float32) float32 {
+func (a AvailableSpace) unwrapOr(def float32) float32 {
 	if a.kind == availableDefinite {
 		return a.val
 	}
@@ -46,7 +55,7 @@ func (a availableSpace) unwrapOr(def float32) float32 {
 }
 
 // unwrap returns the definite value. It panics if the value is not definite.
-func (a availableSpace) unwrap() float32 {
+func (a AvailableSpace) unwrap() float32 {
 	if a.kind != availableDefinite {
 		panic("layout: unwrap on non-definite available space")
 	}
@@ -54,7 +63,7 @@ func (a availableSpace) unwrap() float32 {
 }
 
 // or returns self when definite, else the default.
-func (a availableSpace) or(def availableSpace) availableSpace {
+func (a AvailableSpace) or(def AvailableSpace) AvailableSpace {
 	if a.kind == availableDefinite {
 		return a
 	}
@@ -62,7 +71,7 @@ func (a availableSpace) or(def availableSpace) availableSpace {
 }
 
 // orElse returns self when definite, else the result of defaultCb.
-func (a availableSpace) orElse(defaultCb func() availableSpace) availableSpace {
+func (a AvailableSpace) orElse(defaultCb func() AvailableSpace) AvailableSpace {
 	if a.kind == availableDefinite {
 		return a
 	}
@@ -70,7 +79,7 @@ func (a availableSpace) orElse(defaultCb func() availableSpace) availableSpace {
 }
 
 // unwrapOrElse returns the definite value or the callback's result.
-func (a availableSpace) unwrapOrElse(defaultCb func() float32) float32 {
+func (a AvailableSpace) unwrapOrElse(defaultCb func() float32) float32 {
 	if a.kind == availableDefinite {
 		return a.val
 	}
@@ -78,7 +87,7 @@ func (a availableSpace) unwrapOrElse(defaultCb func() float32) float32 {
 }
 
 // maybeSet returns a definite value wrapping v when v is defined, else self.
-func (a availableSpace) maybeSet(v optF32) availableSpace {
+func (a AvailableSpace) maybeSet(v optF32) AvailableSpace {
 	if v.isSome() {
 		return definiteAvail(v.v)
 	}
@@ -86,7 +95,7 @@ func (a availableSpace) maybeSet(v optF32) availableSpace {
 }
 
 // mapDefiniteValue applies f to the definite value, leaving constraints alone.
-func (a availableSpace) mapDefiniteValue(f func(float32) float32) availableSpace {
+func (a AvailableSpace) mapDefiniteValue(f func(float32) float32) AvailableSpace {
 	if a.kind == availableDefinite {
 		return definiteAvail(f(a.val))
 	}
@@ -94,7 +103,7 @@ func (a availableSpace) mapDefiniteValue(f func(float32) float32) availableSpace
 }
 
 // computeFreeSpace returns the free space given the used space.
-func (a availableSpace) computeFreeSpace(used float32) float32 {
+func (a AvailableSpace) computeFreeSpace(used float32) float32 {
 	switch a.kind {
 	case availableMaxContent:
 		return float32(mathInf())
@@ -106,7 +115,7 @@ func (a availableSpace) computeFreeSpace(used float32) float32 {
 }
 
 // isRoughlyEqual compares equality, treating near-equal definite values as equal.
-func (a availableSpace) isRoughlyEqual(other availableSpace) bool {
+func (a AvailableSpace) isRoughlyEqual(other AvailableSpace) bool {
 	if a.kind != other.kind {
 		return false
 	}
@@ -117,7 +126,7 @@ func (a availableSpace) isRoughlyEqual(other availableSpace) bool {
 }
 
 // fromOptF32 converts an optF32 into available space (none becomes MaxContent).
-func fromOptF32(o optF32) availableSpace {
+func fromOptF32(o optF32) AvailableSpace {
 	if o.isSome() {
 		return definiteAvail(o.v)
 	}
@@ -126,7 +135,7 @@ func fromOptF32(o optF32) availableSpace {
 
 // maybeSubF32 subtracts a float32 from a definite available space, leaving
 // constraints alone.
-func (a availableSpace) maybeSubF32(v float32) availableSpace {
+func (a AvailableSpace) maybeSubF32(v float32) AvailableSpace {
 	if a.kind == availableDefinite {
 		return definiteAvail(a.val - v)
 	}
