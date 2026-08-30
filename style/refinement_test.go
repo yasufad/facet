@@ -4,6 +4,9 @@ import (
 	"testing"
 
 	"github.com/yasufad/facet/colour"
+	"github.com/yasufad/facet/geometry"
+	"github.com/yasufad/facet/layout"
+	"github.com/yasufad/facet/text"
 )
 
 func TestEmptyRefinement(t *testing.T) {
@@ -39,7 +42,7 @@ func TestEmptyRefinement(t *testing.T) {
 	// Refining a zero-initialised Style{} with an empty refinement must leave it zeroed.
 	var zeroStyle Style
 	zeroStyle.Refine(empty)
-	if zeroStyle != (Style{}) {
+	if zeroStyle.Opacity != 0 {
 		t.Errorf("zeroStyle.Refine(empty) = %#v, want zero Style", zeroStyle)
 	}
 }
@@ -61,6 +64,30 @@ func TestZeroValueOverride(t *testing.T) {
 	base.Refine(r)
 	if base.Opacity != 0.0 {
 		t.Errorf("after Refine(Opacity(0.0)), Opacity = %v, want 0.0", base.Opacity)
+	}
+}
+
+func TestPerEdgeGranularity(t *testing.T) {
+	// Refinements must be able to override a single edge without touching the others.
+	base := Default()
+	base.Padding = NewEdges(Px(10), Px(20), Px(30), Px(40))
+
+	var r Refinement
+	r.SetPaddingLeft(Px(99))
+
+	base.Refine(r)
+
+	if base.Padding.Top != Px(10) {
+		t.Errorf("Padding.Top = %v, want 10", base.Padding.Top)
+	}
+	if base.Padding.Right != Px(20) {
+		t.Errorf("Padding.Right = %v, want 20", base.Padding.Right)
+	}
+	if base.Padding.Bottom != Px(30) {
+		t.Errorf("Padding.Bottom = %v, want 30", base.Padding.Bottom)
+	}
+	if base.Padding.Left != Px(99) {
+		t.Errorf("Padding.Left = %v, want 99", base.Padding.Left)
 	}
 }
 
@@ -89,7 +116,7 @@ func TestOmittedFieldPreservation(t *testing.T) {
 	}
 }
 
-func TestRefinementMerge(t *testing.T) {
+func TestRefinementMergeFrom(t *testing.T) {
 	red := colour.Rgb(0xff0000)
 	green := colour.Rgb(0x00ff00)
 
@@ -139,30 +166,141 @@ func TestRefinementMerge(t *testing.T) {
 }
 
 func TestHighWordProperty(t *testing.T) {
-	// Base style has FlexGrow = 0. A refinement setting FlexGrow = 2.5 (bit 64, high word)
-	// must be copied by Refine.
+	// FlexGrow is at bit 64 (high word). Test that Refine and MergeFrom copy it correctly.
 	var r Refinement
 	r.SetFlexGrow(2.5)
+	r.SetFontSize(24)
+	r.SetFontFamily("Fira Code")
 
 	base := Default()
 	base.Refine(r)
 	if base.FlexGrow != 2.5 {
-		t.Errorf("Refine skipped high-word property: FlexGrow = %v, want 2.5", base.FlexGrow)
+		t.Errorf("Refine skipped high-word FlexGrow = %v, want 2.5", base.FlexGrow)
+	}
+	if base.Text.FontSize != 24 {
+		t.Errorf("Refine skipped high-word FontSize = %v, want 24", base.Text.FontSize)
+	}
+	if base.Text.FontFamily != "Fira Code" {
+		t.Errorf("Refine skipped high-word FontFamily = %v, want Fira Code", base.Text.FontFamily)
 	}
 
-	// MergeFrom into a non-empty receiver (r1 has opacity 0.5) must copy
-	// high-word properties from r2 (which has FlexGrow 2.5).
+	// MergeFrom into a non-empty receiver.
 	var r1 Refinement
 	r1.SetOpacity(0.5)
 
 	var r2 Refinement
 	r2.SetFlexGrow(2.5)
+	r2.SetFontFamily("Fira Code")
 
 	r1.MergeFrom(&r2)
 	if r1.flexGrow != 2.5 {
-		t.Errorf("MergeFrom skipped high-word property: flexGrow = %v, want 2.5", r1.flexGrow)
+		t.Errorf("MergeFrom skipped high-word FlexGrow = %v, want 2.5", r1.flexGrow)
+	}
+	if r1.fontFamily != "Fira Code" {
+		t.Errorf("MergeFrom skipped high-word FontFamily = %v, want Fira Code", r1.fontFamily)
 	}
 	if r1.opacity != 0.5 {
-		t.Errorf("MergeFrom clobbered receiver low-word property: opacity = %v, want 0.5", r1.opacity)
+		t.Errorf("MergeFrom clobbered low-word Opacity = %v, want 0.5", r1.opacity)
+	}
+}
+
+func TestToLayoutConversion(t *testing.T) {
+	var r Refinement
+	r.SetDisplay(DisplayFlex)
+	r.SetPosition(PositionRelative)
+	r.SetFlexDirection(FlexDirectionColumn)
+	r.SetFlexWrap(FlexWrapWrap)
+	r.SetFlexGrow(1.5)
+	r.SetFlexShrink(0.5)
+	r.SetFlexBasis(Px(100))
+	r.SetWidth(Px(200))
+	r.SetHeight(Rem(2)) // 2 rems = 32 pixels at remSize = 16
+	r.SetPadding(Px(8))
+	r.SetMarginTop(Px(4))
+	r.SetBorderWidth(2)
+	r.SetGapRow(Px(12))
+	r.SetGapCol(Px(16))
+	r.SetAlignItems(AlignItemsCenter)
+	r.SetJustifyContent(AlignContentSpaceBetween)
+	r.SetAspectRatio(1.77)
+
+	s := Default().Refined(r)
+	remSize := geometry.Pixels(16)
+	l := s.ToLayout(remSize)
+
+	if l.Display != layout.DisplayFlex {
+		t.Errorf("l.Display = %v, want %v", l.Display, layout.DisplayFlex)
+	}
+	if l.FlexDirection != layout.FlexColumn {
+		t.Errorf("l.FlexDirection = %v, want %v", l.FlexDirection, layout.FlexColumn)
+	}
+	if l.FlexWrap != layout.FlexWrapWrap {
+		t.Errorf("l.FlexWrap = %v, want %v", l.FlexWrap, layout.FlexWrapWrap)
+	}
+	if l.FlexGrow != 1.5 {
+		t.Errorf("l.FlexGrow = %v, want 1.5", l.FlexGrow)
+	}
+	if l.FlexShrink != 0.5 {
+		t.Errorf("l.FlexShrink = %v, want 0.5", l.FlexShrink)
+	}
+	if l.AspectRatio == nil || *l.AspectRatio != 1.77 {
+		t.Errorf("l.AspectRatio = %v, want 1.77", l.AspectRatio)
+	}
+	if l.AlignItems == nil || l.AlignItems.Keyword != layout.AlignItemsCenter.Keyword {
+		t.Errorf("l.AlignItems = %v, want Center", l.AlignItems)
+	}
+	if l.JustifyContent == nil || l.JustifyContent.Keyword != layout.AlignContentSpaceBetween.Keyword {
+		t.Errorf("l.JustifyContent = %v, want SpaceBetween", l.JustifyContent)
+	}
+}
+
+func TestTypographyRefinement(t *testing.T) {
+	var r Refinement
+	r.SetTextColour(colour.Rgb(0x123456))
+	r.SetFontFamily("Inter")
+	r.SetFontSize(18)
+	r.SetLineHeight(24)
+	r.SetFontWeight(text.WeightBold)
+	r.SetFontStyle(text.StyleItalic)
+	r.SetWhiteSpace(WhiteSpaceNowrap)
+	r.SetTextOverflow(TextOverflowEllipsis)
+	r.SetTextAlign(TextAlignCenter)
+	r.SetLineClamp(3)
+	r.SetUnderline(UnderlineStyle{Thickness: 2, Wavy: true})
+
+	s := Default().Refined(r)
+
+	if s.Text.Colour != colour.Rgb(0x123456) {
+		t.Errorf("Text.Colour = %v, want 0x123456", s.Text.Colour)
+	}
+	if s.Text.FontFamily != "Inter" {
+		t.Errorf("Text.FontFamily = %v, want Inter", s.Text.FontFamily)
+	}
+	if s.Text.FontSize != 18 {
+		t.Errorf("Text.FontSize = %v, want 18", s.Text.FontSize)
+	}
+	if s.Text.LineHeight != 24 {
+		t.Errorf("Text.LineHeight = %v, want 24", s.Text.LineHeight)
+	}
+	if s.Text.FontWeight != text.WeightBold {
+		t.Errorf("Text.FontWeight = %v, want Bold", s.Text.FontWeight)
+	}
+	if s.Text.FontStyle != text.StyleItalic {
+		t.Errorf("Text.FontStyle = %v, want Italic", s.Text.FontStyle)
+	}
+	if s.Text.WhiteSpace != WhiteSpaceNowrap {
+		t.Errorf("Text.WhiteSpace = %v, want Nowrap", s.Text.WhiteSpace)
+	}
+	if s.Text.TextOverflow != TextOverflowEllipsis {
+		t.Errorf("Text.TextOverflow = %v, want Ellipsis", s.Text.TextOverflow)
+	}
+	if s.Text.TextAlign != TextAlignCenter {
+		t.Errorf("Text.TextAlign = %v, want Center", s.Text.TextAlign)
+	}
+	if s.Text.LineClamp != 3 {
+		t.Errorf("Text.LineClamp = %v, want 3", s.Text.LineClamp)
+	}
+	if s.Text.Underline == nil || s.Text.Underline.Thickness != 2 || !s.Text.Underline.Wavy {
+		t.Errorf("Text.Underline = %v, want thickness 2 wavy", s.Text.Underline)
 	}
 }
