@@ -67,7 +67,7 @@ func testMeasureFunction(in LayoutInput, id NodeID, ctx any, style *Style) Layou
 			tctx = c
 		}
 	}
-	return computeLeafLayout(in, style, nil, func(known Size[optF32], avail Size[availableSpace]) Size[float32] {
+	return computeLeafLayout(in, style, nil, func(known Size[optF32], avail Size[AvailableSpace]) Size[float32] {
 		if known.Width.isSome() && known.Height.isSome() {
 			return Size[float32]{Width: known.Width.v, Height: known.Height.v}
 		}
@@ -105,7 +105,7 @@ const (
 	ahemHHeight = 10.0
 )
 
-func measureAhemText(d testMeasureData, known Size[optF32], avail Size[availableSpace]) Size[float32] {
+func measureAhemText(d testMeasureData, known Size[optF32], avail Size[AvailableSpace]) Size[float32] {
 	var inlineAxis absoluteAxis
 	if d.writingMode == writingHorizontal {
 		inlineAxis = absoluteHorizontal
@@ -167,7 +167,7 @@ func measureAhemText(d testMeasureData, known Size[optF32], avail Size[available
 }
 
 // sizeGetAbsAvail extracts the available space along an absolute axis.
-func sizeGetAbsAvail(s Size[availableSpace], axis absoluteAxis) availableSpace {
+func sizeGetAbsAvail(s Size[AvailableSpace], axis absoluteAxis) AvailableSpace {
 	if axis == absoluteHorizontal {
 		return s.Width
 	}
