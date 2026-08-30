@@ -1,10 +1,14 @@
 # Upstream sources
 
-Three codebases sit alongside this one, and they serve different purposes.
+Three upstream codebases inform this one, each in a different way.
 
-    ../gpui     read it, port nothing
-    ../taffy    port it, algorithm for algorithm
-    ../wails    borrow the code
+| Project | Where | What we do with it |
+| --- | --- | --- |
+| GPUI | [zed-industries/zed](https://github.com/zed-industries/zed), `crates/gpui` | read it, port nothing |
+| Taffy | [DioxusLabs/taffy](https://github.com/DioxusLabs/taffy) | port it, algorithm for algorithm |
+| Wails v3 | [wailsapp/wails](https://github.com/wailsapp/wails), `v3/` on master | borrow the code |
+
+Clone them wherever suits you; nothing here assumes a path.
 
 GPUI is a design document that happens to be written in Rust. None of it transfers
 directly: different language, different memory model, different renderer. What
@@ -56,7 +60,7 @@ package to change most carefully.
 
 ## Text
 
-`go-text/typesetting` supplies font loading and matching, script and bidi
+[go-text/typesetting](https://github.com/go-text/typesetting) supplies font loading and matching, script and bidi
 segmentation, and HarfBuzz-equivalent shaping, in pure Go. `text/` wraps it; nothing
 above `text/` knows it exists.
 
