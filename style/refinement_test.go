@@ -12,9 +12,10 @@ func TestEmptyRefinement(t *testing.T) {
 		t.Errorf("Refinement{}.IsEmpty() = false, want true")
 	}
 
-	mergedEmpty := empty.Merge(Refinement{})
+	mergedEmpty := Refinement{}
+	mergedEmpty.MergeFrom(&empty)
 	if !mergedEmpty.IsEmpty() {
-		t.Errorf("empty.Merge(empty).IsEmpty() = false, want true")
+		t.Errorf("mergedEmpty.IsEmpty() = false, want true")
 	}
 
 	// Refining Default() with an empty refinement must not modify any field.
@@ -103,7 +104,8 @@ func TestRefinementMerge(t *testing.T) {
 
 	// r1 merged with r2: r2 overrides Opacity (to 0.0) and Background (to green),
 	// while FlexGrow remains 2.0 from r1.
-	merged := r1.Merge(r2)
+	merged := r1
+	merged.MergeFrom(&r2)
 
 	base := Default()
 	base.Refine(merged)
@@ -120,7 +122,8 @@ func TestRefinementMerge(t *testing.T) {
 
 	// Inverse merge: r2 merged with r1: r1 overrides Opacity (to 0.5) and
 	// Background (to red), FlexGrow is set to 2.0.
-	invMerged := r2.Merge(r1)
+	invMerged := r2
+	invMerged.MergeFrom(&r1)
 	invBase := Default()
 	invBase.Refine(invMerged)
 
@@ -136,20 +139,30 @@ func TestRefinementMerge(t *testing.T) {
 }
 
 func TestHighWordProperty(t *testing.T) {
+	// Base style has FlexGrow = 0. A refinement setting FlexGrow = 2.5 (bit 64, high word)
+	// must be copied by Refine.
 	var r Refinement
-	r.SetTestHigh(0.25)
+	r.SetFlexGrow(2.5)
 
-	var s Style
-	s.Refine(r)
-	if s.testHigh != 0.25 {
-		t.Errorf("Refine skipped high-word property: testHigh = %v, want 0.25", s.testHigh)
+	base := Default()
+	base.Refine(r)
+	if base.FlexGrow != 2.5 {
+		t.Errorf("Refine skipped high-word property: FlexGrow = %v, want 2.5", base.FlexGrow)
 	}
 
+	// MergeFrom into a non-empty receiver (r1 has opacity 0.5) must copy
+	// high-word properties from r2 (which has FlexGrow 2.5).
 	var r1 Refinement
+	r1.SetOpacity(0.5)
+
 	var r2 Refinement
-	r2.SetTestHigh(0.25)
-	merged := r1.Merge(r2)
-	if merged.testHigh != 0.25 {
-		t.Errorf("Merge skipped high-word property: testHigh = %v, want 0.25", merged.testHigh)
+	r2.SetFlexGrow(2.5)
+
+	r1.MergeFrom(&r2)
+	if r1.flexGrow != 2.5 {
+		t.Errorf("MergeFrom skipped high-word property: flexGrow = %v, want 2.5", r1.flexGrow)
+	}
+	if r1.opacity != 0.5 {
+		t.Errorf("MergeFrom clobbered receiver low-word property: opacity = %v, want 0.5", r1.opacity)
 	}
 }
