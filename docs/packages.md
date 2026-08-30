@@ -40,10 +40,19 @@ Values, not pointers; everything here is copied freely.
 
 ## colour
 
-Rgba and Hsla, conversion between them, and blending.
+Rgba and Hsla, conversion between them, blending, mixing and hex parsing.
 
 Invariants: no dependencies, including on `geometry`. Note the spelling — it is
 `colour` throughout, in the package name and in every identifier.
+
+Components are float32 in the range 0 to 1, with straight alpha. The renderer wants
+premultiplied components, so `Premultiply` is an explicit conversion rather than the
+stored form; blending and interpolation stay accurate that way. `Blend` is a true
+source-over composite accounting for both alphas, not the opaque-backdrop
+simplification GPUI uses.
+
+A named palette, gradients, colour spaces beyond sRGB and theming belong above this
+layer.
 
 ## app
 
@@ -89,6 +98,11 @@ at one boundary rather than throughout.
 Invariants: Taffy's test suite is generated from browser behaviour and comes across
 with the code. A behavioural difference from Taffy is a bug in the port, not a
 local improvement. Every file carries its attribution header.
+
+The fixtures in `layout/testdata/flex/` come from Taffy at the commit pinned in
+`upstream.pins`. Their README records what is excluded and why. A drift test fails
+when that directory and the upstream checkout disagree on anything not on the
+exclusion list, so bumping the pin surfaces new fixtures instead of ignoring them.
 
 ## platform
 
