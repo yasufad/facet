@@ -30,7 +30,7 @@ func applyAlignmentFallback(freeSpace float32, numItems int, mode AlignContent) 
 			keyword = alignContentFlexStart
 			isSafe = true
 		case alignContentSpaceAround, alignContentSpaceEvenly:
-			keyword = alignContentCenter
+			keyword = alignContentCentre
 			isSafe = true
 		}
 	}
@@ -70,7 +70,7 @@ func computeAlignmentOffset(
 				return 0
 			}
 			return freeSpace
-		case alignContentCenter:
+		case alignContentCentre:
 			return freeSpace / 2
 		case alignContentStretch:
 			return 0
@@ -92,7 +92,7 @@ func computeAlignmentOffset(
 	freeSpace = f32Max(freeSpace, 0)
 	switch mode {
 	case alignContentStart, alignContentFlexStart, alignContentEnd,
-		alignContentFlexEnd, alignContentCenter, alignContentStretch:
+		alignContentFlexEnd, alignContentCentre, alignContentStretch:
 		return gap
 	case alignContentSpaceBetween:
 		return gap + freeSpace/float32(numItems-1)
