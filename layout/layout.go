@@ -82,7 +82,7 @@ type LayoutInput struct {
 	KnownDimensions               Size[optF32]
 	KnownDimensionsAreDefinite    Size[bool]
 	ParentSize                    Size[optF32]
-	AvailableSpace                Size[availableSpace]
+	AvailableSpace                Size[AvailableSpace]
 	VerticalMarginsAreCollapsible Line[bool]
 }
 
