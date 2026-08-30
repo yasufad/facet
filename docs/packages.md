@@ -187,15 +187,22 @@ resizing reads the window's current style rather than recomputing from options.
 
 ## render
 
-The `Renderer` interface and the glyph and image atlases, with a backend per
+The `Renderer` interface and the GPU side of the atlases, with a backend per
 graphics API.
 
     render/d3d11       Windows
     render/metal       macOS
     render/vulkan      Linux
 
-A backend takes a native handle from `platform`, owns a swapchain, and draws a
-`scene.Scene`.
+A backend takes a native handle from `platform`, owns the device and the swapchain,
+and draws a `scene.Scene`.
+
+Three packages touch the atlases and the split is deliberate. `text` rasterises a
+glyph into a coverage mask and caches it by face, size and subpixel offset; it never
+packs or uploads. `scene` carries only a reference — which texture, which tile, what
+rectangle. `render` owns the GPU textures, allocates tiles within them, uploads
+masks, and resolves the reference at draw time. Neither `text` nor `render` imports
+the other; `window` sits above both and wires them together.
 
 Shaders are compiled ahead of time and embedded with `go:embed`. HLSL, MSL and
 SPIR-V bytecode is checked in; a user's build never runs `fxc`, `dxc`, `metal` or
