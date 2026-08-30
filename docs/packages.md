@@ -83,6 +83,14 @@ this has to be arranged deliberately; without it, order-dependent bugs appear in
 run out of five and are close to impossible to reproduce. Hold them in order rather
 than sorting when dispatching — dispatch is a per-frame path and must not allocate.
 
+Goroutine identity costs about six microseconds to read, so it is checked at update
+boundaries and on exported methods, where a handful per frame is affordable. Context
+accessors compare an update generation instead, which is a nanosecond and catches a
+context used after its update ends. The case neither covers cheaply — a context used
+from another goroutine while its update is still running — is caught by a full check
+that a `facet_debug` build turns on at every accessor. Anything claiming a threading
+guarantee has to say which of the three catches it.
+
 ## scene
 
 The renderer's input language: Quad, Shadow, MonochromeSprite, PolychromeSprite,
