@@ -38,6 +38,14 @@ Invariants: no dependencies at all, including on `colour`. Generic over a numeri
 constraint so the same types serve logical pixels, device pixels and layout units.
 Values, not pointers; everything here is copied freely.
 
+Converting a `Bounds` to device pixels snaps both edges and derives the size from
+them. Rectangles that touch in logical pixels touch in device pixels, for every
+origin and scale factor. Rounding origin and size independently instead leaves
+one-pixel gaps and overlaps along shared edges, which surface as hairlines and
+double-blended alpha and get blamed on the renderer. A size converted on its own has
+no edges to snap and is therefore approximate; convert the bounds when adjacency
+matters.
+
 ## colour
 
 Rgba and Hsla, conversion between them, blending, mixing and hex parsing.
