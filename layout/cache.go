@@ -34,7 +34,7 @@ func sizeOptionCacheKey(s Size[optF32]) uint64 {
 	return uint64(optionCacheKey(s.Width))<<32 | uint64(optionCacheKey(s.Height))
 }
 
-func availableSpaceCacheKey(a availableSpace) uint32 {
+func availableSpaceCacheKey(a AvailableSpace) uint32 {
 	switch a.kind {
 	case availableDefinite:
 		return math.Float32bits(-a.val)
@@ -45,14 +45,14 @@ func availableSpaceCacheKey(a availableSpace) uint32 {
 	}
 }
 
-func mixedCacheKey(kd optF32, avs availableSpace) uint32 {
+func mixedCacheKey(kd optF32, avs AvailableSpace) uint32 {
 	if kd.isSome() {
 		return math.Float32bits(kd.v)
 	}
 	return availableSpaceCacheKey(avs)
 }
 
-func sizeMixedCacheKey(kd Size[optF32], avs Size[availableSpace]) uint64 {
+func sizeMixedCacheKey(kd Size[optF32], avs Size[AvailableSpace]) uint64 {
 	return uint64(mixedCacheKey(kd.Width, avs.Width))<<32 | uint64(mixedCacheKey(kd.Height, avs.Height))
 }
 
