@@ -128,6 +128,11 @@ nothing else of ours. A window opens on Windows and reports input. The interface
 documented well enough that whoever writes the macOS backend does not need to ask
 you what a method means.
 
+The four corrections are in, each its own commit, before any backend code. A scroll
+from a precision touchpad arrives distinguishable from a mouse wheel notch — test
+that against the real `WM_POINTER` or `WM_MOUSEWHEEL` path rather than asserting it
+in the type system alone.
+
 Conventional commits, one file per commit, staged by path — `NOTICE` is shared and
 other agents are working in this tree.
 
