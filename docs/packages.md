@@ -260,6 +260,24 @@ Keymaps, actions, the focus tree, and dispatch from a raw event to a handler.
 
 Invariants: takes raw events from `platform` and resolves them against a context
 stack. Knows about focus, not about geometry beyond hit-test results handed to it.
+Tab order belongs to `element`, which knows tree order; a focus hierarchy is not the
+same thing, because a focus parent need not be the previous sibling in layout.
+
+Binding precedence is four ordered rules and they are load-bearing: a deeper context
+beats a shallower one, a later binding beats an earlier one at equal depth,
+`NoAction` suppresses bindings at or below its precedence, and `Unbind` suppresses a
+named action. An outer binding still fires from within an inner context; an unbound
+chord neither matches nor pends; a chord that prefixes a longer one pends rather
+than firing.
+
+Dispatch has to be able to explain itself. `Explain` returns every candidate with
+its depth, whether it matched, whether it won, and why — shadowed, context mismatch,
+suppressed. A dispatch tree that cannot say why a keystroke did what it did is one
+nobody can debug, and every framework that skipped this grew a worse version later.
+
+`secondary` in a binding string is Cmd on macOS and Ctrl elsewhere, resolved by
+build tag: `platform` reports which modifiers are held, never which system it is
+running on.
 
 ## element
 
