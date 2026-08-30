@@ -91,7 +91,11 @@ invariants it holds. Read your package's entry before you start.
 - When coverage is bounded — a ported suite partly adopted, a case left unhandled —
   record what was left out and why, beside the code. A pass count with no exclusion
   count reads as full coverage to everyone who comes after.
-- Adding a dependency to `go.mod` requires saying which package needs it and why.
+- A dependency a package genuinely needs is not blocked. Say which package needs it
+  and why in the commit that adds it, keep its types inside that package so nothing
+  above knows it exists, and record it in `NOTICE` from the upstream `LICENSE`. The
+  import rules in `docs/packages.md` govern our own packages, not the module graph —
+  do not write something worse by hand to avoid a dependency.
 
 ## Language
 
