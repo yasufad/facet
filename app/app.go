@@ -90,15 +90,10 @@ func (app *App) Close() {
 }
 
 // checkUI panics if the calling goroutine is not the UI goroutine. It is
-// called at update boundaries and at public entry points that do not go
-// through update (ReadEntity, Flush, Close). Accessor methods called only
-// from within an update — Notify, Emit, Defer, Observe, Subscribe,
-// OnRelease — do not check, because the update boundary already did.
-//
-// The check costs about 6µs (runtime.Stack to read the goroutine header).
-// That is too expensive to pay at every accessor on a frame that touches a
-// thousand entities, so it is paid at boundaries instead. See
-// goroutine.go for the measurement.
+// called from every exported entry point that touches entity state, the
+// effect queue or the subscriber sets. The check costs about 6µs
+// (runtime.Stack to read the goroutine header); see goroutine.go for the
+// measurement and the plan for reducing the per-frame cost.
 func (app *App) checkUI() {
 	if goroutineID() != app.uiGoroutine {
 		panic("app: context used from a goroutine other than the UI goroutine")
@@ -249,6 +244,7 @@ func UpdateEntity[T any](app *App, handle Entity[T], f func(v *T, cx *Context[T]
 // entity per flush: a hundred Notify calls during one update collapse to a
 // single observer run.
 func (app *App) Notify(id entityID) {
+	app.checkUI()
 	app.pushEffect(notifyEffect{emitter: id})
 }
 
@@ -261,6 +257,7 @@ func (app *App) Notify(id entityID) {
 // to a specific observer entity through a weak handle, so the observer is not
 // kept alive by what it watches.
 func (app *App) Observe(entity anyEntity, onNotify func(cx *App) bool) Subscription {
+	app.checkUI()
 	sub, activate := app.observers.insert(entity.id, observerHandler(onNotify))
 	app.Defer(func(*App) { activate() })
 	return sub
@@ -269,6 +266,7 @@ func (app *App) Observe(entity anyEntity, onNotify func(cx *App) bool) Subscript
 // Subscribe registers a callback for typed events emitted by entity. The
 // registration is activated at the end of the current flush.
 func (app *App) Subscribe(entity anyEntity, eventType reflect.Type, onEvent func(cx *App, event any) bool) Subscription {
+	app.checkUI()
 	sub, activate := app.subscribers.insert(entity.id, subscriberEntry{eventType: eventType, handler: onEvent})
 	app.Defer(func(*App) { activate() })
 	return sub
@@ -277,6 +275,7 @@ func (app *App) Subscribe(entity anyEntity, eventType reflect.Type, onEvent func
 // Emit queues delivery of event to the entity's subscribers of its type. The
 // event is delivered during the flush, after the update returns.
 func (app *App) Emit(id entityID, event any, eventType reflect.Type) {
+	app.checkUI()
 	app.pushEffect(emitEffect{emitter: id, eventType: eventType, event: event})
 }
 
@@ -285,6 +284,7 @@ func (app *App) Emit(id entityID, event any, eventType reflect.Type) {
 // available to user code that needs to run after entities on the stack have
 // been returned to the map.
 func (app *App) Defer(f func(*App)) {
+	app.checkUI()
 	app.pushEffect(deferEffect{callback: f})
 }
 
@@ -293,6 +293,7 @@ func (app *App) Defer(f func(*App)) {
 // Release handles the entity owns and to Close subscriptions it holds. The
 // registration is activated at the end of the current flush.
 func (app *App) OnRelease(entity anyEntity, onRelease func(value any, app *App)) Subscription {
+	app.checkUI()
 	sub, activate := app.releases.insert(entity.id, releaseHandler(onRelease))
 	app.Defer(func(*App) { activate() })
 	return sub

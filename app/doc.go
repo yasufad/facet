@@ -52,16 +52,15 @@
 // # Threading
 //
 // The UI runs on one goroutine. A context used from another goroutine panics
-// with a message naming the mistake rather than corrupting state quietly. The
-// check costs about 6µs (runtime.Stack to read the goroutine header), so it
-// is enforced at update boundaries and public entry points — update,
-// ReadEntity, Flush, Close, AsyncApp — rather than at every accessor method.
-// Accessor methods called only from within an update (Notify, Emit, Defer,
-// Observe, Subscribe, OnRelease) do not re-check, because the update boundary
-// already did. The entity map is single-goroutine by design and has no mutex;
-// adding one to make it safe from other goroutines would remove the reason
-// the rest of the design works. Background work returns to the foreground to
-// touch state through AsyncApp, which dispatches onto the UI goroutine.
+// with a message naming the mistake rather than corrupting state quietly.
+// Every exported entry point that touches entity state, the effect queue or
+// the subscriber sets enforces the invariant. The check costs about 6µs
+// (runtime.Stack to read the goroutine header); reducing the per-frame cost
+// is a separate concern, addressed in the code. The entity map is
+// single-goroutine by design and has no mutex; adding one to make it safe
+// from other goroutines would remove the reason the rest of the design works.
+// Background work returns to the foreground to touch state through AsyncApp,
+// which dispatches onto the UI goroutine.
 //
 // # Scope
 //

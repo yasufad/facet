@@ -2,8 +2,15 @@ package app
 
 import (
 	"context"
+	"reflect"
 	"testing"
 )
+
+// reflectTypeOf returns the reflect.Type for Evt, matching the pattern used
+// by Emit and Subscribe in the production code.
+func reflectTypeOf[Evt any]() reflect.Type {
+	return reflect.TypeOf((*Evt)(nil))
+}
 
 func TestContextFromWrongGoroutinePanics(t *testing.T) {
 	app := NewApp()
@@ -38,6 +45,123 @@ func TestFlushFromWrongGoroutinePanics(t *testing.T) {
 			close(done)
 		}()
 		app.Flush()
+	}()
+	<-done
+}
+
+func TestNotifyFromWrongGoroutinePanics(t *testing.T) {
+	app := NewApp()
+	defer app.Close()
+
+	c := newCounter(t, app, 0)
+	defer c.Release()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Notify from another goroutine did not panic")
+			}
+			close(done)
+		}()
+		app.Notify(c.EntityID())
+	}()
+	<-done
+}
+
+func TestEmitFromWrongGoroutinePanics(t *testing.T) {
+	app := NewApp()
+	defer app.Close()
+
+	c := newCounter(t, app, 0)
+	defer c.Release()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Emit from another goroutine did not panic")
+			}
+			close(done)
+		}()
+		app.Emit(c.EntityID(), &pingEvent{}, reflectTypeOf[pingEvent]())
+	}()
+	<-done
+}
+
+func TestDeferFromWrongGoroutinePanics(t *testing.T) {
+	app := NewApp()
+	defer app.Close()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Defer from another goroutine did not panic")
+			}
+			close(done)
+		}()
+		app.Defer(func(*App) {})
+	}()
+	<-done
+}
+
+func TestObserveFromWrongGoroutinePanics(t *testing.T) {
+	app := NewApp()
+	defer app.Close()
+
+	c := newCounter(t, app, 0)
+	defer c.Release()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Observe from another goroutine did not panic")
+			}
+			close(done)
+		}()
+		app.Observe(anyEntity{id: c.EntityID()}, func(app *App) bool { return true })
+	}()
+	<-done
+}
+
+func TestSubscribeFromWrongGoroutinePanics(t *testing.T) {
+	app := NewApp()
+	defer app.Close()
+
+	c := newCounter(t, app, 0)
+	defer c.Release()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("Subscribe from another goroutine did not panic")
+			}
+			close(done)
+		}()
+		app.Subscribe(anyEntity{id: c.EntityID()}, reflectTypeOf[pingEvent](), func(app *App, event any) bool { return true })
+	}()
+	<-done
+}
+
+func TestOnReleaseFromWrongGoroutinePanics(t *testing.T) {
+	app := NewApp()
+	defer app.Close()
+
+	c := newCounter(t, app, 0)
+	defer c.Release()
+
+	done := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("OnRelease from another goroutine did not panic")
+			}
+			close(done)
+		}()
+		app.OnRelease(anyEntity{id: c.EntityID()}, func(value any, app *App) {})
 	}()
 	<-done
 }
