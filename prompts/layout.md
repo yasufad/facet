@@ -4,6 +4,13 @@ Port Taffy's flexbox solver to Go as the `layout` package. This is a port, not a
 reimplementation: the algorithm and its edge cases come across intact and only the
 language changes.
 
+## Prerequisites
+
+This package depends on `geometry`, which must be implemented and merged
+before it can compile. If they are not there yet, wait — do not stub them. A
+placeholder gets imported, drifts from the real API, and turns the merge into a
+rewrite.
+
 ## Read first
 
 1. `AGENTS.md` — conventions, commit style, and the attribution rule, which applies

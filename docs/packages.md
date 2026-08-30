@@ -15,8 +15,8 @@ design changed, not the test.
 
     geometry  colour                          nothing
     app                                       nothing
+    layout                                    nothing
     scene                                     geometry colour
-    layout                                    geometry
     platform                                  geometry colour
     text                                      geometry colour
     render                                    geometry colour scene platform
@@ -72,9 +72,12 @@ change.
 
 A port of Taffy's flexbox solver. Grid is out of scope.
 
-The port carries its own style input type. It does not import `style`; `style`
-converts down to it. That keeps the port faithful to its source and testable on its
-own terms.
+The port carries its own types across with it — the style inputs, and Taffy's
+`Size`, `Rect`, `Point` and `Line`. It imports nothing, not even `geometry`. Those
+types are what the algorithm and its test suite are written against, and swapping
+them for ours would make the port less faithful for no gain. `style` converts down
+into this package and `element` converts results back out, so the vocabularies meet
+at one boundary rather than throughout.
 
 Invariants: Taffy's test suite is generated from browser behaviour and comes across
 with the code. A behavioural difference from Taffy is a bug in the port, not a
@@ -184,16 +187,16 @@ an excavation.
 
 ## Where to start
 
-Three packages depend on nothing and start immediately:
+Four packages depend on nothing and start immediately:
 
-    geometry   colour   app
+    geometry   colour   app   layout
 
 `geometry` and `colour` are both small, and until they land nothing that speaks in
 pixels or colours can compile. They are the critical path, not the warm-up.
 
 Once they are in, a second wave opens:
 
-    scene   layout   text   platform
+    scene   text   platform
 
 `app` is large enough to run across both waves. `render` waits on `platform` and
 `scene`; `style`, `input`, `element`, `window` and `ui` wait on the second wave.
