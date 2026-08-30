@@ -7,53 +7,127 @@ This is the package users actually touch. Everything below it is machinery they 
 never see; this is what writing Facet code feels like. `element`, `window` and `ui`
 all wait on it.
 
-Read `docs/packages.md` for the `style` and `layout` entries, and
-`_upstream/gpui/crates/gpui/src/style.rs` and `styled.rs` for the model. Sync the
-checkouts with `go run ./tools/upstream` if `_upstream/` is not there.
+## Where this stands
 
-## Stop after the refinement model
+The first milestone is merged as `e53c5e1`: the mask, `Refinement`, `Style`, `Merge`,
+`Refine`, and four properties wired end to end.
 
-Not the whole interface — the property list is long and mostly mechanical. Stop
-after the part that is hard to change later: how a style is represented, how two of
-them layer, and what the builder returns.
+**The refinement semantics are right**, which is the part that mattered. Verified
+directly: `Opacity(0)` overrides a default of 1, a refinement omitting opacity leaves
+it alone, a later refinement wins on merge, and nothing allocates anywhere. The
+bitset does what it was chosen to do, and the reasoning in `doc.go` for rejecting
+pointer fields and sentinels is sound.
 
-One commit: the style struct, the refinement type, the merge operation, and two or
-three representative properties wired through the builder end to end. Then stop and
-say so.
+A second walkthrough of that same milestone arrived after the review below was
+written. Nothing in the tree had changed between them, so the six items here are all
+still outstanding — read them as the current work, not as history.
 
-That discipline has caught real defects twice on `platform`. It was skipped once, on
-`render`, and produced two thousand lines built on a call to the wrong function.
+Do these before continuing to the full property list. Every one of them is cheap now
+and expensive once fifty properties exist.
 
-## The refinement model is the whole design
+## 1 — Merge and Refine ignore any property in the high word
 
-GPUI's `StyleRefinement` exists so styles can be layered: a base style, then a hover
-refinement, then a focus refinement, each overriding only the fields it actually
-sets. That is what makes this work —
+    style/refinement.go:34    if other.mask.lo != 0 {
+    style/style.go:35         if r.mask.lo != 0 {
 
-    div().bg(blue).hover(func(s Style) Style { return s.Bg(darkBlue) })
+Both guard the *entire* value-copy block on the low word. A property whose bit lands
+at 64 or above has its mask bit carried across by `or()` and its value never copied.
 
-— without every element carrying a complete style struct, and without a cascade.
+Reproduced with a throwaway in-package test that sets bit 64 and merges:
 
-The mechanism has to distinguish *unset* from *set to the zero value*. A refinement
-that sets `opacity: 0` must override the base; one that never mentions opacity must
-not. Reinventing this as "a struct with pointer fields" is the obvious move and it
-costs an allocation per property per element per frame, on the hottest path in the
-framework.
+    Merge skipped the value copy for a high-word property: opacity = 0.9, want 0.25
+    Refine skipped the value copy for a high-word property: opacity = 0.9, want 0.25
 
-Work out the representation before writing the property list. Options worth
-weighing: a parallel bitset of which fields are set, sentinel values per field type,
-or something else — but measure the merge, because it runs for every element every
-frame. Say in `doc.go` what you chose and why.
+That is worse than dropping the property, because the resolved mask claims it was
+refined while the value is the base's, and nothing downstream can tell.
 
-## What the package owns
+It passes today only because all four properties sit at bits 0 to 3. The mask is 128
+bits precisely because fifty-odd properties are coming; if compound properties go
+per-edge, padding, margin, inset, border widths and corner radii are twenty bits
+before anything else, and crossing 64 stops being hypothetical.
 
-Properties, roughly GPUI's set: display, position, inset, size and min/max, margin,
-padding, flex direction, wrap, grow, shrink, basis, alignment and justification,
-gap, background, border colour and widths, corner radii, shadows, opacity, overflow,
-text colour, font family, size, weight, style and line height.
+The optimisation is worth keeping — it wants to be per-word. Guard the low-word
+properties on `lo` and the high-word ones on `hi`. Add a test that fails if a
+high-word property is skipped, and confirm it fails against the current code before
+you fix it.
 
-The fluent builder that sets them. Method per property, returning the builder, so
-`div().Flex().Gap(4).Bg(c)` reads as one expression.
+## 2 — Bg converts a colour on every call, and stores the wrong type
+
+    control: store 48 bytes    2.6 ns
+    Opacity(0.5)              18.8 ns
+    BgHsla(hsla)              19.9 ns
+    Bg(rgba)                  75.7 ns
+
+`Bg` calls `c.Hsla()` and stores `colour.Hsla`. That conversion is fifty-six
+nanoseconds of the seventy-six, on the call users write most.
+
+It also converts the wrong way. `scene.Quad.Background` is `colour.Rgba`, so a colour
+set as Rgba is converted to Hsla on the way in and back to Rgba at paint — twice per
+colour per frame, to arrive where it started. GPUI stores Hsla because GPUI's scene
+consumes Hsla; ours does not.
+
+Store `Rgba`, in `Refinement.background` and in `Style.Background` alike. Keep
+`BgHsla` and have it convert at set time, where it is the uncommon case and the cost
+is paid once.
+
+## 3 — The builder-chain benchmark was asked for and not written
+
+`BenchmarkStyleRefineEmpty`, `BenchmarkStyleRefineNonEmpty` and
+`BenchmarkRefinementMerge` measure the operations, not the expression a user writes.
+I measured the chain:
+
+    Refinement{}.Flex().Bg(c).Opacity(0.8).FlexGrow(1)    108 ns
+
+That is four properties against a 48-byte struct that will be several hundred bytes
+with fifty. `Refine` and `Merge` run once per element per frame; builder methods run
+once per property per element per frame, and that is where the work is.
+
+Note also that a single builder call costs 19 ns against a 2.6 ns copy control —
+seven times the cost of the copy it performs, which suggests the methods are not
+inlining, probably because a value receiver returning a 48-byte struct is past the
+budget. That gets worse as the struct grows.
+
+Add the chain benchmark, find out why 19 ns, and let the answer decide the receiver.
+A pointer receiver mutating in place keeps the bitset and drops both copies, at the
+cost of value semantics in the refinement closure. Put the number and the decision in
+`doc.go`.
+
+## 4 — Compound granularity
+
+Is `Padding` one bit or four? GPUI keeps per-edge options, which is what lets
+`hover(s => s.PaddingLeft(4))` work without disturbing the other three. One bit per
+compound property is smaller and simpler and makes that impossible. The same question
+applies to margin, inset, border widths and corner radii.
+
+Nothing implemented so far is compound, so the question is still free. It decides the
+mask layout and the shape of the API. Answer it in `doc.go`.
+
+## 5 — Properties that are not plain values
+
+Box shadows are a slice and a font family is a string. Both allocate when set, and
+both make `Refinement` non-comparable, which rules out `==` and using it as a map
+key. Neither is fatal; both need a stated answer in `doc.go` rather than being
+discovered when the property list reaches them.
+
+## 6 — The zero value of Style is invisible
+
+`Default()` gives opacity 1; `Style{}` gives 0, which renders nothing. `AGENTS.md`
+asks that zero values be usable where reasonable, and here it is arguably not — a
+resolved style genuinely needs defaults. That is fine, but say it: document that
+`Default()` is the only valid way to obtain a `Style`. `Refinement`'s zero value, by
+contrast, is correct and meaningful — nothing set — and that asymmetry is worth
+naming.
+
+## Then the rest of the package
+
+With the model settled, continue to the full property list, roughly GPUI's set:
+display, position, inset, size and min/max, margin, padding, flex direction, wrap,
+grow, shrink, basis, alignment and justification, gap, background, border colour and
+widths, corner radii, shadows, opacity, overflow, text colour, font family, size,
+weight, style and line height.
+
+A fluent method per property, returning the builder, so `div().Flex().Gap(4).Bg(c)`
+reads as one expression.
 
 Conversion down into `layout`'s own types. `layout` deliberately imports nothing and
 carries Taffy's `Dimension`, `LengthPercentage` and `LengthPercentageAuto`; `style`
@@ -77,142 +151,31 @@ Setting a property is a method call resolved at build time, not a lookup later.
     go vet -unsafeptr=false ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-The layering test passes. Merging refinements has tests covering the case that
-matters: a refinement that sets a field to its zero value overrides the base, and a
-refinement that omits the field does not. A benchmark shows what a merge costs and
-whether it allocates.
+The layering test passes. A high-word property survives `Merge` and `Refine`, and the
+test proving it fails against the current guard. `Bg` stores `Rgba` and costs what
+`Opacity` costs. A builder-chain benchmark exists and its number is in `doc.go`,
+along with the receiver decision it drove. The three open design questions are
+answered in `doc.go`.
+
+Merging still has tests covering the case that matters: a refinement that sets a
+field to its zero value overrides the base, and one that omits the field does not.
 
 Conventional commits, one file per commit, staged by path.
 
-## Two habits from earlier rounds
+## Habits from earlier rounds
 
-When a struct of options or properties exists, at least one test passes it empty.
-Two defects in `platform` survived their test suites because every test configured
-the fields it was about to check.
+When a struct of options or properties exists, at least one test passes it empty. Two
+defects in `platform` survived their test suites because every test configured the
+fields it was about to check.
 
 Assertions should know the answer. A test that a size "is positive" passed while the
-size was wrong by a window frame. If a contract is written in a doc comment, the
-test checks the contract.
+size was wrong by a window frame. If a contract is written in a doc comment, the test
+checks the contract.
 
-## Decisions from the plan review
+Benchmark the path users write, not the one that is easy to benchmark. A benchmark
+that misses the hot path is worse than none, because it produces a number that looks
+like reassurance.
 
-The bitset is the right call and the reasoning for rejecting pointers and sentinels
-is sound. Four things to settle before the property list.
-
-**Benchmark the builder chain, not just the merge.** `Merge` and `Refine` are not
-where the cost is. Builder methods return `Refinement` by value, so every call in
-`div().Flex().Gap(4).Bg(c).Opacity(0.8)` copies the whole struct. With `colour.Rgba`
-at 16 bytes, `Edges` at 16 and `Corners` at 16, a fifty-property `Refinement` is
-somewhere around 300 to 400 bytes; a six-call chain moves two kilobytes per element,
-and a thousand elements a frame makes that megabytes a second of memcpy.
-
-That may well be fine — it is still cheaper than allocating per property, and it is
-linear and cache-friendly. But measure the chain a user actually writes, not the
-merge, and put the number in `doc.go`. If it is too slow, the lever is the receiver:
-a pointer receiver mutating in place keeps the bitset and drops the copying, at the
-cost of value semantics in the refinement closure. That choice is much cheaper now
-than after fifty properties exist.
-
-**Decide the granularity of compound properties.** Is `Padding` one bit or four?
-GPUI keeps per-edge options, which is what lets `hover(s => s.PaddingLeft(4))` work
-without disturbing the other three. One bit per compound property is smaller and
-simpler and makes that impossible. The same question applies to margin, inset,
-border widths and corner radii. Whichever you choose, it decides the mask layout and
-the shape of the API, so decide it explicitly and say so in `doc.go`.
-
-**Say what happens to properties that are not plain values.** Box shadows are a
-slice and a font family is a string. Both break the zero-allocation claim when set,
-and both make `Refinement` non-comparable, which rules out `==` and using it as a
-map key. Neither is fatal; both need a stated answer rather than being discovered
-when the property list reaches them.
-
-**The zero value of `Style` is invisible.** With `Opacity` defaulting to 1.0, a
-`var s Style` has opacity 0 and renders nothing. `AGENTS.md` asks that zero values
-be usable where reasonable, and here it is arguably not reasonable — a resolved
-style genuinely needs defaults. That is fine, but it has to be explicit: document
-that `Default()` is the only valid way to obtain a `Style`, and consider whether
-anything should stop a zero one being used by accident. `Refinement`'s zero value,
-by contrast, is correct and meaningful — nothing set — and that asymmetry is worth
-naming.
-
-## Checkpoint review
-
-The refinement semantics are right, which is the part that mattered. I verified
-directly: `Opacity(0)` overrides a default of 1, a refinement omitting opacity
-leaves it alone, and a later refinement wins on merge. No allocations anywhere. The
-bitset does what it was chosen to do.
-
-Three of the four decisions from the plan review were not answered, and measuring
-the one that was found something.
-
-## 1 — Bg converts a colour on every call, and stores the wrong type
-
-    control: store 48 bytes    2.6 ns
-    Opacity(0.5)              18.8 ns
-    BgHsla(hsla)              19.9 ns
-    Bg(rgba)                  75.7 ns
-
-`Bg` calls `c.Hsla()` and stores `colour.Hsla`. That conversion is fifty-six
-nanoseconds of the seventy-six, on the call users write most.
-
-It also converts the wrong way. `scene.Quad.Background` is `colour.Rgba`, so a
-colour set as Rgba is converted to Hsla on the way in and back to Rgba at paint —
-twice per colour per frame, to arrive where it started. GPUI stores Hsla because
-GPUI's scene consumes Hsla; ours does not.
-
-Store `Rgba`. Keep `BgHsla` and have it convert at set time, where it is the
-uncommon case and the cost is paid once.
-
-## 2 — The builder-chain benchmark was asked for and not written
-
-`BenchmarkStyleRefineEmpty`, `BenchmarkStyleRefineNonEmpty` and
-`BenchmarkRefinementMerge` measure the operations, not the expression a user writes.
-I measured the chain:
-
-    Refinement{}.Flex().Bg(c).Opacity(0.8).FlexGrow(1)    108 ns
-
-That is four properties. The struct is 48 bytes today and will be several hundred
-with fifty. Note also that a single builder call costs 19 ns against a 2.6 ns copy
-control — seven times the cost of the copy it performs, which suggests the methods
-are not inlining, probably because a value receiver returning a 48-byte struct is
-past the budget. That gets worse as the struct grows.
-
-Add the chain benchmark, find out why 19 ns, and let the answer decide the receiver.
-A pointer receiver mutating in place keeps the bitset and drops both copies. This is
-the decision the checkpoint exists for.
-
-## 3, 4, 5 — Three decisions still unanswered
-
-`doc.go` does not mention any of them.
-
-**Compound granularity.** Is `Padding` one bit or four? It decides the mask layout
-and whether `hover(s => s.PaddingLeft(4))` can exist. Nothing implemented so far is
-compound, so the question is still open and still free.
-
-**Properties that are not plain values.** Shadows are a slice, font family is a
-string. Both allocate when set and both make `Refinement` non-comparable.
-
-**The zero value of `Style` is invisible.** `Default()` gives opacity 1; `Style{}`
-gives 0. Say that `Default()` is the only valid way to obtain one.
-
-## Done when
-
-    go build -o bin/ ./...
-    go test ./...
-    go test -tags facet_debug ./...
-    go vet -unsafeptr=false ./...
-    gofmt -l $(go list -f '{{.Dir}}' ./...)
-
-`Bg` stores `Rgba` and costs what `Opacity` costs. A builder-chain benchmark exists
-and its number is in `doc.go`, along with the receiver decision it drove. The three
-open questions are answered in `doc.go`.
-
-Then continue to the full property list — the model will be settled.
-
-## Worth carrying
-
-The benchmarks measured what was easy to benchmark rather than what was expensive.
-`Refine` and `Merge` are called once per element per frame; builder methods are
-called once per property per element per frame, and they are where the work is. A
-benchmark that misses the hot path is worse than none, because it produces a number
-that looks like reassurance.
+A guard that is correct for the properties that exist today is not correct. Item 1 is
+that mistake exactly: four properties, all in the low word, and a fully green suite
+over code that silently drops the sixty-fifth.
