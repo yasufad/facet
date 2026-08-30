@@ -21,10 +21,12 @@ it.
 ## Reference checkouts
 
     ../gpui     Zed's GPUI — the conceptual source
+    ../taffy    the flexbox solver we port
     ../wails    Wails v3 — the platform layer we borrow from
 
-Both sit outside the working directory and need to be granted before they can be
-read; in Claude Code, start with `--add-dir ../gpui --add-dir ../wails`.
+All three sit outside the working directory and need to be granted before they can
+be read; in Claude Code, start with `--add-dir ../gpui --add-dir ../taffy --add-dir
+../wails`.
 
 `docs/sources.md` says which layer draws on which, and which parts neither of them
 provides. Read it before assuming something has to be written from scratch.
