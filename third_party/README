@@ -1,0 +1,87 @@
+third_party holds vendored code from upstream projects. Each directory is
+sourced from a single project at a pinned commit (recorded in upstream.pins)
+and carries its own attribution headers and licence entry in NOTICE.
+
+This file records what was vendored, what was skipped, and what was changed
+— so the next upstream bump is a merge against the pin, not an excavation.
+
+w32/
+  Source
+    v3/pkg/w32/ in https://github.com/wailsapp/wails
+    at commit 0f6083a580df85cc636fe5f3ee2f543eaff9077a
+    (pinned in upstream.pins as `wails`).
+
+    These are the Win32 bindings Wails v3 uses, originally from the Winc
+    and W32 projects. They reach Win32 through syscall.NewLazyDLL and
+    golang.org/x/sys/windows — no cgo.
+
+  Licence
+    MIT. Recorded in NOTICE under the Wails entry. The file headers
+    preserve the Winc and W32 Authors copyrights alongside Wails'.
+
+  Skipped
+    idroptarget.go
+      Depends on Wails' webview2 COM bridge
+      (github.com/wailsapp/wails/v3/internal/webview2/pkg/combridge),
+      which Facet does not vendor. OLE drag-and-drop is out of scope
+      until a platform assignment needs it. ole32.go was modified to
+      remove RegisterDragDrop and RevokeDragDrop for the same reason.
+
+    gdi32_windows_test.go
+    menu_windows_test.go
+    screen_cursorfail_test.go
+    theme_test.go
+      Test files. The bindings themselves are exercised through Facet's
+      own platform tests; the upstream tests cover Wails-specific
+      integration paths.
+
+  Modified
+    constants.go
+      Added MK_LBUTTON, MK_RBUTTON, MK_SHIFT, MK_CONTROL, MK_MBUTTON,
+      MK_XBUTTON1, MK_XBUTTON2 (mouse key state flags for WM_MOUSE*
+      messages) and WHEEL_DELTA (the wheel delta for one notch). Wails
+      does not define these because its webview handles mouse input;
+      Facet's wndproc needs them to translate WM_MOUSEWHEEL and
+      WM_XBUTTONDOWN.
+
+    user32.go
+      Added procShowCursor and the ShowCursor wrapper. Wails does not
+      expose ShowCursor because its webview manages cursor visibility;
+      Facet's cursor backend needs it for application-wide cursor
+      visibility.
+
+    ole32.go
+      Removed RegisterDragDrop and RevokeDragDrop, along with the
+      combridge import. They depended on Wails' webview2 COM bridge,
+      which Facet does not vendor. OLE drag-and-drop is out of scope
+      until a platform assignment needs it.
+
+mainthread/
+  Source
+    v3/pkg/application/mainthread_windows.go and mainthread.go in
+    https://github.com/wailsapp/wails
+    at commit 0f6083a580df85cc636fe5f3ee2f543eaff9077a
+    (pinned in upstream.pins as `wails`).
+
+    The hidden-window dispatch technique: PostMessage to a thread queue
+    can be swallowed by a modal inner loop, but PostMessage to a window
+    is delivered when the modal loop pumps messages. This is the bug
+    Wails hit in v2 and fixed with this approach.
+
+  Licence
+    MIT. Recorded in NOTICE under the Wails entry.
+
+  Modified
+    The Wails code is a method on windowsApp that shares global state
+    with the rest of the application package. This is a standalone
+    package with its own Dispatcher type, so the platform backend owns
+    the instance rather than reaching into a global. The technique and
+    the citations are unchanged.
+
+    The hidden window is created in Run, not in New. The window belongs
+    to the thread that created it, and GetMessage only retrieves
+    messages for the calling thread's windows. Creating the window in
+    New (on the caller's thread) and running the loop in Run (on a
+    different goroutine's thread) left PostMessage posting to a thread
+    whose queue GetMessage never read. New now just stores the class
+    name; Run creates the window on the thread it will pump.

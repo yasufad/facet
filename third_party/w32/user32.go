@@ -4,6 +4,11 @@
 // https://github.com/wailsapp/wails
 //
 // MIT License -- see NOTICE for the full text.
+//
+// Modified from the original: added procShowCursor and the ShowCursor
+// wrapper. Wails does not expose ShowCursor because its webview manages
+// cursor visibility; Facet's cursor backend needs it for
+// application-wide cursor visibility.
 
 /*
  * Copyright (C) 2019 Tad Vizbaras. All Rights Reserved.

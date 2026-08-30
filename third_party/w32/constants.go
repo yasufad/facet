@@ -4,6 +4,12 @@
 // https://github.com/wailsapp/wails
 //
 // MIT License -- see NOTICE for the full text.
+//
+// Modified from the original: added MK_LBUTTON, MK_RBUTTON, MK_SHIFT,
+// MK_CONTROL, MK_MBUTTON, MK_XBUTTON1, MK_XBUTTON2 (mouse key state flags
+// for WM_MOUSE* messages) and WHEEL_DELTA (the wheel delta for one notch).
+// Wails does not define these because its webview handles mouse input;
+// Facet's wndproc needs them to translate WM_MOUSEWHEEL and WM_XBUTTONDOWN.
 
 /*
  * Copyright (C) 2019 The Winc Authors. All Rights Reserved.
