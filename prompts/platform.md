@@ -1,62 +1,47 @@
 # Assignment: platform
 
-The lifetime fix is right, and the test that guards it has teeth. I removed the map
-retention and it failed with exactly the correct diagnosis — "window was collected
-while the OS still holds its HWND" — then passed again when restored. A GC test that
-can actually fail is rarer than it should be.
+Nearly there. A window opens, input arrives, the lifetime fix holds under a test
+with real teeth, `NewWindow` before `Run` works, and `Run` from the wrong goroutine
+panics with a legible message. The same-thread contract is back where upstream had
+it, and `third_party/README` records the restructuring.
 
-`third_party/README` is thorough, and the remaining `unsafe.Pointer` conversion
-carries its justification. Both done.
+One defect, in the first line of code anyone writes.
 
-One defect left, and it is in the natural path.
+## New(Options{}) panics
 
-## NewWindow before Run blocks forever
+    New(Options{}) panicked: mainthread: CreateWindowEx failed for hidden window
 
-    p, _ := platform.New(Options{})
-    w, _ := p.NewWindow(WindowOptions{Title: "hello"})   // blocks forever
+`Options.Name` becomes the Win32 window class name. Empty, `CreateWindowEx` fails
+and the dispatcher panics.
+
+Two rules at once. `AGENTS.md` asks that zero values be usable where reasonable, and
+an application name has an obvious default — the executable name, or a constant.
+And it asks that panics be reserved for programmer error with no recovery, never for
+input; `New` already returns an error and does not use it.
+
+Fix both halves:
+
+- Default `Options.Name` when it is empty, so `New(Options{})` works.
+- Have the dispatcher return an error rather than panic when window creation fails.
+  A panic is right for `Run` on the wrong goroutine — that is a programmer error
+  with no recovery. A failed syscall is not; it is a condition the caller can be
+  told about.
+
+## Your tests could not see it
+
+All four pass `Options{Name: "facet-something"}`. Every one configures its way past
+the default path, so the case a user hits first is the only case untested.
+
+Add a test that uses the zero value. More usefully, make one test drive the whole
+sequence a user actually writes, on one goroutine:
+
+    p, err := New(Options{})
+    w, err := p.NewWindow(WindowOptions{Title: "hello", Size: ...})
     w.Show()
     p.Run()
 
-That is the ordering every user will write, and the first thing anyone tries. It
-hangs with no output.
-
-`NewWindow` dispatches onto the platform thread, dispatch posts to the dispatcher's
-hidden window, and the hidden window is now created in `Run`. Before `Run`, there is
-nothing to post to.
-
-### The cause is a vendored constraint that got removed
-
-Upstream creates the hidden window in `initMainLoop`, under `runtime.LockOSThread()`,
-and says why directly above it:
-
-    // initMainLoop must be called with the same OSThread that is used to
-    // call runMainLoop() later.
-
-`runMainLoop` then enforces it — `panic("initMainLoop was not called")`, and a second
-panic if the thread is wrong.
-
-When `New` and `Run` ended up on different goroutines and deadlocked, the fix moved
-window creation into `Run`. That satisfied the smoke test and broke the API for
-everyone who creates a window before starting the loop.
-
-The contract was the right one. Honour it instead:
-
-- `New` locks the OS thread and creates the hidden window, as upstream does.
-- `Run` must be called from that same goroutine, and panics with a message saying so
-  when it is not — copy upstream's guard. A clear panic beats a silent hang, which
-  is the whole reason they wrote it.
-- Document on `New` that the goroutine which constructs the platform is the one that
-  must run it, and that it should be the main goroutine.
-
-Record the change in `third_party/README` like the others — restructuring vendored
-code back toward its original shape is still a divergence worth noting.
-
-### Test the ordering
-
-Add a test for the natural sequence: `New`, then `NewWindow`, then `Run` on the same
-goroutine, and assert the window exists and receives a message. Add one for the
-misuse too — `Run` from a different goroutine should panic with a legible message
-rather than hang. Both are cheap and both are the first things a user will do.
+That is the shape of the first program anyone writes against this package, and
+nothing currently exercises it end to end.
 
 ## Done when
 
@@ -66,23 +51,20 @@ rather than hang. Both are cheap and both are the first things a user will do.
     go vet -unsafeptr=false ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-A window can be created before the loop runs. Calling `Run` from the wrong goroutine
-panics with a message naming the mistake. `third_party/README` records the
-restructuring.
+`New(Options{})` returns a working platform. A failed syscall inside the dispatcher
+returns an error rather than panicking. A test drives New, NewWindow, Show and Run
+in that order with zero-value options.
 
 Conventional commits, one file per commit, staged by path.
 
 ## Worth carrying
 
-Vendored code carries constraints that were paid for. This one was written in a
-comment directly above the function, backed by two panics, and it still got
-restructured away when it was inconvenient — and the thing it was preventing came
-straight back in a different form.
+Every test in this package supplied a name, so the default was never exercised. A
+suite where each test configures the same field the same way is testing one
+configuration many times — and it will be the configuration the author had in mind,
+never the one a stranger reaches for.
 
-When vendored code fights you, the first question is what it knows that you do not.
-`mainthread_windows.go` exists at all because of a v2 bug where a modal inner loop
-swallowed thread-queued messages, and it carries the issue link to prove it. That
-file is scar tissue. Read the scars before cutting.
+When a struct has an option, something should use it empty.
 
 ## Still true
 
@@ -92,5 +74,8 @@ made in passing.
 No cgo. `CGO_ENABLED=0` builds on every target. `unsafe` is permitted here and only
 here, only for memory the OS owns, and every conversion carries a comment. No Go
 pointer goes into OS storage.
+
+When vendored code fights you, work out what it knows before restructuring it. Read
+the scars before cutting.
 
 macOS and Linux remain separate assignments.
