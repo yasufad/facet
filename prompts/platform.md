@@ -1,63 +1,68 @@
 # Assignment: platform
 
-`New(Options{})` works, the dispatcher returns an error instead of panicking on a
-failed syscall, and the first program a user writes runs end to end — window up,
-handle and surface non-zero, scale factor read from the display, visible on screen.
-That was the right fix and the right test.
+`SetSize` is fixed and correct — sizes round-trip exactly and the window stays where
+it was. `AdjustWindowRectExForDpi` was the right call over the non-DPI version, and
+the w32 addition is recorded in `third_party/README`.
 
-Running that program surfaced two more, both in window geometry, both invisible to
-the suite because nothing asserts what the sizes mean.
+The creation path is not fixed. It behaves exactly as it did before:
 
-## 1 — NewWindow does not honour the client-size contract
+    create 640x480 -> 625.3x442.7   (the same 14.7x37.3 frame delta)
+    setsize 690x530 -> 690.0x530.0  correct
+    pos {200 150} -> {200 150}      correct
 
-`WindowOptions.Size` is documented as the client area: "The client area excludes the
-title bar and borders; the full window is larger." It is passed to `CreateWindowEx`
-as the outer size instead.
+## Why the new test passes anyway
 
-    asked 640x480  got 625.3x442.7  delta 14.7x37.3
-    asked 800x600  got 785.3x562.7  delta 14.7x37.3
-    asked 300x200  got 285.3x162.7  delta 14.7x37.3
+`TestNewWindowHonoursClientSize` sets `Decorated: true`. With the zero value it
+fails:
 
-The delta is constant because it is the frame — at scale 1.5, 22×56 device pixels of
-border and title bar.
+    zero-value             decorated=false -> 625.3x442.7  (want 640x480)
+    decorated              decorated=true  -> 640.0x480.0
+    undecorated explicit   decorated=false -> 625.3x442.7  (want 640x480)
 
-`SetSize` already does this correctly, at `window_windows.go:400`: build a `RECT` for
-the wanted client size, call `AdjustWindowRectEx` with the window's styles, and use
-the adjusted outer size. The creation path at line 123 skips it, so the same
-documented contract behaves two different ways depending on which function you
-called.
+This is the same failure as last round, one field along. Then it was
+`Options{Name:}` — every test supplied one, so the default was the only untested
+case. Now it is `WindowOptions{Decorated:}`. A test that configures a field cannot
+tell you what happens when nobody does, and nobody is the common case.
 
-Use `AdjustWindowRectExForDpi` where it is available — the non-DPI-aware version
-assumes the primary display's scale, which is wrong the moment a window opens on a
-secondary monitor with a different factor.
+## Defect 1 — Decorated: false does not make an undecorated window
 
-## 2 — SetSize teleports the window
+    Decorated=false  style=0x04c00000  WS_CAPTION=true  WS_THICKFRAME=false
+    Decorated=true   style=0x04cb0000  WS_CAPTION=true  WS_THICKFRAME=false
 
-    position before SetSize {200 150}, after {-0.67 -0.67}
+Both have a caption. The flag only toggles the system menu and the minimise and
+maximise boxes. An undecorated window wants `WS_POPUP` with no `WS_CAPTION` and no
+`WS_THICKFRAME`; that is a different window, not the same one with fewer buttons.
 
-`MoveWindow(w.hwnd, -1, -1, ...)` sets position as well as size, and -1 is not a
-sentinel meaning "leave it" — it is a coordinate. Resizing a window moves it to the
-top-left corner of the screen.
+Decide what `Decorated: false` means and make the style match it. If a borderless
+window is out of scope for now, say so on the field and reject the option rather
+than silently producing a decorated window.
 
-Use `SetWindowPos` with `SWP_NOMOVE | SWP_NOZORDER`, which says what is meant. The
-size arithmetic in that function is right; only the placement is wrong.
+## Defect 2 — the size adjustment reads the option, not the style
 
-## Why the suite missed both
+This is the one that actually caused the wrong size, and the more important fix.
+The frame adjustment is applied conditionally on `opts.Decorated`, while
+`CreateWindowEx` is called with a style computed separately. When the two disagree —
+as they do right now — the client area is short by exactly one frame.
 
-Five tests, all passing, none asserting what a size means. `TestWindowOpensAndReportsInput`
-checks `Size()` is positive — which 625.3 is.
+Compute the adjustment from the same style value you pass to `CreateWindowEx`:
 
-Add assertions with content:
+    style, exStyle := stylesFor(opts)
+    rect := clientRect(opts.Size, scale)
+    w32.AdjustWindowRectExForDpi(&rect, style, false, exStyle, dpi)
+    hwnd := w32.CreateWindowEx(exStyle, class, title, style, ...)
 
-- Create a window with a known client size and assert `Size()` returns it, at
-  whatever scale factor the test machine reports. Both the 640×480 and 300×200 cases
-  above fail today.
-- Set a position, call `SetSize`, assert the position is unchanged.
-- Round-trip: `SetSize(s)` then `Size()` returns `s`.
+One variable, used twice. Then the adjustment cannot disagree with the window,
+whatever `Decorated` ends up meaning, and fixing defect 1 cannot silently break the
+sizes again.
 
-"Is positive" and "is non-zero" are the assertions you write when you do not yet
-know what the right answer is. Once the contract is written down — and this one is,
-in the doc comment — the test should check the contract.
+## Test the zero value, not your configuration
+
+Every geometry test sets `Decorated: true`, `Resizable: true`, `Visible: false`.
+Add the same cases with `WindowOptions{Title: ..., Size: ...}` and nothing else.
+Both current cases fail that way today.
+
+More generally: when a struct of options exists, at least one test should pass it
+empty. That rule would have caught this round and the last one.
 
 ## Done when
 
@@ -67,20 +72,23 @@ in the doc comment — the test should check the contract.
     go vet -unsafeptr=false ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-A window created with a 640×480 client size reports 640×480. `SetSize` leaves the
-window where it was. Tests assert both rather than checking for positive numbers.
+A window created with a 640x480 client size reports 640x480 whether or not
+`Decorated` is set. The style used for the frame adjustment is the style the window
+is created with. `Decorated: false` either produces a genuinely undecorated window
+or is documented and rejected as unsupported.
 
 Conventional commits, one file per commit, staged by path.
 
 ## Worth carrying
 
-Both defects are in code that compiles, passes review, and has tests. What neither
-had was a test that knew what the answer should be. `Size()` returning 625.3 is
-indistinguishable from correct unless something asserts 640.
+Two rounds, two defects, one cause: the test configured the field, so the default
+went unexercised. It is worth being suspicious of any test that fills in a struct
+literal — the fields you thought to set are the ones you already had in mind, and
+the bug lives in the ones you did not.
 
-The doc comment on `WindowOptions.Size` already stated the contract precisely. It
-was written, then not implemented, and nothing noticed because nothing checked. A
-contract in a comment with no test behind it is a wish.
+The deeper fix is structural rather than procedural. Defect 2 exists because the
+same fact — the window's style — is computed in two places. Derive it once and use
+it twice, and a whole category of disagreement stops being possible.
 
 ## Still true
 
