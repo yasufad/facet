@@ -157,8 +157,16 @@ goes through `syscall` and `golang.org/x/sys/windows`; Cocoa and GTK go through
 `github.com/ebitengine/purego`. If a platform turns out to be unreachable without
 cgo, raise it rather than adding a build tag.
 
-This is the only package permitted `unsafe` for platform calls. It surfaces a window
-and an input stream, and never a rendering API.
+This is the only package permitted `unsafe` for platform calls, and only for memory
+the operating system owns. A Go pointer never goes into OS storage — not into
+`GWLP_USERDATA`, not into a callback's user data, nowhere the collector cannot see
+it. The object is freed while the OS still holds its address, and the crash arrives
+later under GC pressure looking like corruption. Keep a map keyed by the native
+handle instead. Every `unsafe.Pointer` conversion carries a comment saying why it is
+sound, because `vet`'s `unsafeptr` analyser is switched off — see the Commands
+section of `AGENTS.md`.
+
+It surfaces a window and an input stream, and never a rendering API.
 
 Window geometry is in logical `Pixels`, not device pixels. A size in device pixels
 means something different on each display, so a minimum size stops being a
