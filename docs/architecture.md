@@ -82,15 +82,21 @@ with no return. `platform/` therefore vendors what it needs — see `docs/source
 
 ### Surface and input
 
-Per platform, `platform/` owns three things: a window whose client area belongs to
-us, a swapchain bound to it, and input delivered from the native event stream.
+The split is at the native handle. `platform/` owns a window whose client area
+belongs to us, the native event loop, main-thread dispatch, and input read from the
+native event stream. It hands out a handle and touches no graphics API.
 
-    Windows   HWND, Direct3D 11
-    macOS     NSWindow with a layer-backed view, Metal
-    Linux     GTK window, Vulkan or OpenGL
+    Windows   HWND          message loop, raw input
+    macOS     NSWindow      layer-backed view, event monitors
+    Linux     GTK window    cgo bridge
 
-`render.Renderer` sits above that split and never sees it. A backend for a different
-API is a package, not a rewrite.
+`render/` takes that handle and owns everything API-specific — the device, the
+swapchain, the shaders:
+
+    render/d3d11   render/metal   render/vulkan
+
+Keeping the swapchain out of `platform/` is what lets a second graphics backend be a
+package rather than a rewrite, and what keeps `platform/` testable without a GPU.
 
 ## State and reactivity
 
