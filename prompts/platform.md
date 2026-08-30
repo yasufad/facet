@@ -1,48 +1,92 @@
 # Assignment: platform
 
-Build `platform`: the interface, and the Windows backend behind it.
+The interface is written and reviewed — twelve files, one concept each, every check
+clean, `platform` importing only `geometry` and `colour`. The shape is right:
+`uintptr` rather than `unsafe.Pointer` across the boundary, no graphics API in
+sight, and you stopped for review before building on it, which is why the four
+corrections below cost an afternoon instead of a rewrite.
 
-This is the largest package in Facet and the one everything visible waits on. It is
-also the one where a mistake is most expensive, because `render`, `window` and
-`input` are all written against its interface. Read `docs/packages.md` and the
-Rendering section of `docs/architecture.md` before starting.
+Fix these, then build the Windows backend. macOS and Linux remain separate
+assignments; design so they fit, and say in a comment where you know a platform will
+differ.
 
-macOS and Linux are separate assignments. Do not write them. Do design the interface
-so they fit — say in a comment where you are aware a platform will differ.
+## Correction 1 — WheelEvent discards trackpad precision
 
-## Stop after the interface
+    // Delta is normalised to lines ... The platform converts from its native
+    // units — Windows multiples of 120, macOS pixel-based deltas
 
-`platform.Platform` is a layer boundary. `AGENTS.md` requires a change to one to be
-planned before it is written, and this is the first writing of it.
+Normalising pixel deltas to lines is lossy in the direction that matters. A mouse
+wheel emits discrete notches; a trackpad or a Windows precision touchpad emits
+pixel-exact deltas with momentum. They are different inputs, and the consumer has to
+know which arrived: pixel deltas apply directly, line deltas multiply by a line
+height. GPUI keeps them apart for this reason, in `interactive.rs`:
 
-So: propose the interface first, in a single commit that adds the types and the
-method signatures with doc comments and no implementation. Then stop and say so. It
-gets reviewed before the backend is built, because three packages inherit whatever
-shape it has and the cost of changing it later is theirs, not yours.
+    pub enum ScrollDelta {
+        Pixels(Point<Pixels>),   // exact
+        Lines(Point<f32>),       // inexact
+    }
 
-What the interface has to cover:
+Carry the distinction, and carry a scroll phase with it — GPUI's `TouchPhase` is
+`Started`, `Moved`, `Ended`, `Cancelled`. Without a phase there is no rubber-banding
+and no way to cancel momentum when a finger lands.
 
-    application lifecycle      start, run the loop, quit, activation
-    windows                    create, size, position, title, close, scale factor
-    main-thread dispatch       run a closure on the platform thread
-    displays                   enumeration, bounds, scale factor, the active one
-    input                      pointer, wheel, key, modifiers, focus, IME
-    cursor                     shape, visibility
-    clipboard                  read and write text
-    menus, tray, dialogs, notifications
+Both are unrecoverable once flattened here. Nothing upstairs can reconstruct
+precision this layer threw away.
 
-Two constraints shape it more than the rest:
+## Correction 2 — window geometry belongs in logical pixels
 
-**A native handle, never a graphics API.** `platform` hands out an `HWND`,
-`NSWindow*` or `GtkWidget*` and stops. `render` takes that handle and owns the
-device, the swapchain and the shaders. `platform` must not import `render` and must
-not know D3D exists. That is what keeps a second graphics backend a package rather
-than a rewrite.
+`SetSize`, `Size`, `SetPosition`, `SetMinSize` and `SetMaxSize` all take
+`geometry.Size[DevicePixels]`. GPUI uses `Bounds<Pixels>`.
+
+Ask for an 800×600 window in device pixels on a 2× display and you get one
+physically half the size intended, so every caller does scale arithmetic — which is
+what typed units exist to prevent. Worse, a minimum size in device pixels changes
+meaning when the window moves to a monitor with a different scale factor: the same
+constraint becomes a different physical size, and the window can end up violating
+it.
+
+Move window geometry to `Pixels` and leave `ScaleFactor()` for anyone who needs
+device units. This does not affect the renderer: the swapchain is sized in device
+pixels, but that is `render`'s business, downstream of `ScaleFactor()`.
+
+## Correction 3 — NativeHandle is one handle short on macOS
+
+Metal draws into a `CAMetalLayer` on the content view, not into the `NSWindow`. If
+`platform` owns the layer-backed view, as `docs/architecture.md` says, then `render`
+needs the view. Return the drawing surface rather than the window, or add a second
+accessor for it.
+
+Get this right now even though macOS is not your assignment. Otherwise `render`
+ends up doing Cocoa work to find its own surface, which is the seam this boundary
+exists to prevent.
+
+## Correction 4 — three ways to hear about a display change
+
+`SetDisplayChangeHandler` exists on both `Platform` and `Window`, and there is also
+a `ScaleChangeEvent`. Decide which is authoritative and delete or document the
+others. A consumer that has to guess which one fires will subscribe to all three and
+handle the change twice.
+
+## The interface stays a layer boundary
+
+`platform.Platform` is one of the three contracts `AGENTS.md` names. It changed once,
+under review, which is how it should change. From here on a change to it is planned
+and raised, not made in passing while implementing a backend — `render`, `window`
+and `input` inherit whatever shape it has, and the cost of a late change is theirs.
+
+The two constraints that shaped it still hold, and the corrections above are both
+cases of them being applied more carefully rather than new rules:
+
+**A native handle, never a graphics API.** `platform` hands out a handle and stops.
+`render` takes it and owns the device, the swapchain and the shaders. `platform`
+must not import `render` and must not know D3D exists. Correction 3 is this rule:
+the handle has to be the one the graphics API can actually draw into.
 
 **Input is a stream, not callbacks into the framework.** `platform` reads the native
-event stream and surfaces events; `input` and `window` decide what they mean.
-Nothing above `platform` should have to know that Windows reports wheel deltas in
-multiples of 120.
+event stream and surfaces typed events; `input` and `window` decide what they mean.
+Nothing above should learn that Windows reports wheel deltas in multiples of 120 —
+but Correction 1 is the limit of that principle. Hiding the *units* is the job.
+Hiding whether the input was precise is destroying information, not abstracting it.
 
 ## Vendor, do not write
 
