@@ -220,7 +220,7 @@ func TestToLayoutConversion(t *testing.T) {
 	r.SetBorderWidth(2)
 	r.SetGapRow(Px(12))
 	r.SetGapCol(Px(16))
-	r.SetAlignItems(AlignItemsCenter)
+	r.SetAlignItems(AlignItemsCentre)
 	r.SetJustifyContent(AlignContentSpaceBetween)
 	r.SetAspectRatio(1.77)
 
@@ -246,8 +246,8 @@ func TestToLayoutConversion(t *testing.T) {
 	if l.AspectRatio == nil || *l.AspectRatio != 1.77 {
 		t.Errorf("l.AspectRatio = %v, want 1.77", l.AspectRatio)
 	}
-	if l.AlignItems == nil || l.AlignItems.Keyword != layout.AlignItemsCenter.Keyword {
-		t.Errorf("l.AlignItems = %v, want Center", l.AlignItems)
+	if l.AlignItems == nil || l.AlignItems.Keyword != layout.AlignItemsCentre.Keyword {
+		t.Errorf("l.AlignItems = %v, want Centre", l.AlignItems)
 	}
 	if l.JustifyContent == nil || l.JustifyContent.Keyword != layout.AlignContentSpaceBetween.Keyword {
 		t.Errorf("l.JustifyContent = %v, want SpaceBetween", l.JustifyContent)
@@ -264,7 +264,7 @@ func TestTypographyRefinement(t *testing.T) {
 	r.SetFontStyle(text.StyleItalic)
 	r.SetWhiteSpace(WhiteSpaceNowrap)
 	r.SetTextOverflow(TextOverflowEllipsis)
-	r.SetTextAlign(TextAlignCenter)
+	r.SetTextAlign(TextAlignCentre)
 	r.SetLineClamp(3)
 	r.SetUnderline(UnderlineStyle{Thickness: 2, Wavy: true})
 
@@ -294,8 +294,8 @@ func TestTypographyRefinement(t *testing.T) {
 	if s.Text.TextOverflow != TextOverflowEllipsis {
 		t.Errorf("Text.TextOverflow = %v, want Ellipsis", s.Text.TextOverflow)
 	}
-	if s.Text.TextAlign != TextAlignCenter {
-		t.Errorf("Text.TextAlign = %v, want Center", s.Text.TextAlign)
+	if s.Text.TextAlign != TextAlignCentre {
+		t.Errorf("Text.TextAlign = %v, want Centre", s.Text.TextAlign)
 	}
 	if s.Text.LineClamp != 3 {
 		t.Errorf("Text.LineClamp = %v, want 3", s.Text.LineClamp)
