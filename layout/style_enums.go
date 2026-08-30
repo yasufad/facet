@@ -5,19 +5,28 @@
 // are absent.
 package layout
 
-// display sets the layout used for the children of a node.
-type display uint8
+// Display sets the layout used for the children of a node.
+type Display uint8
 
 const (
-	displayBlock display = iota
-	displayFlowRoot
-	displayFlex
-	displayNone
+	DisplayBlock Display = iota
+	DisplayFlowRoot
+	DisplayFlex
+	DisplayNone
+)
+
+type display = Display
+
+const (
+	displayBlock    = DisplayBlock
+	displayFlowRoot = DisplayFlowRoot
+	displayFlex     = DisplayFlex
+	displayNone     = DisplayNone
 )
 
 // displayDefault is the default display mode (flex, matching Taffy's flexbox
 // feature being enabled).
-var displayDefault = displayFlex
+var displayDefault = DisplayFlex
 
 // boxGenerationMode is the abstracted display property: Normal or None.
 type boxGenerationMode uint8
@@ -27,12 +36,19 @@ const (
 	boxGenNone
 )
 
-// position is the CSS positioning strategy.
-type position uint8
+// Position is the CSS positioning strategy.
+type Position uint8
 
 const (
-	positionRelative position = iota
-	positionAbsolute
+	PositionRelative Position = iota
+	PositionAbsolute
+)
+
+type position = Position
+
+const (
+	positionRelative = PositionRelative
+	positionAbsolute = PositionAbsolute
 )
 
 // boxSizing controls whether size styles apply to the content or border box.
@@ -43,19 +59,28 @@ const (
 	boxSizingContentBox
 )
 
-// overflow controls how children overflowing their container affect layout.
-type overflow uint8
+// Overflow controls how children overflowing their container affect layout.
+type Overflow uint8
 
 const (
-	overflowVisible overflow = iota
-	overflowClip
-	overflowHidden
-	overflowScroll
+	OverflowVisible Overflow = iota
+	OverflowClip
+	OverflowHidden
+	OverflowScroll
+)
+
+type overflow = Overflow
+
+const (
+	overflowVisible = OverflowVisible
+	overflowClip    = OverflowClip
+	overflowHidden  = OverflowHidden
+	overflowScroll  = OverflowScroll
 )
 
 // isScrollContainer reports whether the overflow mode contains its contents.
-func (o overflow) isScrollContainer() bool {
-	return o == overflowHidden || o == overflowScroll
+func (o Overflow) isScrollContainer() bool {
+	return o == OverflowHidden || o == OverflowScroll
 }
 
 // maybeIntoAutomaticMinSize returns Some(0) when the overflow mode forces the
@@ -112,15 +137,27 @@ func (c contain) containsScrollableOverflow() bool {
 	return c.intersects(containLayout | containPaint)
 }
 
-// textAlign controls inline-axis alignment of block children.
-type textAlign uint8
+// TextAlign controls inline-axis alignment of block children.
+type TextAlign uint8
 
 const (
-	textAlignAuto textAlign = iota
-	textAlignStart
-	textAlignEnd
-	textAlignLeft
-	textAlignRight
-	textAlignCenter
-	textAlignJustify
+	TextAlignAuto TextAlign = iota
+	TextAlignStart
+	TextAlignEnd
+	TextAlignLeft
+	TextAlignRight
+	TextAlignCenter
+	TextAlignJustify
+)
+
+type textAlign = TextAlign
+
+const (
+	textAlignAuto    = TextAlignAuto
+	textAlignStart   = TextAlignStart
+	textAlignEnd     = TextAlignEnd
+	textAlignLeft    = TextAlignLeft
+	textAlignRight   = TextAlignRight
+	textAlignCenter  = TextAlignCenter
+	textAlignJustify = TextAlignJustify
 )
