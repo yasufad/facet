@@ -1,84 +1,62 @@
 # Assignment: platform
 
-A window opens on Windows and reports input. That is the first thing in this project
-you can actually see, and it works — the smoke test posts a real `WM_MOUSEMOVE` and
-asserts it arrives as a `PointerEvent`, which is testing the message path rather
-than the type system.
+The lifetime fix is right, and the test that guards it has teeth. I removed the map
+retention and it failed with exactly the correct diagnosis — "window was collected
+while the OS still holds its HWND" — then passed again when restored. A GC test that
+can actually fail is rarer than it should be.
 
-All four interface corrections landed correctly: `ScrollDelta` carries its unit,
-`ScrollPhase` carries the gesture, window geometry is in logical `Pixels`,
-`NativeSurface` is separate from `NativeHandle`, and the display-change paths are
-down to two with both documented. The vendoring preserved the Winc and W32 Authors
-copyrights as well as Wails', which is more care than the licence strictly required.
+`third_party/README` is thorough, and the remaining `unsafe.Pointer` conversion
+carries its justification. Both done.
 
-Three things to fix. The first is a crash.
+One defect left, and it is in the natural path.
 
-## 1 — The window can be freed while Windows still holds a pointer to it
+## NewWindow before Run blocks forever
 
-    // window_windows.go:145
-    w32.SetWindowLongPtr(hwnd, w32.GWLP_USERDATA, uintptr(unsafe.Pointer(w)))
+    p, _ := platform.New(Options{})
+    w, _ := p.NewWindow(WindowOptions{Title: "hello"})   // blocks forever
+    w.Show()
+    p.Run()
 
-    // window_windows.go:43
-    ptr := w32.GetWindowLongPtr(hwnd, w32.GWLP_USERDATA)
-    return (*windowsWindow)(unsafe.Pointer(ptr))
+That is the ordering every user will write, and the first thing anyone tries. It
+hangs with no output.
 
-A Go pointer is stored in Win32 memory, and `windowsPlatform` holds no window
-references — there is no slice or map of windows anywhere. So once a caller drops
-its `Window` handle, which is entirely legal (call `Show()`, keep nothing), the only
-thing pointing at that `windowsWindow` is a `uintptr` the garbage collector cannot
-see. It gets collected, and the next `WM_*` message dereferences freed memory inside
-the wndproc.
+`NewWindow` dispatches onto the platform thread, dispatch posts to the dispatcher's
+hidden window, and the hidden window is now created in `Run`. Before `Run`, there is
+nothing to post to.
 
-Be precise about the mechanism, because it changes how you look for it: Go does not
-relocate heap objects, so the address stays valid. This is a liveness bug, not a
-relocation bug — the object is freed, not moved. It fires under GC pressure and
-presents as random corruption, which is the worst kind to chase.
+### The cause is a vendored constraint that got removed
 
-Keep a `map[w32.HWND]*windowsWindow` on the platform behind the mutex it already
-has, and look the window up by `HWND` in the wndproc. The Go pointer stays visible
-to the collector, no Go pointer crosses into OS memory, and the unsafe conversion
-disappears rather than being justified.
+Upstream creates the hidden window in `initMainLoop`, under `runtime.LockOSThread()`,
+and says why directly above it:
 
-Delete the entry when the window is destroyed, or you have swapped a crash for a
-leak.
+    // initMainLoop must be called with the same OSThread that is used to
+    // call runMainLoop() later.
 
-## 2 — go vet was red, so nobody read it
+`runMainLoop` then enforces it — `panic("initMainLoop was not called")`, and a second
+panic if the thread is wrong.
 
-The report said `go vet ./...` exits 0 with expected warnings. It exits 1, with
-nineteen findings, and one of them was defect 1 — pointing at line 47 exactly.
+When `New` and `Run` ended up on different goroutines and deadlocked, the fix moved
+window creation into `Run`. That satisfied the smoke test and broke the API for
+everyone who creates a window before starting the loop.
 
-The check has been changed in `AGENTS.md` to `go vet -unsafeptr=false ./...`, which
-is green. The analyser cannot be scoped to skip `third_party`: `vet` analyses
-dependencies, so excluding those packages from the list still reports them.
-Seventeen findings from vendored bindings drowned two of ours.
+The contract was the right one. Honour it instead:
 
-The trade is that `unsafeptr` no longer runs at all, so it is now on you: every
-`unsafe.Pointer` conversion in our own code carries a comment saying why it is
-sound. There are two, and after fixing defect 1 there will be one —
-`window_windows.go:212`, where `lParam` points at an OS-owned `RECT`. That one is
-legitimate and needs a sentence saying so.
+- `New` locks the OS thread and creates the hidden window, as upstream does.
+- `Run` must be called from that same goroutine, and panics with a message saying so
+  when it is not — copy upstream's guard. A clear panic beats a silent hang, which
+  is the whole reason they wrote it.
+- Document on `New` that the goroutine which constructs the platform is the one that
+  must run it, and that it should be the main goroutine.
 
-Run `go vet ./...` unfiltered by hand after touching this package and read what it
-says about `platform/`. Ignore the `third_party/` lines; they are not ours.
+Record the change in `third_party/README` like the others — restructuring vendored
+code back toward its original shape is still a divergence worth noting.
 
-## 3 — Half the vendoring changes are unrecorded
+### Test the ordering
 
-`ole32.go` does this properly: it says `RegisterDragDrop` and `RevokeDragDrop` were
-removed and why. Copy that pattern to the rest.
-
-Unrecorded right now:
-
-    constants.go     gained MK_* and WHEEL_DELTA
-    user32.go        gained ShowCursor
-    idroptarget.go   skipped entirely, needs the webview2 COM bridge
-
-Write `third_party/README` recording what was vendored from where, at which pinned
-commit, what was skipped, and what was changed. `AGENTS.md` asks third_party to make
-the next upstream bump a merge rather than an excavation, and right now those three
-divergences are invisible to whoever does it.
-
-`layout/testdata/flex/README` is the pattern to follow — it does the same job for
-the ported fixtures.
+Add a test for the natural sequence: `New`, then `NewWindow`, then `Run` on the same
+goroutine, and assert the window exists and receives a message. Add one for the
+misuse too — `Run` from a different goroutine should panic with a legible message
+rather than hang. Both are cheap and both are the first things a user will do.
 
 ## Done when
 
@@ -88,24 +66,31 @@ the ported fixtures.
     go vet -unsafeptr=false ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-No Go pointer is stored in OS memory. The remaining `unsafe.Pointer` conversion
-carries its justification. `third_party/README` records the vendoring, the skips and
-the modifications.
-
-A test that exercises the lifetime would be worth having: create a window, drop
-every Go reference to it, force `runtime.GC()`, then pump a message and confirm the
-handler still fires. That fails today and passes after the fix.
+A window can be created before the loop runs. Calling `Run` from the wrong goroutine
+panics with a message naming the mistake. `third_party/README` records the
+restructuring.
 
 Conventional commits, one file per commit, staged by path.
 
+## Worth carrying
+
+Vendored code carries constraints that were paid for. This one was written in a
+comment directly above the function, backed by two panics, and it still got
+restructured away when it was inconvenient — and the thing it was preventing came
+straight back in a different form.
+
+When vendored code fights you, the first question is what it knows that you do not.
+`mainthread_windows.go` exists at all because of a v2 bug where a modal inner loop
+swallowed thread-queued messages, and it carries the issue link to prove it. That
+file is scar tissue. Read the scars before cutting.
+
 ## Still true
 
-`platform.Platform` is a layer boundary. It changed once under review, which is how
-it should change; from here a change is planned and raised, not made in passing.
+`platform.Platform` is a layer boundary; a change to it is planned and raised, not
+made in passing.
 
-No cgo. `CGO_ENABLED=0` builds on every target and keeps building. Windows reaches
-Win32 through `syscall`; macOS and Linux will go through `purego` when their turn
-comes. `unsafe` is permitted here and only here — and after defect 1 is fixed, only
-for memory the OS owns, never for our own objects.
+No cgo. `CGO_ENABLED=0` builds on every target. `unsafe` is permitted here and only
+here, only for memory the OS owns, and every conversion carries a comment. No Go
+pointer goes into OS storage.
 
 macOS and Linux remain separate assignments.
