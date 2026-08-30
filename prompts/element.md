@@ -1,235 +1,88 @@
-# Assignment: element
+# element: review of the first milestone
 
-Build `element`: the `Element` interface, the three-phase lifecycle, the element
-tree, the `Frame` interface that `window` implements, and `div`.
+Everything asked for is here and correct. `NewDiv()` resolves the name collision and
+`doc.go` says why. `RemSize` is on `Frame`. The phases enforce their order. The view
+erasure works. The fake frame records what reached it and the tests assert exact
+values — quad backgrounds, origins and sizes, not that a quad exists.
 
-`window` and `ui` both wait on this, and both are blocked until it lands. It is also
-where the fluent style builder lives — see "The builder is yours" below, because that
-is a decision already taken and it is not the obvious one.
+And you benchmarked the thing that mattered. The number is the finding.
 
-## Response to the plan
+## The tree costs more than everything below it combined
 
-Decisions 1, 2, 4 and 5 are accepted. State on the element with pointer receivers is
-the right call and the consequence is stated honestly. Entities rather than an
-element-keyed map matches what `window` answered independently. `[]Element` with the
-boxing cost named is fine.
+    Div                        584 bytes
+    NewDiv()                   420 ns    640 B    1 alloc
+    eleven-node tree          5300 ns   7536 B   16 allocs
 
-You are no longer blocked on anything. `layout` has exported its enums, and
-`style.Style.ToLayout(remSize)` exists, so a `layout.Style` can be built.
+`Div` embeds `style.Refinement` by value, and that is 504 bytes since the property
+list landed. So every element in the tree is a separate 640-byte heap allocation
+costing ~420 ns, and eleven of them account for 7,040 of the 7,536 bytes. Preallocating
+the children slice changes nothing — I measured that too.
 
-**`func Div() *Div` does not compile.** A type and a function cannot share a name at
-package scope:
+At a thousand elements a frame:
 
-    Div redeclared in this block
+    ~420 µs      per frame, construction alone
+    ~640 KB      garbage per frame
+    ~38 MB/s     allocation rate at 60 fps
 
-Rust lets `div()` and `Div` coexist; Go does not. Pick — `NewDiv()` with the type
-`Div`, or an unexported type behind an exported constructor — and say which in
-`doc.go`, because this is the name users type most and it is the one place the
-GPUI-shaped API cannot come across unchanged.
+The wall-clock is survivable — 420 µs against a 16 ms budget, on top of `style`'s
+~400 µs. The allocation rate is the problem, and it does not show up as a slower
+average. It shows up as GC pauses landing inside frames, which is a stutter, and
+stutter is the thing a UI framework cannot have.
 
-**`Frame` is missing rem size.** `style.Style.ToLayout` takes a `remSize
-geometry.Pixels`, and an element has nowhere to get one — GPUI keeps it on the
-window, with a stack for overriding it per subtree. Add `RemSize() geometry.Pixels`
-to `Frame`, and tell `window`'s agent, since it is that package's job to hold it.
+This is the measured price of "elements are values built fresh each frame". That
+sentence has been in `docs/packages.md` since before anything existed, and until now
+nobody knew what it cost. Recording it is worth as much as the code.
 
-**Spell out the view erasure.** `Render[T any]` as a generic interface is fine, but
-`AnyView` has to erase `T` and the plan does not say how. That is the `app`-to-
-`element` bridge and it is where Go's lack of variance actually bites, so work it out
-before writing `Div`. Say also whether `Render` gets the `Frame` — GPUI hands its
-render method the window, and yours takes only the context.
+## What to decide now, and what not to
 
-**Smaller:** `ShapeLine(text string, ...)` shadows the `text` package inside the
-body. Rename the parameter.
+**Do not restructure `Div` yet.** Splitting the refinement out of line trades one
+allocation for two on any styled element, which is most of them. It is not the fix.
 
-## Read first
+GPUI's fix is a per-frame arena — `window.rs` enters an `ElementArenaScope` in `draw`
+and every element allocates from it, with the whole thing reset at frame end.
+Allocation becomes a bump and a pointer, and there is no garbage. That arena belongs
+to `window`, which owns the frame lifecycle, so it is not yours to build and I have
+put it in `prompts/window.md`.
 
-1. `AGENTS.md` — conventions, commit style, GB English
-2. `docs/architecture.md` — "The frame", "State and reactivity"
-3. `docs/packages.md` — the `element`, `style`, `layout`, `app` and `window` entries
-4. `prompts/window.md` — what the package above expects of `Frame`
-5. `_upstream/gpui/crates/gpui/src/element.rs` — 790 lines, read all of it
-6. `_upstream/gpui/crates/gpui/src/elements/div.rs` — 5,200 lines, read the `Div`
-   struct and its three phase methods; skip `Interactivity` for now
+**But the constructor signature is yours, and it decides whether an arena is possible
+at all.** `NewDiv()` takes no arguments, so it cannot reach an arena — there is
+nowhere for one to come from. Once an arena exists the options are:
 
-Sync the checkouts with `go run ./tools/upstream` if `_upstream/` is not there.
+- `f.NewDiv()` on `Frame`, or a similar carrier — explicit, and changes every call
+  site users write
+- a package-level "current arena" set by `window` for the duration of a frame —
+  keeps `NewDiv()` as it is, works because the UI is single-goroutine, and is the
+  kind of hidden global that is hard to remove later
+- accept the GC cost and keep `NewDiv()` as it is
 
-## Stop after one element through three phases
+Pick one now and say so in `doc.go`, with the numbers above as the reason. Changing
+it after `ui` is written means changing every widget and every example. This is
+exactly the sort of decision that is free today and expensive in a fortnight.
 
-Not `div` in full, and certainly not interactivity. The `Element` interface, the
-`Frame` interface, and one element — a plain box with a background and children —
-running layout, prepaint and paint against a fake `Frame` in a test.
+I lean towards the second, because `div().Flex()` is the expression the framework
+exists to make read well and threading a frame through it damages that — but the
+hidden global is a real cost and I would rather you weigh it than take my word.
 
-Then stop and say so.
+## Smaller
 
-That discipline has caught real defects twice on `platform`. It was skipped once, on
-`render`, and produced two thousand lines built on a call to the wrong function.
+Sixteen allocations for eleven nodes means five are not elements. Worth knowing what
+they are before the arena lands, because the arena will not absorb them.
 
-## Decide this first: how per-phase state is carried
-
-GPUI's `Element` has two associated types:
-
-    type RequestLayoutState: 'static;
-    type PrepaintState: 'static;
-
-`request_layout` returns the first, `prepaint` receives it and returns the second,
-`paint` receives both. Go has no associated types on interfaces, so this does not
-come across, and how you replace it shapes every element anyone ever writes.
-
-Two shapes worth weighing:
-
-- **Return `any` and pass it back.** Closest to GPUI. Costs a type assertion per
-  element per phase per frame, and an allocation whenever the state does not fit in
-  an interface word.
-- **Keep the state on the element.** An element is a value built fresh each frame and
-  discarded after paint, so it can hold `childLayoutIDs` as a field that
-  `RequestLayout` fills in and `Paint` reads. The interface takes a pointer receiver
-  and the phases mutate. No assertions, no boxing, and the compiler checks the types.
-
-The second is the more Go-ish answer and I expect it to win, but it has a consequence
-to state explicitly: elements become non-copyable in practice, and "an element is a
-value" in `docs/packages.md` starts to mean "a value addressed by pointer". Say which
-you chose and what it costs in `doc.go`.
-
-Whichever you pick, the phase ordering invariant has to be enforceable: prepaint may
-not request layout, paint may not register hit regions. Decide whether that is a
-documented rule, a runtime check under `facet_debug`, or something the types prevent.
-
-## The Frame interface
-
-`element` declares it. `window` implements it. Elements never import `window` — that
-would be a cycle, and this interface is what breaks it.
-
-`prompts/window.md` lists what `window` can supply from the packages that exist:
-
-    request layout         a node in the layout tree, with a style and children
-    computed bounds        after the solve, for a node
-    register a hit region  during prepaint, returning a handle
-    paint primitives       the six in `scene`
-    shape text             through `text`, at the window's scale factor
-    scale factor           for anything that has to snap to device pixels
-    rem size               `style.Style.ToLayout` needs one and elements have none
-
-Keep it narrow. Every method is something an element may call at any point in any
-phase, and every one of them is a thing `window` must then guarantee forever.
-`render.Renderer` and `platform.Platform` are the two interfaces we have already
-committed to; this is the third, and it is the one users' code sits closest to.
-
-If you need something from `window` that is not on that list, say so and why rather
-than adding it quietly. If something on the list turns out not to be needed, drop it.
-
-## You may name `input` — this changed after the prompt was written
-
-The table originally gave `element` no access to `input`, which meant nothing here or
-in `ui` could name an action, a key context or a focus handle, and no widget could
-declare a click. That was a hole in my table, not a constraint to design around, and
-it is fixed as of `8b223e1`: `element` and `ui` both import `input` now.
-
-So a hit region may be keyed by `input.DispatchNodeID`, an element may carry a
-`input.KeyContext` and action handlers, and focus is `input.FocusID`. `input` already
-owns precedence, the focus tree and the dispatch explanation — use them rather than
-growing a parallel set here.
-
-That said, the first milestone is still one element through three phases. Interactivity
-comes after, and `Interactivity` in GPUI's `div.rs` is most of its 5,200 lines.
-
-## The builder is yours
-
-This is settled and it is not where it looks like it should go.
-
-The fluent chain — `div().Flex().Gap(4).Bg(c)` — lives on the element, not on
-`style.Refinement`. `style` exposes mutators on `*Refinement`; the element holds a
-refinement and each builder method mutates it through the pointer and returns the
-element:
-
-    func (d *Div) Flex() *Div { d.style.SetDisplay(style.DisplayFlex); return d }
-
-The reasoning, so you do not undo it: value-receiver builders on `Refinement` cost
-~19 ns per call against a 2.55 ns copy control, because copy-in-mutate-copy-out is
-the whole cost and it grows with the struct. Pointer receivers on `Refinement` fix
-that and break the API — `Refinement{}.Flex()` does not compile, a composite literal
-is not addressable. GPUI hit the same wall in a language where the copy would be
-free, and resolved it the same way: `styled.rs:22` declares
-`fn style(&mut self) -> &mut StyleRefinement` and every fluent method mutates through
-it. The element is already behind a pointer, so it is the receiver that works.
-
-The method-per-property list is long and mechanical. It is not part of the first
-milestone.
-
-## What the package owns
-
-**The `Element` interface** and the three phases.
-
-**The element tree.** Children are elements; a container holds a slice of them. There
-is no reconciler and no diff — the tree is rebuilt every frame from retained state,
-and that is the point.
-
-**`div`.** The one general-purpose container, the way GPUI has one. Not a widget
-library; `ui` is that, and it is built entirely from what this package exports.
-
-**The fluent builder**, per the section above.
-
-**`Render`.** A view is an entity whose `Render` produces an element tree. `app` owns
-entities and knows nothing about drawing, so the interface that ties the two together
-lives here.
-
-## Decide these too
-
-Write the answers in `doc.go`.
-
-**Element identity across frames.** GPUI gives elements an optional ID and keys a
-per-frame state map by it — scroll offsets and the like. `docs/packages.md` says
-anything that outlives the frame belongs in an entity. Those conflict, `window`'s
-prompt raises the same question, and the two of you must not answer it differently.
-If elements get IDs, say what they are for and what evicts a stale entry, because a
-map keyed by element ID with no eviction grows with every list the user scrolls.
-
-**Whether children are typed or erased.** `[]Element` is the obvious answer and it
-boxes every child. Say whether that matters at the sizes we expect and what the
-alternative would have been.
-
-**What an element costs to build.** The tree is rebuilt every frame, so the
-constructor is on the hot path in a way a retained tree's is not. Benchmark building
-a small tree — a container with ten children — and put the number in `doc.go`. That
-number is the floor on Facet's frame time and nobody has one yet.
-
-## Invariants
-
-Elements are values built fresh each frame and discarded after paint. Anything that
-must survive the frame belongs in an entity.
-
-Layout, prepaint and paint run in that order and no phase reaches backwards.
-
-`element` imports `geometry`, `colour`, `scene`, `style`, `layout`, `text`, `input`
-and `app`, and nothing else of ours. It does not import `window`.
-
-No widget registry, no enum-plus-switch dispatch. Adding an element type adds a file.
+`ShapeLine(str string, ...)` — good, the shadowing is gone.
 
 ## Done when
 
-    go build -o bin/ ./...
-    go test ./...
-    go test -tags facet_debug ./...
-    go vet -unsafeptr=false ./...
-    gofmt -l $(go list -f '{{.Dir}}' ./...)
+The construction numbers are in `doc.go`, labelled as the per-frame floor they are,
+next to `style`'s.
 
-The layering test passes. A test drives one element through all three phases against
-a fake `Frame` and asserts what reached it — the layout request, the hit region, the
-primitives with their bounds — not that nothing returned an error. A test shows a
-phase called out of order is caught, by whatever mechanism you chose. A benchmark
-reports the cost of building a ten-child tree.
+The constructor decision is made and written down with its reasoning.
 
-Conventional commits, one file per commit, staged by path.
+Then the second milestone: the rest of `div`, and interactivity — `input` is
+available to you, and `Interactivity` is most of GPUI's 5,200-line `div.rs`, so scope
+it before starting.
 
-## Habits from earlier rounds
+## Worth carrying
 
-When a struct of options exists, at least one test passes it empty. Two defects in
-`platform` survived their suites because every test configured the field it was about
-to check.
-
-Assertions should know the answer. A test that a size "is positive" passed while the
-size was wrong by a window frame. If a contract is in a doc comment, the test checks
-the contract.
-
-When a decision is meant to be settled by measurement, measure first and let it
-decide — including when you are confident you already know. A plan for `style`
-recently named a performance number for an expression that does not compile.
+You measured the constructor because the prompt asked for a number, and the number
+turned out to be the most important thing anyone learned this week. The benchmark
+that tells you something you did not already believe is the one worth writing.
