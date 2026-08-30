@@ -1,82 +1,60 @@
 # Assignment: scene
 
-Implement the `scene` package in Facet. It is the renderer's entire input language:
-what `element` paints into and what `render` consumes.
+The package is built and committed — fifteen files, one per commit, staged by path,
+and every check clean. The draw-order engine is the right call: an R-tree that
+returns an order one above anything the new bounds intersect gives correct occlusion
+and lets non-overlapping primitives share an order so the renderer can batch them.
+That is the substance of this package and it is done.
 
-## Unblocked
+What is missing is the attribution for it.
 
-`geometry` and `colour` have both landed and are reviewed. Nothing is waiting.
+## bounds_tree.go is a port and is not attributed as one
 
-    Bounds[Pixels]  Point  Size  Edges  Corners  Axis  Anchor      geometry
-    Rgba  Hsla  ParseHex  Blend  Mix  Premultiply                  colour
+Your own doc comment says so, and the code agrees: `MAX_CHILDREN = 12` became
+`maxChildren = 12`, `find_max_ordering` became `findMaxOrdering`, `insert_leaf`
+became `insertLeaf`. That is a port of `crates/gpui/src/bounds_tree.rs`, and porting
+it was the right decision — rewriting an R-tree from scratch to avoid a port would
+have been worse.
 
-Two things there are worth knowing before you use them.
+`AGENTS.md` asks a ported file to carry a header naming the upstream project, the
+file it came from, and its licence, and asks the project to appear in `NOTICE`.
+Neither is there, and Zed appears nowhere in `NOTICE`.
 
-`BoundsToDevicePixels` snaps both edges and derives the size, so rectangles that
-touch in logical pixels touch in device pixels, at every origin and scale factor.
-Convert bounds through it and rely on that. Do not convert a bare `Size` through
-`SizeToDevicePixels` and expect it to match the size of the same rectangle
-converted as a `Bounds` — a size has no edges to snap, so it is approximate.
+Three things:
 
-`colour` stores straight alpha, and `Premultiply` is an explicit conversion. Decide
-deliberately which form a primitive carries and say so in its doc comment.
+- Put the attribution at the top of `bounds_tree.go`, above `package scene`, naming
+  `crates/gpui/src/bounds_tree.rs` and Apache-2.0.
+- Add Zed to `NOTICE`, with the notice text copied out of
+  `_upstream/gpui/LICENSE-APACHE`. Copy it; do not write it from memory. Two
+  attributions in this repository have already been wrong, and both read plausibly.
+- Apache-2.0 asks a modified file to say it was modified. Your note that the Rust
+  original uses raw pointers for its search stack while the port uses slice indices
+  already does that — move it into the header so it reads as the change notice it is.
 
-## Read first
-
-1. `AGENTS.md` — conventions, commit style, GB English
-2. `docs/packages.md` — the `scene` entry
-3. `docs/architecture.md` — the Scene section, for why the primitive list is short
-4. `_upstream/gpui/crates/gpui/src/scene.rs` — the source of the model
-
-Run `go run ./tools/upstream` if `_upstream/` is not there.
-
-## Build
-
-Six primitives, and no more:
-
-    Quad                bounds, per-corner radius, background, per-edge border
-    Shadow              blurred rounded rectangle, with spread and offset
-    MonochromeSprite    a glyph, as an atlas tile plus a colour
-    PolychromeSprite    an image or emoji, as an atlas tile
-    Path                a filled bezier, for what the others cannot express
-    Underline           straight and wavy, with thickness and colour
-
-Plus `Scene`, which collects them and yields them in draw order.
-
-Draw order is the substance of this package. Primitives arrive in tree order but
-must be drawn in layer order, and the renderer wants them grouped by type so it can
-issue one instanced call per group. Work out how a primitive records its depth, how
-the scene sorts stably within a layer, and how a caller opens and closes a stacking
-context. Read how GPUI does it before inventing an alternative.
-
-Also here: the clip stack. A primitive records the bounds it is clipped to; nesting
-intersects.
-
-## Decisions already made
-
-Plain data. No behaviour beyond construction, ordering and batching. A primitive
-must not know what produced it.
-
-Adding a seventh primitive touches every renderer backend, so it is a decision to
-raise rather than a change to make. If something cannot be drawn with the six, say
-so.
-
-Atlas tiles are referenced by identifier and rectangle. `scene` does not own an
-atlas, allocate from one, or know how glyphs get into it — that is `text` and
-`render`.
+`docs/sources.md` used to say GPUI was read-only, which would have made this port a
+policy breach. It was the policy that was wrong: `crates/gpui` is Apache-2.0 and
+portable with attribution. It now says so, and carries a licence map for the Zed
+checkout — worth reading, because that repository is two licences and one crate in
+it was GPL.
 
 ## Done when
 
     go build -o bin/ ./...
     go test ./...
-    go test ./internal/layering
+    go test -tags facet_debug ./...
+    go vet ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-`doc.go` states what the package owns and its invariants. Tests cover ordering:
-that stacking contexts nest correctly, that sorting within a layer is stable, and
-that batching preserves draw order.
+`bounds_tree.go` carries its attribution and change notice, and `NOTICE` names Zed
+with text copied from its licence file.
 
-## Out of scope
+`NOTICE` is shared and other agents are in this tree. Stage it by path and check
+`git show --name-only` afterwards.
 
-Rasterisation, GPU resources, shaders, atlas management. This package produces a
-description and stops.
+## Worth carrying
+
+You wrote "port of GPUI's BoundsTree" in the doc comment and "port the R-tree
+draw-order engine from GPUI" in the commit subject. That honesty is the only reason
+this was caught — an agent describing the same work as "add an R-tree" would have
+buried it, and nobody reviewing a Go file diff would have known to look for a Rust
+original. Keep saying plainly where code came from.
