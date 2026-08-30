@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/yasufad/facet/colour"
+	"github.com/yasufad/facet/geometry"
+	"github.com/yasufad/facet/layout"
 )
 
 var benchSink Sink
@@ -11,10 +13,11 @@ var benchSink Sink
 type Sink struct {
 	s Style
 	r Refinement
+	l layout.Style
 }
 
-// BenchmarkControlCopy48 measures a plain copy of a 48-byte struct as a control baseline.
-func BenchmarkControlCopy48(b *testing.B) {
+// BenchmarkControlCopy measures a plain copy of Refinement as a control baseline.
+func BenchmarkControlCopy(b *testing.B) {
 	var src Refinement
 	src.display = DisplayFlex
 	src.opacity = 0.5
@@ -93,6 +96,8 @@ func BenchmarkStyleRefineNonEmpty(b *testing.B) {
 	r.SetOpacity(0.5)
 	r.SetBackground(blue)
 	r.SetFlexGrow(2.0)
+	r.SetPadding(Px(8))
+	r.SetWidth(Px(100))
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -111,11 +116,13 @@ func BenchmarkRefinementMergeFrom(b *testing.B) {
 	var r1 Refinement
 	r1.SetOpacity(0.5)
 	r1.SetBackground(blue)
+	r1.SetPadding(Px(8))
 
 	var r2 Refinement
 	r2.SetOpacity(0.0)
 	r2.SetBackground(yellow)
 	r2.SetFlexGrow(1.0)
+	r2.SetWidth(Px(100))
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -124,5 +131,24 @@ func BenchmarkRefinementMergeFrom(b *testing.B) {
 		r := r1
 		r.MergeFrom(&r2)
 		benchSink.r = r
+	}
+}
+
+func BenchmarkStyleToLayout(b *testing.B) {
+	base := Default()
+	base.Display = DisplayFlex
+	base.FlexDirection = FlexDirectionColumn
+	base.FlexGrow = 1.0
+	base.Size = NewSize(Px(200), Px(100))
+	base.Padding = NewEdges(Px(8), Px(8), Px(8), Px(8))
+	base.Margin = NewEdges(Px(4), Px(4), Px(4), Px(4))
+	remSize := geometry.Pixels(16)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		l := base.ToLayout(remSize)
+		benchSink.l = l
 	}
 }
