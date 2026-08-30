@@ -51,12 +51,19 @@ const (
 	positionAbsolute = PositionAbsolute
 )
 
-// boxSizing controls whether size styles apply to the content or border box.
-type boxSizing uint8
+// BoxSizing controls whether size styles apply to the content or border box.
+type BoxSizing uint8
 
 const (
-	boxSizingBorderBox boxSizing = iota
-	boxSizingContentBox
+	BoxSizingBorderBox BoxSizing = iota
+	BoxSizingContentBox
+)
+
+type boxSizing = BoxSizing
+
+const (
+	boxSizingBorderBox  = BoxSizingBorderBox
+	boxSizingContentBox = BoxSizingContentBox
 )
 
 // Overflow controls how children overflowing their container affect layout.
@@ -92,25 +99,41 @@ func (o overflow) maybeIntoAutomaticMinSize() optF32 {
 	return none()
 }
 
-// direction sets the text direction.
-type direction uint8
+// Direction sets the text direction.
+type Direction uint8
 
 const (
-	directionLtr direction = iota
-	directionRtl
+	DirectionLtr Direction = iota
+	DirectionRtl
+)
+
+type direction = Direction
+
+const (
+	directionLtr = DirectionLtr
+	directionRtl = DirectionRtl
 )
 
 // isRtl reports whether the direction is right-to-left.
-func (d direction) isRtl() bool { return d == directionRtl }
+func (d direction) isRtl() bool { return d == DirectionRtl }
 
-// contain is the layout-affecting part of the CSS contain property.
-type contain uint8
+// Contain is the layout-affecting part of the CSS contain property.
+type Contain uint8
 
 const (
-	containNone    contain = 0
-	containLayout  contain = 1 << 0
-	containPaint   contain = 1 << 1
-	containContent         = containLayout | containPaint
+	ContainNone    Contain = 0
+	ContainLayout  Contain = 1 << 0
+	ContainPaint   Contain = 1 << 1
+	ContainContent         = ContainLayout | ContainPaint
+)
+
+type contain = Contain
+
+const (
+	containNone    = ContainNone
+	containLayout  = ContainLayout
+	containPaint   = ContainPaint
+	containContent = ContainContent
 )
 
 // contains reports whether self contains all of other's containment types.
@@ -146,7 +169,7 @@ const (
 	TextAlignEnd
 	TextAlignLeft
 	TextAlignRight
-	TextAlignCenter
+	TextAlignCentre
 	TextAlignJustify
 )
 
@@ -158,6 +181,6 @@ const (
 	textAlignEnd     = TextAlignEnd
 	textAlignLeft    = TextAlignLeft
 	textAlignRight   = TextAlignRight
-	textAlignCenter  = TextAlignCenter
+	textAlignCentre  = TextAlignCentre
 	textAlignJustify = TextAlignJustify
 )
