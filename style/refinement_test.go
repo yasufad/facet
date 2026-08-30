@@ -304,3 +304,121 @@ func TestTypographyRefinement(t *testing.T) {
 		t.Errorf("Text.Underline = %v, want thickness 2 wavy", s.Text.Underline)
 	}
 }
+
+func TestDistinctPropertyIndices(t *testing.T) {
+	props := []struct {
+		name  string
+		index uint8
+	}{
+		{"propDisplay", propDisplay},
+		{"propPosition", propPosition},
+		{"propVisibility", propVisibility},
+		{"propOverflowX", propOverflowX},
+		{"propOverflowY", propOverflowY},
+		{"propScrollbarWidth", propScrollbarWidth},
+		{"propAllowConcurrentScroll", propAllowConcurrentScroll},
+		{"propRestrictScrollToAxis", propRestrictScrollToAxis},
+		{"propInsetTop", propInsetTop},
+		{"propInsetRight", propInsetRight},
+		{"propInsetBottom", propInsetBottom},
+		{"propInsetLeft", propInsetLeft},
+		{"propMarginTop", propMarginTop},
+		{"propMarginRight", propMarginRight},
+		{"propMarginBottom", propMarginBottom},
+		{"propMarginLeft", propMarginLeft},
+		{"propPaddingTop", propPaddingTop},
+		{"propPaddingRight", propPaddingRight},
+		{"propPaddingBottom", propPaddingBottom},
+		{"propPaddingLeft", propPaddingLeft},
+		{"propBorderWidthTop", propBorderWidthTop},
+		{"propBorderWidthRight", propBorderWidthRight},
+		{"propBorderWidthBottom", propBorderWidthBottom},
+		{"propBorderWidthLeft", propBorderWidthLeft},
+		{"propBorderColour", propBorderColour},
+		{"propBorderStyle", propBorderStyle},
+		{"propCornerRadiusTopLeft", propCornerRadiusTopLeft},
+		{"propCornerRadiusTopRight", propCornerRadiusTopRight},
+		{"propCornerRadiusBottomRight", propCornerRadiusBottomRight},
+		{"propCornerRadiusBottomLeft", propCornerRadiusBottomLeft},
+		{"propSizeWidth", propSizeWidth},
+		{"propSizeHeight", propSizeHeight},
+		{"propMinSizeWidth", propMinSizeWidth},
+		{"propMinSizeHeight", propMinSizeHeight},
+		{"propMaxSizeWidth", propMaxSizeWidth},
+		{"propMaxSizeHeight", propMaxSizeHeight},
+		{"propAspectRatio", propAspectRatio},
+		{"propGapRow", propGapRow},
+		{"propGapColumn", propGapColumn},
+		{"propAlignItems", propAlignItems},
+		{"propAlignSelf", propAlignSelf},
+		{"propAlignContent", propAlignContent},
+		{"propJustifyContent", propJustifyContent},
+		{"propFlexDirection", propFlexDirection},
+		{"propFlexWrap", propFlexWrap},
+		{"propFlexBasis", propFlexBasis},
+		{"propFlexShrink", propFlexShrink},
+		{"propBackground", propBackground},
+		{"propOpacity", propOpacity},
+		{"propBoxShadow", propBoxShadow},
+		{"propMouseCursor", propMouseCursor},
+		{"propFlexGrow", propFlexGrow},
+		{"propTextColour", propTextColour},
+		{"propFontFamily", propFontFamily},
+		{"propFontFeatures", propFontFeatures},
+		{"propFontFallbacks", propFontFallbacks},
+		{"propFontSize", propFontSize},
+		{"propLineHeight", propLineHeight},
+		{"propFontWeight", propFontWeight},
+		{"propFontStyle", propFontStyle},
+		{"propTextBackgroundColour", propTextBackgroundColour},
+		{"propUnderline", propUnderline},
+		{"propStrikethrough", propStrikethrough},
+		{"propWhiteSpace", propWhiteSpace},
+		{"propTextOverflow", propTextOverflow},
+		{"propTextAlign", propTextAlign},
+		{"propLineClamp", propLineClamp},
+	}
+
+	seen := make(map[uint8]string)
+	for _, p := range props {
+		if p.index >= 128 {
+			t.Errorf("property %s index %d exceeds mask capacity of 128 bits", p.name, p.index)
+		}
+		if other, exists := seen[p.index]; exists {
+			t.Errorf("property index collision: %s and %s share bit index %d", p.name, other, p.index)
+		}
+		seen[p.index] = p.name
+	}
+}
+
+func TestTypographyPropertyIsolation(t *testing.T) {
+	// Refinements that set a single typography property must not clobber
+	// other typography properties on the base style.
+	base := Default()
+	base.Text.Colour = colour.Rgb(0xff0000)
+	base.Text.FontFamily = "Inter"
+	base.Text.FontWeight = text.WeightBold
+	base.Text.LineHeight = 28
+	base.Text.FontSize = 16
+
+	var r Refinement
+	r.SetFontSize(12)
+
+	base.Refine(r)
+
+	if base.Text.FontSize != 12 {
+		t.Errorf("FontSize = %v, want 12", base.Text.FontSize)
+	}
+	if base.Text.Colour != colour.Rgb(0xff0000) {
+		t.Errorf("refining FontSize clobbered Text.Colour: got %v, want %v", base.Text.Colour, colour.Rgb(0xff0000))
+	}
+	if base.Text.FontFamily != "Inter" {
+		t.Errorf("refining FontSize clobbered Text.FontFamily: got %q, want \"Inter\"", base.Text.FontFamily)
+	}
+	if base.Text.FontWeight != text.WeightBold {
+		t.Errorf("refining FontSize clobbered Text.FontWeight: got %v, want Bold", base.Text.FontWeight)
+	}
+	if base.Text.LineHeight != 28 {
+		t.Errorf("refining FontSize clobbered Text.LineHeight: got %v, want 28", base.Text.LineHeight)
+	}
+}
