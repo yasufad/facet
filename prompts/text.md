@@ -13,12 +13,11 @@ into the rest.
 
 Metrics speak in `geometry.Pixels`.
 
-One caveat for rasterisation: `BoundsToDevicePixels` currently rounds origin and
-size independently, so a converted rectangle can gap or overlap its neighbour by a
-pixel. A fix is assigned to `geometry`. Take glyph bounds through that function
-anyway rather than rounding yourself — the rule belongs in one place and you will
-inherit the fix — but do not build anything that assumes adjacent runs tile exactly
-until it lands.
+For rasterisation, take glyph bounds through `BoundsToDevicePixels`. It snaps both
+edges and derives the size, so adjacent runs tile exactly at every origin and scale
+factor. Do not round yourself, and do not convert a bare `Size` through
+`SizeToDevicePixels` expecting it to match — a size has no edges to snap, so it is
+approximate and documented as such.
 
 ## Read first
 
