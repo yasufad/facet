@@ -5,13 +5,6 @@ what `element` paints into and what `render` consumes.
 
 ## Prerequisites
 
-This package depends on `geometry` and `colour`, which must be implemented and merged
-before it can compile. If they are not there yet, wait — do not stub them. A
-placeholder gets imported, drifts from the real API, and turns the merge into a
-rewrite.
-
-## Prerequisites
-
 `geometry` and `colour` must be merged before this package can compile — the
 primitives are almost entirely bounds and colours, and there is no useful subset to
 write without them. If they are not in yet, wait. Do not stub them: a placeholder
