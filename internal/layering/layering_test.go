@@ -42,8 +42,8 @@ var permitted = map[string][]string{
 }
 
 // unconstrained packages sit outside the layer stack. Vendored source keeps
-// whatever shape it arrived in, and tooling is not part of the framework.
-var unconstrained = []string{"third_party", "internal", "tools"}
+// whatever shape it arrived in, and tooling/examples are not part of the framework.
+var unconstrained = []string{"third_party", "internal", "tools", "examples"}
 
 // platforms covers every target we build for, because build constraints hide
 // imports that only exist on one operating system.
