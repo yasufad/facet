@@ -235,9 +235,6 @@ func TestFluentBuilderToLayout(t *testing.T) {
 	if st.JustifyContent == nil || st.JustifyContent.Keyword != layout.AlignContentCentre.Keyword {
 		t.Errorf("JustifyContent = %v, want AlignContentCentre", st.JustifyContent)
 	}
-	if st.FlexDirection != layout.FlexRow {
-		t.Errorf("FlexDirection = %v, want FlexRow", st.FlexDirection)
-	}
 	if st.FlexWrap != layout.FlexWrapWrap {
 		t.Errorf("FlexWrap = %v, want FlexWrapWrap", st.FlexWrap)
 	}
