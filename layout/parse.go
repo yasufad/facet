@@ -176,12 +176,12 @@ func parseFlexWrap(s string) (flexWrap, error) {
 	case "", "nowrap":
 		return FlexNoWrap, nil
 	case "wrap":
-		return FlexWrap, nil
+		return FlexWrapWrap, nil
 	case "wrap-reverse":
 		return FlexWrapReverse, nil
 	case "balance", "balance-all":
 		// Balance is not implemented; treat as wrap.
-		return FlexWrap, nil
+		return FlexWrapWrap, nil
 	}
 	return 0, &parseError{msg: fmt.Sprintf("unknown flex-wrap %q", s)}
 }
