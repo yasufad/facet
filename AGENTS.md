@@ -1,7 +1,8 @@
-# gpui-go
+# Facet
 
 A GUI framework for Go: pure Go in, native desktop application out. The design
-follows GPUI, the framework behind the Zed editor.
+follows GPUI, the framework behind the Zed editor. Module path
+`github.com/yasufad/facet`.
 
 `docs/architecture.md` defines the layer stack, the seams between layers, and which
 decisions are still open. Read it before structural changes, and link to it rather
@@ -23,8 +24,10 @@ it.
     ../wails    Wails v3 — the platform layer we borrow from
 
 Both sit outside the working directory and need to be granted before they can be
-read; in Claude Code, start with `--add-dir ../gpui --add-dir ../wails`. Prefer
-borrowing working code from `../wails` over writing new platform code.
+read; in Claude Code, start with `--add-dir ../gpui --add-dir ../wails`.
+
+`docs/sources.md` says which layer draws on which, and which parts neither of them
+provides. Read it before assuming something has to be written from scratch.
 
 ## Working alongside other agents
 
