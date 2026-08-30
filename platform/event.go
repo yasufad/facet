@@ -33,20 +33,79 @@ type PointerEvent struct {
 
 func (PointerEvent) isEvent() {}
 
-// WheelEvent reports scroll-wheel input. Delta is normalised to lines: a
-// positive Y delta scrolls toward the bottom of the content, a positive X
-// delta toward the right. The platform converts from its native units —
-// Windows multiples of 120, macOS pixel-based deltas — so nothing above this
-// layer has to know them.
+// WheelEvent reports scroll-wheel or trackpad scroll input. The delta carries
+// its unit so the consumer can apply it correctly: pixel deltas from a
+// trackpad or precision touchpad are exact and applied directly; line deltas
+// from a mouse wheel are inexact and multiplied by a line height. The phase
+// tracks the gesture lifecycle, which a mouse-wheel notch does not have — it
+// arrives as [ScrollMoved] with no Started/Ended pair.
+//
+// Positive Y scrolls toward the bottom of the content; positive X toward the
+// right. The platform converts from its native units — Windows multiples of
+// 120 for a mouse wheel, pixel deltas for a precision touchpad — but does not
+// flatten the distinction, because precision is unrecoverable once lost.
 type WheelEvent struct {
 	Position  geometry.Point[geometry.DevicePixels]
-	DeltaX    float32
-	DeltaY    float32
+	Delta     ScrollDelta
+	Phase     ScrollPhase
 	Modifiers Modifiers
 	Time      time.Time
 }
 
 func (WheelEvent) isEvent() {}
+
+// ScrollDelta carries a scroll distance in one of two units. A mouse wheel
+// emits discrete notches measured in lines; a trackpad or precision touchpad
+// emits pixel-exact deltas with momentum. The consumer applies pixel deltas
+// directly and multiplies line deltas by a line height. Hiding the unit would
+// destroy precision this layer received — the two inputs are different, and
+// the consumer has to know which arrived.
+type ScrollDelta struct {
+	// Unit distinguishes pixel-exact from line-based deltas.
+	Unit ScrollUnit
+
+	// DeltaX is the horizontal scroll distance. Positive is toward the right.
+	DeltaX float32
+
+	// DeltaY is the vertical scroll distance. Positive is toward the bottom.
+	DeltaY float32
+}
+
+// ScrollUnit distinguishes exact pixel deltas from inexact line deltas.
+type ScrollUnit int
+
+const (
+	// ScrollPixels is an exact delta in physical pixels, from a trackpad or
+	// precision touchpad. The consumer applies it directly.
+	ScrollPixels ScrollUnit = iota
+
+	// ScrollLines is an inexact delta in lines, from a mouse wheel. The
+	// consumer multiplies by a line height before applying.
+	ScrollLines
+)
+
+// ScrollPhase tracks the lifecycle of a scroll gesture — typically a trackpad
+// or touch gesture with momentum. A mouse-wheel notch has no lifecycle: it
+// arrives as [ScrollMoved] with no [ScrollStarted]/[ScrollEnded] pair.
+//
+// The phases mirror winit's TouchPhase, which mirrors GPUI's.
+type ScrollPhase int
+
+const (
+	// ScrollStarted is the first event of a gesture.
+	ScrollStarted ScrollPhase = iota
+
+	// ScrollMoved is a continuing event, or the only event for a discrete
+	// mouse-wheel notch.
+	ScrollMoved
+
+	// ScrollEnded is the last event of a gesture, before inertia.
+	ScrollEnded
+
+	// ScrollCancelled is sent when the gesture is interrupted — a finger
+	// landing on the trackpad, or the system cancelling the touch.
+	ScrollCancelled
+)
 
 // KeyEvent reports a key press, release or auto-repeat. Code identifies the
 // physical key for keybindings; the character it produced, if any, arrives as
