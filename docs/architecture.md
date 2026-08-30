@@ -1,6 +1,9 @@
 # Architecture
 
-Status: planning. Sections marked *open* are not decided.
+Status: implementation. Five packages are built — geometry, colour, app,
+layout, text — and the layering test enforces their imports. The remaining
+packages (scene, platform, render, style, input, element, window, ui) are
+not yet started.
 
 ## Overview
 
@@ -140,29 +143,33 @@ Using a context from another goroutine panics.
 segmentation, and shaping, in pure Go. `text/` wraps it and exposes shaped lines and
 glyph runs; no layer above `text/` knows the dependency exists.
 
-Rasterising outlines into the glyph atlas sits on our side of that boundary. Three
-approaches were considered:
+Rasterising outlines into the glyph atlas uses `golang.org/x/image/vector`, which
+computes analytic area coverage — all 256 levels — with SIMD paths on amd64 and
+arm64. A custom scanline rasteriser was tried first and measured against it. The
+custom one supersampled at 4×4 per pixel, giving at most 17 distinct coverage
+values before scaling to a byte; at 10 to 14 pixels stem edges landed on those
+steps and came out unevenly weighted. `x/image/vector` has no such ceiling.
 
-- `golang.org/x/image/vector` — a mature CPU rasteriser. Rejected: it is a
-  third-party import the package's dependency rule does not permit. `text/` may
-  import `go-text/typesetting` and the standard library; nothing else.
-- GPU compute, as GPUI does — rejected: it belongs to `render/`, which sits above
-  `text/`. The text package produces data; it does not draw.
-- A custom scanline rasteriser in `text/` itself.
+The timings, averaged over six Latin glyphs at each size:
 
-The custom rasteriser was implemented and measured. It supersamples at 4×4 per
-pixel (16 coverage levels), flattens quadratic and cubic Béziers to line segments,
-and fills with the non-zero winding rule. On a 16 px Latin glyph it produces a
-mask in under 50 µs; on a 24 px CJK glyph with several hundred outline points,
-under 200 µs. That is well below the cost of shaping the same glyph and far below
-a frame budget. The masks are visually indistinguishable from FreeType's light
-autohinter at the same supersampling factor.
+    10 px   custom 9.99 µs   x/image/vector 7.19 µs
+    12 px   custom 12.70 µs  x/image/vector 7.02 µs
+    14 px   custom 15.41 µs  x/image/vector 7.31 µs
+    16 px   custom 19.03 µs  x/image/vector 8.01 µs
+
+`x/image/vector` is faster at every size, and the gap widens as the glyph grows
+because the custom rasteriser's cost scales with the supersample grid while the
+analytic rasteriser's does not.
+
+GPU compute, as GPUI does, was not considered: it belongs to `render/`, which
+sits above `text/`. The text package produces data; it does not draw.
 
 The rasteriser handles the four OpenType outline operations (move, line, quadratic,
 cubic) and nothing else. Bitmap, SVG and COLR glyphs fall back to their embedded
 outline when typesetting provides one; glyphs with no outline at all (whitespace)
-produce an empty mask. Glyph bounds go through `geometry.BoundsToDevicePixels` so
-atlas tiles agree with the geometry around them.
+produce an empty mask. Glyph bounds go through `geometry.BoundsToDevicePixels`
+with the display's real scale factor, so atlas tiles agree with the geometry
+around them.
 
 ## Layout
 
