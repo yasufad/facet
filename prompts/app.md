@@ -6,12 +6,13 @@ fix two defects found in review.
 
 ## State
 
-Fourteen files in `app/`, none of them committed. `go build`, `go vet`, `gofmt` and
-`go test ./app/` are all clean. The design is sound: keep it. In particular keep the
-lease mechanism that makes a re-entrant update panic rather than alias, the
-inert-insert-then-activate subscriber model, and `doc.go`, which is good.
+Fourteen files in `app/`, committed one per file in dependency order. `go build`,
+`go vet`, `gofmt` and `go test ./app/` are all clean. The design is sound: keep it.
+In particular keep the lease mechanism that makes a re-entrant update panic rather
+than alias, the inert-insert-then-activate subscriber model, and `doc.go`, which is
+good.
 
-Do not redesign. Two things are wrong; fix those.
+Do not redesign. Three things are wrong; fix those, each in its own commit.
 
 ## Defect 1 — the threading check costs 6.25µs
 
@@ -67,13 +68,6 @@ of regression that reappears quietly.
 receivers, so `app.Subscribe(...).Close()` does not compile. Return a pointer, or
 move the state behind one.
 
-## Then commit it
-
-Fourteen files, untracked. Conventional commits, one file per commit, as
-`AGENTS.md` requires. Order them so the tree builds at every commit — types before
-the code that uses them. The commit for a fix explains what was wrong; the rest
-need no body.
-
 ## Done when
 
     go build -o bin/ ./...
@@ -83,8 +77,8 @@ need no body.
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
 The order test passes. The cost of the threading check is measured, stated in a
-commit message, and described accurately wherever the code talks about it. Every
-file is committed.
+commit message, and described accurately wherever the code talks about it. Each fix
+is its own conventional commit whose body says what was wrong.
 
 `layout` currently has failing tests and unformatted files. That is another agent's
 work in progress, not yours — do not touch it, and do not let it stop you.
