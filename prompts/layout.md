@@ -7,6 +7,53 @@ outside it, and from outside, the flexbox engine cannot be told to do flexbox.
 
 Nothing about the algorithm changes. This is a visibility and naming pass.
 
+## Response to the plan
+
+The shape is right: external test first, export what it needed, unexport the solver
+internals, and `TestStyleAllNonDefaultFields` is a better idea than anything in the
+original prompt — a field that cannot be given a non-default value from outside is
+dead, and that test says so permanently. Four things before you write it.
+
+**`Center` must be `Centre`, and this is the last cheap moment.** `AGENTS.md` names
+`centre` as one of its examples, and the public API is filling up with the American
+spelling:
+
+    layout/alignment.go     AlignItemsCenter, AlignItemsSafeCenter,
+                            AlignContentCenter, AlignContentSafeCenter
+    layout/style_enums.go   TextAlignCenter
+    style/enums.go          AlignItemsCenter, AlignContentCenter, TextAlignCenter
+
+Your plan proposes exporting `TextAlignCenter` as well. Rename all of them to
+`Centre`. `style` mirrors the same names and converts into them, so tell that agent
+rather than leaving the two halves inconsistent — the packages are both in flight,
+nothing outside the repo depends on either, and after `element` and `ui` reference
+these it stops being a two-file change.
+
+**Rename `availableSpace`, do not alias it.** `type AvailableSpace = availableSpace`
+compiles and makes the calls possible, but the declared parameter type stays
+`availableSpace`, so `go doc` keeps printing
+
+    func (t *TaffyTree) ComputeLayout(root NodeID, avail Size[availableSpace])
+
+and the API still reads as unusable to the next person who looks at it. Rename the
+type and change the signatures.
+
+**Decide about the alignment values while you are in there.**
+`AlignItemsCentre` and its neighbours are exported package-level `var`s, because they
+are structs and cannot be constants. That means `layout.AlignItemsCentre =
+layout.AlignItemsStart` compiles and silently corrupts every later use. Returning
+them from functions closes it; keeping them as vars with a comment saying why is also
+an answer. It is in scope because it is the same question your plan is asking about
+everything else on the surface.
+
+**Do not derive the expected numbers from our own solver.** Root 400×100, children at
+0 and 110 — get those from Taffy's fixtures or a browser, not from running our code
+and recording what it printed. An assertion that matches the implementation by
+construction tests nothing.
+
+One thing not to change: `Layout.Order` shows as `u32` in `go doc`, but `u32` is an
+alias for `uint32`, so a caller can use it. It is only cosmetic.
+
 ## The evidence
 
 **`ComputeLayout` cannot be called.**
