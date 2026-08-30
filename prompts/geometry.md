@@ -1,61 +1,50 @@
 # Assignment: geometry
 
-Implement the `geometry` package in Facet. It is the bottom of the stack — every
-other package depends on it, and it depends on nothing.
+The package is built, reviewed and committed — fifteen files, all checks clean.
+The units, the five generic shapes, `Axis` and `Anchor` are all in place, and the
+device-pixel snapping is right: adjacent rectangles stay adjacent across fractional
+edges at fractional scale factors, because the conversion snaps both edges and
+derives the size instead of rounding origin and size independently. That is the
+subtle one, and getting it unprompted is why the rest of the stack can trust this
+package.
 
-## Read first
+One gap remains. It is small.
 
-1. `AGENTS.md` — conventions, commit style, GB English
-2. `docs/packages.md` — the `geometry` entry
-3. `_upstream/gpui/crates/gpui/src/geometry.rs` — the source of the model
+## Point has no device-pixel conversion
 
-Run `go run ./tools/upstream` if `_upstream/` is not there.
+`Size` has `SizeToDevicePixels` and `DeviceSizeToPixels`. `Bounds` has its pair.
+`Point` has only `ScalePoint` and `MapPoint`.
 
-## Build
+So anyone converting a bare point — a cursor position, a scroll offset, a glyph
+origin — has to write the rounding rule themselves through `MapPoint`. That is the
+mistake distinct unit types exist to prevent, and it is exactly where the snapping
+subtlety lives: a caller who rounds a point differently from the way `Bounds` rounds
+its origin will be a pixel out, intermittently, in a way that looks like a renderer
+bug.
 
-Units, as distinct types so they cannot be mixed by accident:
-
-    Pixels          float32, logical pixels, what layout and styling speak
-    DevicePixels    int32, physical pixels, what the renderer speaks
-    ScaledPixels    float32, logical pixels times the display scale, pre-rounding
-    Rems            float32, multiples of the root font size
-
-Conversion between them is explicit and takes the scale factor or rem size as an
-argument. There is no implicit widening.
-
-Shapes, generic over a numeric constraint so the same types serve every unit:
-
-    Point[T]    Size[T]    Bounds[T]    Edges[T]    Corners[T]
-
-Bounds needs the usual queries — origin, extent, centre, contains, intersects,
-intersection, union, inset, dilate. Edges and Corners need uniform, symmetric and
-per-side constructors. `Axis` with `Horizontal` and `Vertical`, and helpers to read
-and write the component of a Point or Size along an axis; the layout engine leans on
-these to avoid writing every algorithm twice.
-
-## Decisions already made
-
-Values, not pointers. Everything here is small and copied freely; no method takes a
-receiver pointer to mutate in place.
-
-Do not define length or dimension types — no `Length`, `Dimension` or
-`LengthPercentage`. Those belong to `layout`, which defines its own as part of the
-Taffy port, and `style` converts down to them.
-
-`geometry` must not import `colour`. They are siblings, not a stack.
+Add the pair, rounding identically to the existing conversions, and test that a
+point converted on its own lands where the same point converted as part of a
+`Bounds` origin lands.
 
 ## Done when
 
     go build -o bin/ ./...
-    go test ./...
+    go test ./geometry/
     go test ./internal/layering
+    go vet ./geometry/
     gofmt -l $(go list -f '{{.Dir}}' ./...)
 
-`doc.go` states what the package owns and its invariants. Tests cover the arithmetic
-that is easy to get subtly wrong — bounds intersection, edge insetting, axis
-accessors — and not the trivial constructors.
+One conventional commit, staged by path.
 
-## Out of scope
+## Not worth changing
 
-Anything in another package. If you need something `geometry` should not own, say so
-rather than adding it here.
+The four `Zero*` constants add nothing over `Pixels(0)`, since these are numeric
+types with a usable zero value. Leave them; churning the API of a package three
+others already depend on costs more than the tidiness is worth.
+
+## One habit worth dropping
+
+The report described `app` and `layout` as having pre-existing failures. Both passed
+at the time, and had for a while. In a tree with several agents that state is
+minutes old at best — re-run another package before reporting it broken, or the
+reviewer chases something that is not there.
