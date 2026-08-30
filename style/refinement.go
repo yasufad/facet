@@ -13,7 +13,6 @@ type Refinement struct {
 	opacity    float32
 	background colour.Rgba
 	flexGrow   float32
-	testHigh   float32
 }
 
 // IsEmpty reports whether no properties have been set in this refinement.
@@ -21,37 +20,29 @@ func (r Refinement) IsEmpty() bool {
 	return r.mask.isEmpty()
 }
 
-// Merge combines r with other, returning a new Refinement where any property
-// explicitly set in other overrides the corresponding property in r.
-func (r Refinement) Merge(other Refinement) Refinement {
-	if other.mask.isEmpty() {
-		return r
+// MergeFrom applies all explicitly configured properties in other onto r in place,
+// overriding any existing property values in r.
+func (r *Refinement) MergeFrom(other *Refinement) {
+	if other == nil || other.mask.isEmpty() {
+		return
 	}
-	if r.mask.isEmpty() {
-		return other
-	}
-	out := r
-	out.mask = r.mask.or(other.mask)
+	r.mask = r.mask.or(other.mask)
 	if other.mask.lo != 0 {
 		if other.mask.has(propDisplay) {
-			out.display = other.display
+			r.display = other.display
 		}
 		if other.mask.has(propOpacity) {
-			out.opacity = other.opacity
+			r.opacity = other.opacity
 		}
 		if other.mask.has(propBackground) {
-			out.background = other.background
-		}
-		if other.mask.has(propFlexGrow) {
-			out.flexGrow = other.flexGrow
+			r.background = other.background
 		}
 	}
 	if other.mask.hi != 0 {
-		if other.mask.has(propTestHigh) {
-			out.testHigh = other.testHigh
+		if other.mask.has(propFlexGrow) {
+			r.flexGrow = other.flexGrow
 		}
 	}
-	return out
 }
 
 // SetDisplay sets the element's layout strategy.
@@ -72,8 +63,8 @@ func (r *Refinement) SetBackground(c colour.Rgba) {
 	r.background = c
 }
 
-// SetBgHsla sets the background colour from an Hsla value.
-func (r *Refinement) SetBgHsla(c colour.Hsla) {
+// SetBackgroundHsla sets the background colour from an Hsla value.
+func (r *Refinement) SetBackgroundHsla(c colour.Hsla) {
 	r.mask.set(propBackground)
 	r.background = c.Rgba()
 }
@@ -82,10 +73,4 @@ func (r *Refinement) SetBgHsla(c colour.Hsla) {
 func (r *Refinement) SetFlexGrow(grow float32) {
 	r.mask.set(propFlexGrow)
 	r.flexGrow = grow
-}
-
-// SetTestHigh sets the testHigh property in the high word.
-func (r *Refinement) SetTestHigh(v float32) {
-	r.mask.set(propTestHigh)
-	r.testHigh = v
 }
