@@ -7,6 +7,40 @@ tree, the `Frame` interface that `window` implements, and `div`.
 where the fluent style builder lives — see "The builder is yours" below, because that
 is a decision already taken and it is not the obvious one.
 
+## Response to the plan
+
+Decisions 1, 2, 4 and 5 are accepted. State on the element with pointer receivers is
+the right call and the consequence is stated honestly. Entities rather than an
+element-keyed map matches what `window` answered independently. `[]Element` with the
+boxing cost named is fine.
+
+You are no longer blocked on anything. `layout` has exported its enums, and
+`style.Style.ToLayout(remSize)` exists, so a `layout.Style` can be built.
+
+**`func Div() *Div` does not compile.** A type and a function cannot share a name at
+package scope:
+
+    Div redeclared in this block
+
+Rust lets `div()` and `Div` coexist; Go does not. Pick — `NewDiv()` with the type
+`Div`, or an unexported type behind an exported constructor — and say which in
+`doc.go`, because this is the name users type most and it is the one place the
+GPUI-shaped API cannot come across unchanged.
+
+**`Frame` is missing rem size.** `style.Style.ToLayout` takes a `remSize
+geometry.Pixels`, and an element has nowhere to get one — GPUI keeps it on the
+window, with a stack for overriding it per subtree. Add `RemSize() geometry.Pixels`
+to `Frame`, and tell `window`'s agent, since it is that package's job to hold it.
+
+**Spell out the view erasure.** `Render[T any]` as a generic interface is fine, but
+`AnyView` has to erase `T` and the plan does not say how. That is the `app`-to-
+`element` bridge and it is where Go's lack of variance actually bites, so work it out
+before writing `Div`. Say also whether `Render` gets the `Frame` — GPUI hands its
+render method the window, and yours takes only the context.
+
+**Smaller:** `ShapeLine(text string, ...)` shadows the `text` package inside the
+body. Rename the parameter.
+
 ## Read first
 
 1. `AGENTS.md` — conventions, commit style, GB English
@@ -73,6 +107,7 @@ would be a cycle, and this interface is what breaks it.
     paint primitives       the six in `scene`
     shape text             through `text`, at the window's scale factor
     scale factor           for anything that has to snap to device pixels
+    rem size               `style.Style.ToLayout` needs one and elements have none
 
 Keep it narrow. Every method is something an element may call at any point in any
 phase, and every one of them is a thing `window` must then guarantee forever.
