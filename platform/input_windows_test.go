@@ -10,3 +10,11 @@ import "github.com/yasufad/facet/third_party/w32"
 func postMouseMove(hwnd uintptr, lParam uintptr) {
 	w32.PostMessage(w32.HWND(hwnd), w32.WM_MOUSEMOVE, 0, lParam)
 }
+
+// postClose posts a WM_CLOSE message to the window, triggering the close
+// path (close handler, then DestroyWindow) without holding a Go reference
+// to the window. It is used by the lifetime test to clean up a window whose
+// Go handle has been dropped.
+func postClose(hwnd uintptr) {
+	w32.PostMessage(w32.HWND(hwnd), w32.WM_CLOSE, 0, 0)
+}
