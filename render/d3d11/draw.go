@@ -156,8 +156,8 @@ func (r *d3d11Renderer) drawQuadBatch(quads []scene.Quad) error {
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.quadShader.stride)
 
 	// DrawInstanced: 6 vertices per quad, len(quads) instances
-	// ID3D11DeviceContext::DrawInstanced is vtbl index 20
-	r.context.call(20, 6, uintptr(len(quads)), 0, 0)
+	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
+	r.context.call(21, 6, uintptr(len(quads)), 0, 0)
 	return nil
 }
 
@@ -206,7 +206,8 @@ func (r *d3d11Renderer) drawShadowBatch(shadows []scene.Shadow) error {
 
 	r.setShader(&r.pipeline.shadowShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.shadowShader.stride)
-	r.context.call(20, 6, uintptr(len(shadows)), 0, 0)
+	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
+	r.context.call(21, 6, uintptr(len(shadows)), 0, 0)
 	return nil
 }
 
@@ -255,7 +256,8 @@ func (r *d3d11Renderer) drawMonoSpriteBatch(sprites []scene.MonochromeSprite, te
 
 	r.setShader(&r.pipeline.monoShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.monoShader.stride)
-	r.context.call(20, 6, uintptr(len(sprites)), 0, 0)
+	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
+	r.context.call(21, 6, uintptr(len(sprites)), 0, 0)
 	return nil
 }
 
@@ -307,7 +309,8 @@ func (r *d3d11Renderer) drawPolySpriteBatch(sprites []scene.PolychromeSprite, te
 
 	r.setShader(&r.pipeline.polyShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.polyShader.stride)
-	r.context.call(20, 6, uintptr(len(sprites)), 0, 0)
+	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
+	r.context.call(21, 6, uintptr(len(sprites)), 0, 0)
 	return nil
 }
 
@@ -354,8 +357,8 @@ func (r *d3d11Renderer) drawPathBatch(paths []scene.Path[geometry.ScaledPixels])
 	r.setShader(&r.pipeline.pathShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.pathShader.stride)
 
-	// ID3D11DeviceContext::Draw is vtbl index 12
-	r.context.call(12, uintptr(len(data)), 0)
+	// ID3D11DeviceContext::Draw is vtbl index 13
+	r.context.call(13, uintptr(len(data)), 0)
 	return nil
 }
 
@@ -397,6 +400,7 @@ func (r *d3d11Renderer) drawUnderlineBatch(underlines []scene.Underline) error {
 
 	r.setShader(&r.pipeline.underlineShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.underlineShader.stride)
-	r.context.call(20, 6, uintptr(len(underlines)), 0, 0)
+	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
+	r.context.call(21, 6, uintptr(len(underlines)), 0, 0)
 	return nil
 }
