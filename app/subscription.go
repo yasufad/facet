@@ -1,5 +1,7 @@
 package app
 
+import "sort"
+
 // subscriberSet is a multi-map from a key to a set of subscribers, where each
 // subscriber may be inert (not yet activated), active, or dropped.
 //
@@ -52,13 +54,19 @@ func (s *subscriberSet[K, C]) insert(key K, cb C) (Subscription, func()) {
 }
 
 // remove returns the callbacks of all active subscribers for key and clears
-// them. Used when an entity is dropped: its observers and subscribers go with
-// it.
+// them, in registration order. Used when an entity is dropped: its observers
+// and subscribers go with it.
 func (s *subscriberSet[K, C]) remove(key K) []C {
 	subs := s.byKey[key]
 	delete(s.byKey, key)
+	ids := make([]uint64, 0, len(subs))
+	for id := range subs {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
 	var out []C
-	for _, sub := range subs {
+	for _, id := range ids {
+		sub := subs[id]
 		if sub.active && !sub.dropped {
 			out = append(out, sub.cb)
 		}
@@ -79,7 +87,21 @@ func (s *subscriberSet[K, C]) retain(key K, f func(*C) bool) {
 	// Take the bucket out so inserts during the pass land in a fresh one and
 	// are merged back at the end.
 	delete(s.byKey, key)
-	for id, sub := range subs {
+
+	// Dispatch in registration order (by monotonic id), not map iteration
+	// order. Map iteration is nondeterministic in Go; pinning to id makes
+	// observer dispatch reproducible across runs.
+	ids := make([]uint64, 0, len(subs))
+	for id := range subs {
+		ids = append(ids, id)
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+
+	for _, id := range ids {
+		sub := subs[id]
+		if sub == nil {
+			continue
+		}
 		if !sub.active {
 			continue
 		}

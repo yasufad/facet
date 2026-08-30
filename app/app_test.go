@@ -319,3 +319,45 @@ func TestObserveRegisteredDuringNotifyDoesNotFireImmediately(t *testing.T) {
 	}
 	observed.Release()
 }
+
+func TestObserverDispatchOrderIsRegistrationOrder(t *testing.T) {
+	// Multiple observers of the same entity must fire in registration order,
+	// not map iteration order. This is the kind of regression that reappears
+	// quietly, so the test pins the order explicitly.
+	app := NewApp()
+	defer app.Close()
+
+	observed := newCounter(t, app, 0)
+	defer observed.Release()
+
+	var order []string
+	host := New(app, func(cx *Context[observerCount]) observerCount {
+		Observe(cx, observed, func(v *observerCount, e Entity[counter], cx *Context[observerCount]) {
+			order = append(order, "a")
+		})
+		Observe(cx, observed, func(v *observerCount, e Entity[counter], cx *Context[observerCount]) {
+			order = append(order, "b")
+		})
+		Observe(cx, observed, func(v *observerCount, e Entity[counter], cx *Context[observerCount]) {
+			order = append(order, "c")
+		})
+		Observe(cx, observed, func(v *observerCount, e Entity[counter], cx *Context[observerCount]) {
+			order = append(order, "d")
+		})
+		Observe(cx, observed, func(v *observerCount, e Entity[counter], cx *Context[observerCount]) {
+			order = append(order, "e")
+		})
+		return observerCount{}
+	})
+	defer host.Release()
+
+	// Run several notifies; the order must be identical every time.
+	for run := 0; run < 5; run++ {
+		order = nil
+		observed.Update(app, func(v *counter, cx *Context[counter]) { cx.Notify() })
+		want := []string{"a", "b", "c", "d", "e"}
+		if !reflect.DeepEqual(order, want) {
+			t.Fatalf("run %d: got %v, want %v", run, order, want)
+		}
+	}
+}
