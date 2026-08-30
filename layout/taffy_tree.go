@@ -199,68 +199,57 @@ func (t *TaffyTree) Dirty(id NodeID) bool { return t.nodes[id.raw].cache.IsEmpty
 // TotalNodeCount returns the number of nodes in the tree.
 func (t *TaffyTree) TotalNodeCount() int { return len(t.nodes) }
 
-// --- LayoutTree / FlexboxTree / RoundTree implementation ---
+// --- layoutTree / flexboxTree / roundTree implementation ---
 
-// ChildCount returns the number of children of a node.
-func (t *TaffyTree) ChildCount(parent NodeID) int { return len(t.children[parent.raw]) }
+func (t *TaffyTree) childCount(parent NodeID) int { return len(t.children[parent.raw]) }
 
-// ChildID returns the nth child of a node.
-func (t *TaffyTree) ChildID(parent NodeID, index int) NodeID {
+func (t *TaffyTree) childID(parent NodeID, index int) NodeID {
 	return t.children[parent.raw][index]
 }
 
-// CoreContainerStyle returns the style of a node.
-func (t *TaffyTree) CoreContainerStyle(id NodeID) *Style { return &t.nodes[id.raw].style }
+func (t *TaffyTree) coreContainerStyle(id NodeID) *Style { return &t.nodes[id.raw].style }
 
-// SetUnroundedLayout stores the unrounded layout of a node.
-func (t *TaffyTree) SetUnroundedLayout(id NodeID, l Layout) {
+func (t *TaffyTree) setUnroundedLayout(id NodeID, l Layout) {
 	t.nodes[id.raw].unroundedLayout = l
 }
 
-// CacheGet retrieves a cached layout result.
-func (t *TaffyTree) CacheGet(id NodeID, in *LayoutInput) (LayoutOutput, bool) {
+func (t *TaffyTree) cacheGet(id NodeID, in *LayoutInput) (LayoutOutput, bool) {
 	return t.nodes[id.raw].cache.Get(in)
 }
 
-// CacheStore stores a layout result in the cache.
-func (t *TaffyTree) CacheStore(id NodeID, in *LayoutInput, out LayoutOutput) {
+func (t *TaffyTree) cacheStore(id NodeID, in *LayoutInput, out LayoutOutput) {
 	t.nodes[id.raw].cache.Store(in, out)
 }
 
-// CacheClear empties the cache for a node.
-func (t *TaffyTree) CacheClear(id NodeID) { t.nodes[id.raw].cache.Clear() }
+func (t *TaffyTree) cacheClear(id NodeID) { t.nodes[id.raw].cache.Clear() }
 
-// FlexboxContainerStyle returns the style of a flexbox container.
-func (t *TaffyTree) FlexboxContainerStyle(id NodeID) *Style { return &t.nodes[id.raw].style }
+func (t *TaffyTree) flexboxContainerStyle(id NodeID) *Style { return &t.nodes[id.raw].style }
 
-// FlexboxChildStyle returns the style of a flexbox item.
-func (t *TaffyTree) FlexboxChildStyle(childID NodeID) *Style { return &t.nodes[childID.raw].style }
+func (t *TaffyTree) flexboxChildStyle(childID NodeID) *Style { return &t.nodes[childID.raw].style }
 
-// GetUnroundedLayout returns the unrounded layout of a node.
-func (t *TaffyTree) GetUnroundedLayout(id NodeID) Layout { return t.nodes[id.raw].unroundedLayout }
+func (t *TaffyTree) getUnroundedLayout(id NodeID) Layout { return t.nodes[id.raw].unroundedLayout }
 
-// SetFinalLayout stores the final (rounded) layout of a node.
-func (t *TaffyTree) SetFinalLayout(id NodeID, l Layout) { t.nodes[id.raw].finalLayout = l }
+func (t *TaffyTree) setFinalLayout(id NodeID, l Layout) { t.nodes[id.raw].finalLayout = l }
 
 // measureFunc is the currently-installed measure function for a compute pass.
-// It is set by ComputeLayoutWithMeasure and read by ComputeChildLayout.
+// It is set by ComputeLayoutWithMeasure and read by computeChildLayout.
 var (
 	taffyTreeMeasure MeasureFunction
 	taffyTreeActive  *TaffyTree
 )
 
-// ComputeChildLayout dispatches a child layout request to the appropriate
+// computeChildLayout dispatches a child layout request to the appropriate
 // algorithm based on the node's display and children, mirroring Taffy's
 // TaffyView::compute_child_layout. It is the single entry point the
-// LayoutTree interface exposes to the algorithms.
-func (t *TaffyTree) ComputeChildLayout(id NodeID, in LayoutInput) LayoutOutput {
+// layoutTree interface exposes to the algorithms.
+func (t *TaffyTree) computeChildLayout(id NodeID, in LayoutInput) LayoutOutput {
 	if in.RunMode == runPerformHiddenLayout {
 		return computeHiddenLayout(t, id)
 	}
-	return computeCachedLayout(t, id, in, func(tree LayoutTree, id NodeID, in LayoutInput) LayoutOutput {
+	return computeCachedLayout(t, id, in, func(tree layoutTree, id NodeID, in LayoutInput) LayoutOutput {
 		// Dispatch on display and whether the node has children.
 		nd := t.nodes[id.raw]
-		hasChildren := t.ChildCount(id) > 0
+		hasChildren := t.childCount(id) > 0
 		switch nd.style.Display {
 		case displayNone:
 			return computeHiddenLayout(t, id)
@@ -287,7 +276,7 @@ func (t *TaffyTree) ComputeChildLayout(id NodeID, in LayoutInput) LayoutOutput {
 
 // ComputeLayoutWithMeasure runs a full layout pass from the root, using the
 // supplied measure function for leaf nodes.
-func (t *TaffyTree) ComputeLayoutWithMeasure(root NodeID, avail Size[availableSpace], measure MeasureFunction) {
+func (t *TaffyTree) ComputeLayoutWithMeasure(root NodeID, avail Size[AvailableSpace], measure MeasureFunction) {
 	prevMeasure := taffyTreeMeasure
 	prevActive := taffyTreeActive
 	taffyTreeMeasure = measure
@@ -304,7 +293,7 @@ func (t *TaffyTree) ComputeLayoutWithMeasure(root NodeID, avail Size[availableSp
 
 // ComputeLayout runs a full layout pass from the root with a default
 // zero-size measure function for leaves.
-func (t *TaffyTree) ComputeLayout(root NodeID, avail Size[availableSpace]) {
+func (t *TaffyTree) ComputeLayout(root NodeID, avail Size[AvailableSpace]) {
 	t.ComputeLayoutWithMeasure(root, avail, func(in LayoutInput, id NodeID, ctx any, style *Style) LayoutOutput {
 		return computeLeafLayout(in, style, nil, nil)
 	})
