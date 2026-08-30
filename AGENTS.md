@@ -114,6 +114,11 @@ Go 1.26.
 
 Conventional commits, one file per commit.
 
+The exception is a change that is not true in pieces: one behaviour spanning two
+files, or code and the doc comment describing it. Splitting those leaves a commit
+that contradicts itself, which is worse than a slightly larger diff. The rule exists
+for reviewable diffs and fewer collisions, not for its own sake.
+
     feat(layout): solve flex basis before main-axis distribution
     fix(text): handle zero-width joiner in cluster breaking
     docs: record the rendering decision
