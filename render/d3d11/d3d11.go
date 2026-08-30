@@ -129,8 +129,8 @@ func (r *d3d11Renderer) initSwapChain(width, height uint32) error {
 	}
 
 	var swapChain *comObject
-	// IDXGIFactory2::CreateSwapChainForHwnd is vtbl index 13
-	r1, _, _ = factory.call(13,
+	// IDXGIFactory2::CreateSwapChainForHwnd is vtbl index 15
+	r1, _, _ = factory.call(15,
 		uintptr(unsafe.Pointer(r.device)),
 		r.hwnd,
 		uintptr(unsafe.Pointer(&desc)),
@@ -141,7 +141,7 @@ func (r *d3d11Renderer) initSwapChain(width, height uint32) error {
 	if int32(r1) < 0 || swapChain == nil {
 		// Fallback to DXGI_SWAP_EFFECT_DISCARD for older Windows versions
 		desc.SwapEffect = dxgiSwapEffectDiscard
-		r1, _, _ = factory.call(13,
+		r1, _, _ = factory.call(15,
 			uintptr(unsafe.Pointer(r.device)),
 			r.hwnd,
 			uintptr(unsafe.Pointer(&desc)),
