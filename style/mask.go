@@ -69,9 +69,11 @@ const (
 	propOpacity
 	propBoxShadow
 	propMouseCursor
+)
 
+const (
 	// High word: flex grow and typography/text properties (bits 64–127).
-	propFlexGrow uint8 = 64
+	propFlexGrow uint8 = 64 + iota
 	propTextColour
 	propFontFamily
 	propFontFeatures
