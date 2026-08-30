@@ -28,9 +28,15 @@ The flexbox algorithm and the tree plumbing it needs: node storage, the style in
 type, intrinsic-size caching, and the measure-function hook that lets a leaf report
 its own size — text uses that.
 
-Taffy's own style types come across with it. `layout` defines `Dimension`,
-`LengthPercentage` and `LengthPercentageAuto` itself; it must not import `style`,
-which converts down to these.
+Taffy's own types come across with it: the style inputs — `Dimension`,
+`LengthPercentage`, `LengthPercentageAuto` — and its `Size`, `Rect`, `Point` and
+`Line`. This package imports nothing, not even `geometry`. Those types are what the
+algorithm and the test suite are written against, and substituting ours would make
+the port less faithful for no gain. `style` converts down into this package and
+`element` converts results back out; the vocabularies meet at that one boundary.
+
+Because it depends on nothing, this assignment can start before any other package
+exists.
 
 Port the test suite as well. Taffy's tests are generated from browser behaviour and
 are the only real evidence the port is correct. Bring them across mechanically —
