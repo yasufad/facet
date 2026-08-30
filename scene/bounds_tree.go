@@ -1,3 +1,24 @@
+// Ported from Zed's GPUI: crates/gpui/src/bounds_tree.rs.
+//
+// Copyright 2022 - 2025 Zed Industries, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not
+// use this file except in compliance with the License. You may obtain a copy of
+// the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+// WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+// License for the specific language governing permissions and limitations
+// under the License.
+//
+// Modified from the original: the Rust source uses raw pointers for its search
+// stack to work around the borrow checker; this Go port uses slice indices,
+// which are safe and equally fast. The zero value is an empty, usable tree;
+// emptiness is tested with len(nodes) == 0 rather than a sentinel, so a
+// zero-value root does not misidentify itself as a valid node index.
 package scene
 
 import (
@@ -14,14 +35,6 @@ const maxChildren = 12
 // that overlaps a previously drawn one is always drawn on top of it. Bounds
 // that share no screen space may reuse an order, which lets the renderer batch
 // them into one instanced call.
-//
-// This is a port of GPUI's BoundsTree. The Rust original uses raw pointers for
-// its search stack to work around the borrow checker; this Go port uses slice
-// indices, which are safe and equally fast.
-//
-// The zero value is an empty, usable tree. Emptiness is tested with
-// len(nodes) == 0 rather than a sentinel, so a zero-value root (0) does not
-// misidentify itself as a valid node index.
 type boundsTree struct {
 	nodes       []treeNode
 	root        int // valid only when len(nodes) > 0
