@@ -82,6 +82,21 @@ committed to; this is the third, and it is the one users' code sits closest to.
 If you need something from `window` that is not on that list, say so and why rather
 than adding it quietly. If something on the list turns out not to be needed, drop it.
 
+## You may name `input` — this changed after the prompt was written
+
+The table originally gave `element` no access to `input`, which meant nothing here or
+in `ui` could name an action, a key context or a focus handle, and no widget could
+declare a click. That was a hole in my table, not a constraint to design around, and
+it is fixed as of `8b223e1`: `element` and `ui` both import `input` now.
+
+So a hit region may be keyed by `input.DispatchNodeID`, an element may carry a
+`input.KeyContext` and action handlers, and focus is `input.FocusID`. `input` already
+owns precedence, the focus tree and the dispatch explanation — use them rather than
+growing a parallel set here.
+
+That said, the first milestone is still one element through three phases. Interactivity
+comes after, and `Interactivity` in GPUI's `div.rs` is most of its 5,200 lines.
+
 ## The builder is yours
 
 This is settled and it is not where it looks like it should go.
@@ -149,8 +164,8 @@ must survive the frame belongs in an entity.
 
 Layout, prepaint and paint run in that order and no phase reaches backwards.
 
-`element` imports `geometry`, `colour`, `scene`, `style`, `layout`, `text` and `app`,
-and nothing else of ours. It does not import `window`.
+`element` imports `geometry`, `colour`, `scene`, `style`, `layout`, `text`, `input`
+and `app`, and nothing else of ours. It does not import `window`.
 
 No widget registry, no enum-plus-switch dispatch. Adding an element type adds a file.
 
