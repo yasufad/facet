@@ -52,13 +52,21 @@ type atlasKey struct {
 // It stores each mask separately so the renderer can upload them however it
 // likes, and so the atlas stays a pure data structure with no graphics
 // dependencies.
+//
+// ScaleFactor is the display's device pixels per logical pixel. Glyphs are
+// rasterised at device-pixel resolution and their bounds are converted
+// through geometry.BoundsToDevicePixels with this factor, so atlas tiles
+// agree with the geometry around them at any scale.
 type Atlas struct {
-	entries map[atlasKey]AtlasEntry
+	entries     map[atlasKey]AtlasEntry
+	ScaleFactor float32
 }
 
-// NewAtlas returns an empty glyph atlas.
-func NewAtlas() *Atlas {
-	return &Atlas{entries: make(map[atlasKey]AtlasEntry)}
+// NewAtlas returns an empty glyph atlas for a display with the given scale
+// factor (device pixels per logical pixel). Pass 1.0 for a standard display,
+// 2.0 for a HiDPI display.
+func NewAtlas(scaleFactor float32) *Atlas {
+	return &Atlas{entries: make(map[atlasKey]AtlasEntry), ScaleFactor: scaleFactor}
 }
 
 // Entry returns the atlas entry for a glyph, rasterising on miss. The glyph's
@@ -89,31 +97,31 @@ func (a *Atlas) rasterise(face Face, gid font.GID, size float32, subpixel Subpix
 	if upem == 0 {
 		return AtlasEntry{}
 	}
-	scale := size / float32(upem)
+	// Rasterise at device-pixel resolution: the logical size scaled by the
+	// display factor, divided by units-per-em.
+	deviceScale := size * a.ScaleFactor / float32(upem)
+	mask := rasteriseGlyph(face.face, gid, deviceScale)
 
-	outline := glyphOutline(face.face, gid)
-	mask := rasterise(outline, scale, 0)
-
-	// Logical bounds in pixels: the glyph's extents in font units, scaled.
+	// Logical bounds in pixels: the glyph's extents in font units, scaled by
+	// the logical size over units-per-em.
+	logicalScale := size / float32(upem)
 	extents, ok := extentsOf(face.face, gid)
 	if !ok {
 		return AtlasEntry{Mask: mask}
 	}
 	logical := geometry.Bounds[geometry.Pixels]{
 		Origin: geometry.NewPoint(
-			geometry.Pixels(extents.XBearing*scale),
-			geometry.Pixels(extents.YBearing*scale),
+			geometry.Pixels(extents.XBearing*logicalScale),
+			geometry.Pixels(extents.YBearing*logicalScale),
 		),
 		Size: geometry.NewSize(
-			geometry.Pixels(extents.Width*scale),
-			geometry.Pixels(-extents.Height*scale),
+			geometry.Pixels(extents.Width*logicalScale),
+			geometry.Pixels(-extents.Height*logicalScale),
 		),
 	}
-	// Convert to device pixels via the shared snapping rule so atlas tiles
-	// agree with the geometry around them. The factor is 1.0 because size is
-	// already in device pixels; the conversion is applied for its snapping
-	// behaviour, not its scaling.
-	device := geometry.BoundsToDevicePixels(logical, 1.0)
+	// Convert to device pixels via the shared snapping rule with the real
+	// display scale, so atlas tiles agree with the geometry around them.
+	device := geometry.BoundsToDevicePixels(logical, a.ScaleFactor)
 	return AtlasEntry{Mask: mask, Bounds: device}
 }
 
