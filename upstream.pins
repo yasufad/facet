@@ -7,6 +7,6 @@
 #
 # See docs/sources.md for what each project is for.
 
-gpui   https://github.com/zed-industries/zed   main    399258feeaf90ad8a3a208c99221ee87b6452f38   crates/gpui
+gpui   https://github.com/zed-industries/zed   main    399258feeaf90ad8a3a208c99221ee87b6452f38   crates/gpui crates/collections crates/gpui_macros crates/gpui_shared_string crates/gpui_util crates/http_client crates/refineable crates/scheduler crates/sum_tree crates/util_macros crates/ztracing
 taffy  https://github.com/DioxusLabs/taffy     main    b3b387132be1dda0e9d08d5044692236532c166d
 wails  https://github.com/wailsapp/wails       master  0f6083a580df85cc636fe5f3ee2f543eaff9077a   v3 docs
