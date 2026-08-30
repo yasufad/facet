@@ -11,10 +11,14 @@ it.
 
 ## Commands
 
-    go build ./...
+    go build -o bin/ ./...
     go test ./...
     go vet ./...
     gofmt -l $(go list -f '{{.Dir}}' ./...)
+
+Build output goes to `bin/`, which is gitignored. Plain `go build ./...` drops an
+executable in whatever directory you ran it from; always pass `-o bin/`. Nothing
+buildable should ever appear at the repository root.
 
 The format check must print nothing. Scope it through `go list` rather than running
 `gofmt -l .`, which walks into `_upstream/` and reports every upstream file. There
