@@ -1,0 +1,19 @@
+# Build output
+/bin/
+/dist/
+/build/bin/
+
+# Go
+*.exe
+*.test
+*.out
+coverage.*
+
+# Editors
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
