@@ -6,8 +6,8 @@ import (
 )
 
 // WindowOptions configures a window at creation. The zero value is a hidden,
-// decorated, opaque, non-resizable 800×600 window with a black background and
-// no title — the least surprising starting point that a caller then overrides.
+// undecorated, opaque, non-resizable window with no title — the least
+// surprising starting point that a caller then overrides.
 //
 // Sizes and positions are in logical pixels — the same unit layout and
 // styling speak in. The platform converts to device pixels using the display's

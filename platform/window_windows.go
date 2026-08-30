@@ -76,6 +76,38 @@ func windowWndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	return w32.DefWindowProc(hwnd, msg, wParam, lParam)
 }
 
+// stylesFor derives the Win32 window style and extended style from the
+// creation options. It is the single source of truth for the style: the
+// same values are used for the frame adjustment (AdjustWindowRectExForDpi)
+// and for CreateWindowEx, so the adjustment cannot disagree with the window.
+//
+// A decorated window uses WS_OVERLAPPEDWINDOW (caption, system menu, thick
+// frame, min/max boxes), with the thick frame removed when not resizable.
+// An undecorated window uses WS_POPUP — a borderless client area, not a
+// decorated window with fewer buttons. The framework is responsible for
+// any custom title bar; the platform does not draw one.
+func stylesFor(opts WindowOptions) (style, exStyle uint) {
+	if opts.Decorated {
+		style = w32.WS_OVERLAPPEDWINDOW
+		if !opts.Resizable {
+			style &^= w32.WS_THICKFRAME
+		}
+	} else {
+		style = w32.WS_POPUP
+	}
+	if opts.Visible {
+		style |= w32.WS_VISIBLE
+	}
+
+	if opts.Transparent {
+		exStyle |= w32.WS_EX_NOREDIRECTIONBITMAP
+	}
+	if opts.AlwaysOnTop {
+		exStyle |= w32.WS_EX_TOPMOST
+	}
+	return style, exStyle
+}
+
 // newWindowsWindow creates a native window from opts. It must be called on
 // the platform thread, because CreateWindowEx must run on the thread that
 // registered the window class and will run the message loop.
@@ -88,24 +120,11 @@ func newWindowsWindow(owner *windowsPlatform, opts WindowOptions) (*windowsWindo
 	scale := owner.primaryScale()
 	dpi := uint(scale * 96.0)
 
-	style := uint(w32.WS_OVERLAPPEDWINDOW)
-	if !opts.Resizable {
-		style &^= w32.WS_THICKFRAME
-	}
-	if !opts.Decorated {
-		style &^= w32.WS_CAPTION | w32.WS_THICKFRAME | w32.WS_SYSMENU | w32.WS_MINIMIZEBOX | w32.WS_MAXIMIZEBOX
-	}
-	if opts.Visible {
-		style |= w32.WS_VISIBLE
-	}
-
-	var exStyle uint
-	if opts.Transparent {
-		exStyle |= w32.WS_EX_NOREDIRECTIONBITMAP
-	}
-	if opts.AlwaysOnTop {
-		exStyle |= w32.WS_EX_TOPMOST
-	}
+	// Derive the window style once. The same style is used for the frame
+	// adjustment and for CreateWindowEx, so the two cannot disagree —
+	// whatever Decorated ends up meaning, the adjustment matches the
+	// window.
+	style, exStyle := stylesFor(opts)
 
 	// WindowOptions.Size is the client area, but CreateWindowEx takes the
 	// outer size. Adjust the wanted client size to the outer size using
