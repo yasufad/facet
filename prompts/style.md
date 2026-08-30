@@ -89,6 +89,16 @@ that retiring a prompt means moving what the package guarantees into
 granularity, slice immutability, `Default()` as the only constructor — reached it, and
 `doc.go` is not where the next agent looks.
 
+## Also — `Center` must be `Centre`
+
+`AGENTS.md` names `centre` as one of its examples, and `style/enums.go` has
+`AlignItemsCenter`, `AlignContentCenter` and `TextAlignCenter`. `layout` has the same
+names on its side of the conversion and is renaming them now, so rename yours in the
+same round or the two halves stop matching.
+
+Nothing outside the repo depends on either package yet. Once `element` and `ui`
+reference these names it stops being a two-file change.
+
 ## Numbers worth keeping
 
     control copy (504 bytes)      24.1 ns
