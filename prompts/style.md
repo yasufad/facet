@@ -134,3 +134,85 @@ that `Default()` is the only valid way to obtain a `Style`, and consider whether
 anything should stop a zero one being used by accident. `Refinement`'s zero value,
 by contrast, is correct and meaningful — nothing set — and that asymmetry is worth
 naming.
+
+## Checkpoint review
+
+The refinement semantics are right, which is the part that mattered. I verified
+directly: `Opacity(0)` overrides a default of 1, a refinement omitting opacity
+leaves it alone, and a later refinement wins on merge. No allocations anywhere. The
+bitset does what it was chosen to do.
+
+Three of the four decisions from the plan review were not answered, and measuring
+the one that was found something.
+
+## 1 — Bg converts a colour on every call, and stores the wrong type
+
+    control: store 48 bytes    2.6 ns
+    Opacity(0.5)              18.8 ns
+    BgHsla(hsla)              19.9 ns
+    Bg(rgba)                  75.7 ns
+
+`Bg` calls `c.Hsla()` and stores `colour.Hsla`. That conversion is fifty-six
+nanoseconds of the seventy-six, on the call users write most.
+
+It also converts the wrong way. `scene.Quad.Background` is `colour.Rgba`, so a
+colour set as Rgba is converted to Hsla on the way in and back to Rgba at paint —
+twice per colour per frame, to arrive where it started. GPUI stores Hsla because
+GPUI's scene consumes Hsla; ours does not.
+
+Store `Rgba`. Keep `BgHsla` and have it convert at set time, where it is the
+uncommon case and the cost is paid once.
+
+## 2 — The builder-chain benchmark was asked for and not written
+
+`BenchmarkStyleRefineEmpty`, `BenchmarkStyleRefineNonEmpty` and
+`BenchmarkRefinementMerge` measure the operations, not the expression a user writes.
+I measured the chain:
+
+    Refinement{}.Flex().Bg(c).Opacity(0.8).FlexGrow(1)    108 ns
+
+That is four properties. The struct is 48 bytes today and will be several hundred
+with fifty. Note also that a single builder call costs 19 ns against a 2.6 ns copy
+control — seven times the cost of the copy it performs, which suggests the methods
+are not inlining, probably because a value receiver returning a 48-byte struct is
+past the budget. That gets worse as the struct grows.
+
+Add the chain benchmark, find out why 19 ns, and let the answer decide the receiver.
+A pointer receiver mutating in place keeps the bitset and drops both copies. This is
+the decision the checkpoint exists for.
+
+## 3, 4, 5 — Three decisions still unanswered
+
+`doc.go` does not mention any of them.
+
+**Compound granularity.** Is `Padding` one bit or four? It decides the mask layout
+and whether `hover(s => s.PaddingLeft(4))` can exist. Nothing implemented so far is
+compound, so the question is still open and still free.
+
+**Properties that are not plain values.** Shadows are a slice, font family is a
+string. Both allocate when set and both make `Refinement` non-comparable.
+
+**The zero value of `Style` is invisible.** `Default()` gives opacity 1; `Style{}`
+gives 0. Say that `Default()` is the only valid way to obtain one.
+
+## Done when
+
+    go build -o bin/ ./...
+    go test ./...
+    go test -tags facet_debug ./...
+    go vet -unsafeptr=false ./...
+    gofmt -l $(go list -f '{{.Dir}}' ./...)
+
+`Bg` stores `Rgba` and costs what `Opacity` costs. A builder-chain benchmark exists
+and its number is in `doc.go`, along with the receiver decision it drove. The three
+open questions are answered in `doc.go`.
+
+Then continue to the full property list — the model will be settled.
+
+## Worth carrying
+
+The benchmarks measured what was easy to benchmark rather than what was expensive.
+`Refine` and `Merge` are called once per element per frame; builder methods are
+called once per property per element per frame, and they are where the work is. A
+benchmark that misses the hot path is worse than none, because it produces a number
+that looks like reassurance.
