@@ -5,6 +5,7 @@ import (
 	"github.com/yasufad/facet/input"
 	"github.com/yasufad/facet/layout"
 	"github.com/yasufad/facet/scene"
+	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/text"
 )
 
@@ -108,4 +109,14 @@ type Frame interface {
 
 	// RemSize returns the current root font size in logical pixels for resolving rem units.
 	RemSize() geometry.Pixels
+
+	// PushTextStyle pushes a text style refinement onto the inherited text style stack.
+	PushTextStyle(refinement style.Refinement)
+
+	// PopTextStyle pops the top text style refinement from the stack.
+	PopTextStyle()
+
+	// TextStyle returns the current inherited text style computed by layering all
+	// pushed refinements from root to the current element.
+	TextStyle() style.TextStyle
 }
