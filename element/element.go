@@ -46,6 +46,7 @@ type Render[T any] interface {
 // type parameter for each entity value type.
 type AnyView interface {
 	Render(a *app.App) Element
+	Observe(a *app.App, onNotify func(*app.App) bool) app.Subscription
 }
 
 // View wraps an app.Entity[T] whose type or pointer implements Render[T].
@@ -61,6 +62,11 @@ func NewView[T any](entity app.Entity[T]) View[T] {
 // Entity returns the underlying typed entity handle.
 func (v View[T]) Entity() app.Entity[T] {
 	return v.entity
+}
+
+// Observe registers onNotify to run when this view's entity notifies.
+func (v View[T]) Observe(a *app.App, onNotify func(*app.App) bool) app.Subscription {
+	return a.Observe(v.entity.AnyEntity(), onNotify)
 }
 
 // Render executes the view's Render method against its entity state and returns
