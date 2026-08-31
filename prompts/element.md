@@ -1,71 +1,51 @@
-# element: clipping and tab order
+# element: clipping works, its test does not
 
-Two pieces of work, independent of each other. Tab order can start now; clipping waits
-on `window`.
+Tab order and clipping are both in, and the plumbing is right. `window`'s
+`TestWindowPushClipPrimitiveMask` asserts the child quad's `ContentMask.Bounds`, which
+is the assertion that matters, and it fails when I disable the push in `Div.Paint`.
+`elementtest.Frame` gained `PushClip`, `PopClip`, `SimulateTab` and `TabOrder`, so the
+scroll view can be tested from `ui` without reaching below `element`.
 
-## 1 — Tab order
+One thing to fix, and it is the same shape as last round.
 
-`docs/packages.md` has assigned this here since before any of it existed, because tab
-order needs tree order and `input` only knows the focus hierarchy. A focus parent is
-not the previous sibling in layout, which is exactly why this could not live there.
+## `TestDivOverflowClipping` cannot fail
 
-Pointer focus now works: clicking a focusable element focuses it, clicking the
-background blurs. What does not exist is any way to move focus from the keyboard, so
-a form cannot be filled in without a mouse.
+I disabled the clip push in `Div.Paint` entirely. `window`'s test failed.
+`element`'s passed.
 
-What is needed:
+    // Clip stack must be empty after Paint finishes (push/pop balanced)
+    if len(frame.clips) != 0 {
 
-- An element can declare that it takes part in tab order, and in what position.
-  Declaration order in the tree is the default and is usually right; an explicit index
-  is the escape hatch, and GPUI's `TabStopMap` is worth reading before deciding
-  whether we need one.
-- Tab moves to the next participant in tree order, Shift-Tab to the previous, and
-  both wrap.
-- A focusable element that is not rendered this frame is not in the order. `window`
-  already drops focus when the focused element leaves the tree; the same fact decides
-  membership here.
+That is a balance check, and an empty stack is trivially balanced. The test passes
+whether `Div` clips or not, which is the one thing its name claims to verify.
 
-`input` owns the focus tree and dispatch; do not reimplement either. This is about
-producing the ordered list and asking `input` to move focus along it.
+It needs to assert that a clip was pushed, with the parent's bounds, and popped. The
+fake frame records `clips`; record the pushes as events rather than only current depth,
+then assert the sequence: one push carrying `rootBounds`, one pop, empty at the end.
+Keep the balance check — it is worth having — but it is not the test.
 
-Decide where the order is collected. Prepaint walks the tree in order and already
-registers hit regions and dispatch nodes, so it is the obvious place, but say so in
-`doc.go` rather than leaving it implied.
+Then disable the push again yourself and confirm both packages fail.
 
-## 2 — Clipping, after window
+This is the second consecutive round where the package that owns a behaviour had a
+test that survived the behaviour being removed, and the consumer caught it instead.
+Last time it was hover text colour; `ui` now asserts that. The pattern is worth naming
+in your own review before you report: for each thing you added, ask what single line
+you would delete to break it, and whether your test notices.
 
-`Frame` cannot confine children to bounds. `scene` has had `PushClip` since it was
-written and `style.Overflow` has had `Hidden`, `Clip` and `Scroll` since the property
-list landed. Nothing joins them, so `Div.OverflowHidden()` currently sets a property
-that changes nothing.
+## Also worth a look
 
-`window` is implementing `PushClip` and `PopClip` on `*Window` first. When that lands:
-
-- Declare both on `Frame`, paint phase only.
-- Make `Div` honour `style.Overflow`: push its bounds as a clip around painting its
-  children when overflow is hidden, clipped or scrolling, and pop after.
-
-The push has to be balanced on every path out of `Paint`, including early returns.
-`window` will panic under `facet_debug` if the stack is not empty at end of paint,
-which is the check that catches this, so make sure your tests run under that tag too.
-
-A test that a child painted outside its parent's bounds carries the intersected mask
-is the one that matters. Asserting the child was inserted proves nothing.
+`TestDivTabStopAndTabIndex` — check it the same way. If tab participation stopped
+being recorded, would it fail? Tab order has three behaviours: explicit index ordering,
+opting out, and wrapping. Each needs an assertion that knows the answer, not a
+non-empty order.
 
 ## Done when
 
-Tab and Shift-Tab move focus through a tree of focusable elements in tree order, wrap
-at both ends, and skip elements not rendered this frame. Tested against
-`elementtest.Frame`.
+`TestDivOverflowClipping` fails when `Div` stops pushing the clip, and you have
+checked that it does.
 
-`Div` clips its children when overflow says so, with a test asserting the mask on a
-child's primitives rather than their presence.
+The tab order tests fail when participation, ordering or wrapping is broken.
 
-`docs/packages.md` records how tab order is collected and that `Div` honours overflow.
-
-## Worth carrying
-
-Both of these are capabilities that existed on one side of a boundary for weeks while
-the thing above them silently did nothing. `Div.OverflowHidden()` compiles, runs, and
-has never had any effect. A setter with no reader is worse than a missing feature,
-because nobody thinks to look for it.
+Then retire this: `docs/packages.md` already has the clip contract and overflow
+behaviour, so check tab order collection is recorded there too, set the README row,
+and delete.
