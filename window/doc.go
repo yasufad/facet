@@ -121,6 +121,20 @@
 //     monochrome texture atlas (render.Renderer.ClearAtlas). The scale factor is
 //     updated, and a full relayout, swapchain resize, and repaint are triggered.
 //
+//   - Focus lifecycle and unmount behaviour: Keyboard focus moves to an element
+//     on pointer down or programmatically via Frame.RequestFocus(id). Elements
+//     query focus during paint via Frame.IsFocused(id) to apply focus styling.
+//     If a focused element is unmounted, conditionally excluded, or scrolled out
+//     of the tree in a subsequent frame, the window detects its absence at Step 7
+//     (present) and drops focus to nothing (blur). Stale focus identifiers never
+//     survive after an element leaves the tree.
+//
+//   - Pointer cursor resolution: Cursor shape is resolved in Step 5 (intra-frame
+//     hit test) from the hovered hit region's cursor property. The window updates
+//     platform.Platform.SetCursor once per frame only when the cursor shape
+//     actually changes, eliminating redundant OS syscalls and mouse flicker during
+//     continuous pointer motion within the same element.
+//
 // # Threading and Invariants
 //
 // All window methods and frame loop executions run strictly on the single UI
