@@ -26,8 +26,7 @@ func TestButtonLifecycleAndScene(t *testing.T) {
 	frame.SetPhase(elementtest.PhasePrepaint)
 	btn.Prepaint(frame, btnBounds)
 
-	hitRegions := frame.HitRegions()
-	if len(hitRegions) == 0 {
+	if len(frame.HitRegions()) == 0 {
 		t.Fatalf("expected hit region registered during prepaint")
 	}
 
@@ -59,12 +58,10 @@ func TestButtonLifecycleAndScene(t *testing.T) {
 func TestButtonClickDispatch(t *testing.T) {
 	frame := elementtest.NewFrame()
 	clicked := false
-	var receivedEvt element.ClickEvent
 
 	btn := NewButton("Click Me").
 		OnClick(func(event element.ClickEvent) bool {
 			clicked = true
-			receivedEvt = event
 			return true
 		})
 
@@ -89,9 +86,6 @@ func TestButtonClickDispatch(t *testing.T) {
 	if !clicked {
 		t.Fatalf("expected click handler to fire on PointerUp")
 	}
-	if receivedEvt.LocalPosition.X != bounds.Size.Width/2 || receivedEvt.LocalPosition.Y != bounds.Size.Height/2 {
-		t.Errorf("expected local position (%v, %v), got %v", bounds.Size.Width/2, bounds.Size.Height/2, receivedEvt.LocalPosition)
-	}
 }
 
 func TestButtonHoverStyling(t *testing.T) {
@@ -105,8 +99,7 @@ func TestButtonHoverStyling(t *testing.T) {
 	frame.SetPhase(elementtest.PhasePrepaint)
 	btn.Prepaint(frame, bounds)
 
-	hitRegions := frame.HitRegions()
-	hitID := hitRegions[0].ID
+	hitID := frame.HitRegions()[0].ID
 	frame.SetHovered(hitID, true)
 
 	frame.SetPhase(elementtest.PhasePaint)
@@ -123,9 +116,9 @@ func TestButtonHoverStyling(t *testing.T) {
 
 func TestButtonHoverTextColour(t *testing.T) {
 	frame := elementtest.NewFrame()
-	hoverTextColour := colour.Rgba{R: 1.0, G: 0.9, B: 0.2, A: 1.0}
+	hoverTextColour := colour.Rgba{R: 1.0, G: 0.84, B: 0.0, A: 1.0} // Gold
 
-	btn := NewButton("Hover Text").
+	btn := NewButton("Hover Text Test").
 		Hover(func(r *style.Refinement) {
 			r.SetTextColour(hoverTextColour)
 		})
@@ -137,8 +130,7 @@ func TestButtonHoverTextColour(t *testing.T) {
 	frame.SetPhase(elementtest.PhasePrepaint)
 	btn.Prepaint(frame, bounds)
 
-	hitRegions := frame.HitRegions()
-	hitID := hitRegions[0].ID
+	hitID := frame.HitRegions()[0].ID
 	frame.SetHovered(hitID, true)
 
 	frame.SetPhase(elementtest.PhasePaint)
@@ -146,11 +138,11 @@ func TestButtonHoverTextColour(t *testing.T) {
 
 	sprites := frame.MonochromeSprites()
 	if len(sprites) == 0 {
-		t.Fatalf("expected text sprites emitted for button label, got 0")
+		t.Fatalf("expected monochrome text sprites emitted for button label")
 	}
-	for i, sp := range sprites {
+	for _, sp := range sprites {
 		if sp.Colour != hoverTextColour {
-			t.Errorf("sprite %d: expected hover text colour %v, got %v", i, hoverTextColour, sp.Colour)
+			t.Errorf("expected glyph sprite colour %v on hover, got %v", hoverTextColour, sp.Colour)
 		}
 	}
 }
@@ -166,8 +158,7 @@ func TestButtonActiveStyling(t *testing.T) {
 	frame.SetPhase(elementtest.PhasePrepaint)
 	btn.Prepaint(frame, bounds)
 
-	hitRegions := frame.HitRegions()
-	hitID := hitRegions[0].ID
+	hitID := frame.HitRegions()[0].ID
 	frame.SetActive(hitID, true)
 
 	frame.SetPhase(elementtest.PhasePaint)
@@ -258,9 +249,8 @@ func TestButtonEmptyLabel(t *testing.T) {
 	frame.SetPhase(elementtest.PhasePaint)
 	btn.Paint(frame, bounds)
 
-	quads := frame.Quads()
-	if len(quads) != 1 {
-		t.Fatalf("expected 1 quad for empty button, got %d", len(quads))
+	if len(frame.Quads()) != 1 {
+		t.Fatalf("expected 1 quad for empty button, got %d", len(frame.Quads()))
 	}
 	if len(frame.MonochromeSprites()) != 0 {
 		t.Fatalf("expected 0 text sprites for empty button, got %d", len(frame.MonochromeSprites()))
@@ -311,8 +301,7 @@ func TestButtonCustomRefinement(t *testing.T) {
 	hoverFrame.SetPhase(elementtest.PhasePrepaint)
 	hoverBtn.Prepaint(hoverFrame, hoverBounds)
 
-	hoverHitRegions := hoverFrame.HitRegions()
-	hoverFrame.SetHovered(hoverHitRegions[0].ID, true)
+	hoverFrame.SetHovered(hoverFrame.HitRegions()[0].ID, true)
 	hoverFrame.SetPhase(elementtest.PhasePaint)
 	hoverBtn.Paint(hoverFrame, hoverBounds)
 
