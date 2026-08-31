@@ -1,55 +1,31 @@
-# window: the clip stack
+# window: the clip stack is done, close it out
 
-`scene` has `PushClip`, `PopClip`, `PushLayer` and `PopLayer`, and has had them since
-it was written. `style` has `Overflow` with `Hidden`, `Clip` and `Scroll`. `Frame`
-exposes none of it, so an element cannot confine its children to its own bounds.
+Everything asked for is in and verified. I made `Div.PushClip` a no-op and
+`TestWindowPushClipPrimitiveMask` failed on the mask itself:
 
-That means no scroll view, no overflow hidden, and no widget that draws inside a box
-it does not overflow. It is the same shape as focus and the cursor: designed on both
-sides, never joined. This time it was found before the widget that needs it rather
-than by it.
+    expected child quad content mask {{0 0} {200 200}}, got {{0 0} {0 0}}
 
-You implement first, then `element` declares on `Frame`. Per the amended entry in
-`AGENTS.md`, and note that this change is behaviour only, with no struct field going
-the other way.
+That is the assertion that matters — the primitive carries the intersected mask, not
+merely that it was inserted.
 
-## What to add
+`TestUnbalancedClipStackPanicsUnderDebug` is a real integration test on a real window
+rather than a unit stub, which is the thing most likely to have been faked and was
+not.
 
-    PushClip(bounds geometry.Bounds[geometry.Pixels])
-    PopClip()
+`docs/packages.md` has the clip contract, the paint-phase rule alongside the other
+paint-only methods, and the note that layers are deliberately not exposed.
 
-Paint phase only. `scene.PushClip` takes a `ContentMask` in scaled pixels and
-intersects nested masks already, so most of this is converting units and forwarding.
+## Retire it
 
-Two things to decide and record:
+Nothing is outstanding. Set the `window` row in the README to `done` and delete this
+file.
 
-**Whether `Frame` exposes layers as well as clips.** `scene.PushLayer` exists for
-stacking rather than clipping, and nothing has ever needed it. Do not expose it
-speculatively — a `Frame` method with no caller is a guess, and we have had one of
-those already. Say in `doc.go` that layers are deliberately not exposed yet.
-
-**What an unbalanced push does.** An element that pushes and does not pop corrupts
-every sibling painted afterwards, and the symptom appears somewhere else entirely.
-Under `facet_debug`, assert at the end of paint that the clip stack is empty, and
-panic naming the element phase if it is not. In a release build the cost is not worth
-paying; the debug build is exactly where this belongs.
-
-## Done when
-
-A test drives an element that pushes a clip, paints a child outside the clip bounds,
-and asserts the primitive carries the intersected mask. Not that it was inserted.
-
-A `facet_debug` test shows an unbalanced push panicking at end of paint.
-
-`docs/packages.md` records the clip stack as part of the `Frame` contract, that it is
-paint-phase only, and that layers are not exposed.
-
-Then retire this again.
+One line for the report, so it is not assumed: pointer focus and tab order both work
+now, and `ui` is unblocked for a scroll view. Wheel events reach `DispatchEvent`
+already, so the scroll offset itself is the widget's problem rather than yours.
 
 ## Worth carrying
 
-Three seams now have been built on both sides and left unjoined: the cursor, focus,
-and clipping. Each was found by something above trying to use it. When a package
-exposes a capability, it is worth asking in the same review which package is supposed
-to consume it and whether anything does — an unconsumed capability is not finished
-work, it is an unstarted seam that looks finished from below.
+`PushLayer` still has no consumer and you were right not to expose it. If a scroll
+view or an overlay turns out to need stacking rather than clipping, that is the moment
+to add it, and it will arrive as a request from above rather than a guess from here.
