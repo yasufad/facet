@@ -35,28 +35,28 @@ func FromAnchorAndSize[T Number](a Anchor, origin Point[T], size Size[T]) Bounds
 		origin = Point[T]{X: origin.X, Y: origin.Y - size.Height}
 	case BottomRight:
 		origin = Point[T]{X: origin.X - size.Width, Y: origin.Y - size.Height}
-	case TopCenter:
+	case TopCentre:
 		origin = Point[T]{X: origin.X - size.Width/2, Y: origin.Y}
-	case BottomCenter:
+	case BottomCentre:
 		origin = Point[T]{X: origin.X - size.Width/2, Y: origin.Y - size.Height}
-	case LeftCenter:
+	case LeftCentre:
 		origin = Point[T]{X: origin.X, Y: origin.Y - size.Height/2}
-	case RightCenter:
+	case RightCentre:
 		origin = Point[T]{X: origin.X - size.Width, Y: origin.Y - size.Height/2}
 	}
 	return Bounds[T]{Origin: origin, Size: size}
 }
 
-// CenteredAt constructs a Bounds of the given size centred on the given point.
-func CenteredAt[T Number](center Point[T], size Size[T]) Bounds[T] {
+// CentredAt constructs a Bounds of the given size centred on the given point.
+func CentredAt[T Number](centre Point[T], size Size[T]) Bounds[T] {
 	return Bounds[T]{
-		Origin: Point[T]{X: center.X - size.Width/2, Y: center.Y - size.Height/2},
+		Origin: Point[T]{X: centre.X - size.Width/2, Y: centre.Y - size.Height/2},
 		Size:   size,
 	}
 }
 
-// Center returns the point at the centre of b.
-func (b Bounds[T]) Center() Point[T] {
+// Centre returns the point at the centre of b.
+func (b Bounds[T]) Centre() Point[T] {
 	return Point[T]{
 		X: b.Origin.X + b.Size.Width/2,
 		Y: b.Origin.Y + b.Size.Height/2,
@@ -93,23 +93,23 @@ func (b Bounds[T]) BottomLeft() Point[T] {
 	return Point[T]{X: b.Origin.X, Y: b.Origin.Y + b.Size.Height}
 }
 
-// TopCenter returns the midpoint of b's top edge.
-func (b Bounds[T]) TopCenter() Point[T] {
+// TopCentre returns the midpoint of b's top edge.
+func (b Bounds[T]) TopCentre() Point[T] {
 	return Point[T]{X: b.Origin.X + b.Size.Width/2, Y: b.Origin.Y}
 }
 
-// BottomCenter returns the midpoint of b's bottom edge.
-func (b Bounds[T]) BottomCenter() Point[T] {
+// BottomCentre returns the midpoint of b's bottom edge.
+func (b Bounds[T]) BottomCentre() Point[T] {
 	return Point[T]{X: b.Origin.X + b.Size.Width/2, Y: b.Origin.Y + b.Size.Height}
 }
 
-// LeftCenter returns the midpoint of b's left edge.
-func (b Bounds[T]) LeftCenter() Point[T] {
+// LeftCentre returns the midpoint of b's left edge.
+func (b Bounds[T]) LeftCentre() Point[T] {
 	return Point[T]{X: b.Origin.X, Y: b.Origin.Y + b.Size.Height/2}
 }
 
-// RightCenter returns the midpoint of b's right edge.
-func (b Bounds[T]) RightCenter() Point[T] {
+// RightCentre returns the midpoint of b's right edge.
+func (b Bounds[T]) RightCentre() Point[T] {
 	return Point[T]{X: b.Origin.X + b.Size.Width, Y: b.Origin.Y + b.Size.Height/2}
 }
 
@@ -124,14 +124,14 @@ func (b Bounds[T]) Corner(a Anchor) Point[T] {
 		return b.BottomLeft()
 	case BottomRight:
 		return b.BottomRight()
-	case TopCenter:
-		return b.TopCenter()
-	case BottomCenter:
-		return b.BottomCenter()
-	case LeftCenter:
-		return b.LeftCenter()
-	case RightCenter:
-		return b.RightCenter()
+	case TopCentre:
+		return b.TopCentre()
+	case BottomCentre:
+		return b.BottomCentre()
+	case LeftCentre:
+		return b.LeftCentre()
+	case RightCentre:
+		return b.RightCentre()
 	}
 	return b.Origin
 }
