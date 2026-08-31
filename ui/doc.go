@@ -13,5 +13,6 @@
 // # Lifecycle and State
 //
 // Widgets implement element.Element and are ephemeral values rebuilt each frame.
-// Any state that must survive across frames belongs in an app.Entity[T].
+// Any state that must survive across frames — such as ScrollState for a
+// ScrollView — belongs in an app.Entity[T] held by the view or application.
 package ui
