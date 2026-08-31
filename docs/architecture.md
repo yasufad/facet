@@ -1,10 +1,14 @@
 # Architecture
 
-Status: implementation. The lower layers are built and the layering test enforces
-their imports; nothing yet puts a window on screen. For what is finished rather
-than what is designed, run `go list ./...` and read `prompts/`, where an assignment
-is retired once its package is done. A list of package names here would be wrong
-within the day.
+Status: implementation. Every layer described here exists and runs on Windows. A
+program can open a window and draw a styled element tree containing text, verified by
+reading the swapchain back. What is missing is a widget library and the macOS and
+Linux backends.
+
+For what is finished rather than what is designed, read the table in `README.md` and
+`prompts/`, where an assignment is retired once its package is done. "What is
+deferred" below lists the decisions taken to postpone something, as distinct from
+things nobody has thought about yet.
 
 ## Overview
 
@@ -230,3 +234,38 @@ around them.
 
 A port of Taffy's flexbox solver, algorithm for algorithm, including its
 browser-derived test suite. Grid is out of scope.
+
+## What is deferred
+
+Each of these was decided rather than overlooked. The reasoning is in the package's
+entry in `docs/packages.md` or in its `doc.go`; this list exists so nobody has to
+find that out by reading the whole tree.
+
+**Precise invalidation.** The root view re-renders every frame. `app` tracks nothing
+about which entities a render read, so `window` observes the root view's entity and
+nothing else, and a view that reads another entity observes it explicitly. GPUI
+tracks accessed entities and invalidates per view. Doing the same costs a per-frame
+accessed set and subscription churn, and the case for paying it should come from `ui`
+showing what real applications need.
+
+**The element arena.** Every element is a separate heap allocation: 584 bytes and
+about 420 ns for a `Div`, so a thousand elements a frame is roughly 640 KB of garbage
+and 38 MB/s at 60 fps. That arrives as GC pauses inside frames rather than as a
+slower average. GPUI allocates elements from a per-frame arena and resets it at frame
+end. `window` owns the frame boundary and so would own the arena; `element.NewDiv`
+takes no arguments, so the arena has to be reachable without one.
+
+**Text beyond one line.** `element.Text` shapes and paints a single line with one
+style run. Wrapping, bidi, selection and multiple runs are not implemented. The
+`text` package already handles bidi and script segmentation, so this is element work
+rather than text work.
+
+**`layout.MeasureFunction` returns a `LayoutOutput`.** That is Taffy's shape,
+faithfully ported, and it forces callers to do the leaf arithmetic themselves, which
+is why `ComputeLeafLayout` is exported. Wrapping it in something size-in, size-out is
+a decision we are allowed to take if it keeps costing exports.
+
+**macOS and Linux.** `platform` and `render` are Windows only. Both are designed as a
+backend per operating system and per graphics API, so each is a new subpackage rather
+than a change to the interface. No cgo, so Cocoa and GTK go through purego, and
+`docs/architecture.md` above says what happens if that turns out to be impossible.
