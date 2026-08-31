@@ -88,6 +88,13 @@ func (d *Div) None() *Div {
 	return d
 }
 
+// Hidden removes the element from layout calculation entirely (display: none),
+// matching the standard Tailwind and GPUI convention.
+func (d *Div) Hidden() *Div {
+	d.refinement.SetDisplay(style.DisplayNone)
+	return d
+}
+
 // Position sets the CSS positioning strategy.
 func (d *Div) Position(p style.Position) *Div {
 	d.refinement.SetPosition(p)
@@ -112,14 +119,15 @@ func (d *Div) Visibility(v style.Visibility) *Div {
 	return d
 }
 
-// Visible sets the element visibility to visible.
+// Visible sets the element visibility to visible (visibility: visible).
 func (d *Div) Visible() *Div {
 	d.refinement.SetVisibility(style.VisibilityVisible)
 	return d
 }
 
-// Hidden sets the element visibility to hidden.
-func (d *Div) Hidden() *Div {
+// Invisible hides the element in place without removing it from layout
+// calculation (visibility: hidden).
+func (d *Div) Invisible() *Div {
 	d.refinement.SetVisibility(style.VisibilityHidden)
 	return d
 }
