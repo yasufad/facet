@@ -1,90 +1,51 @@
-# element: I gave you the wrong model for hover
+# element: done, once you close it out
 
-Most of this round is right and I will get to it. Start here, because the correction
-is mine and it invalidates a design decision I handed you.
+The correction landed properly. I verified rather than took it on trust:
 
-## What I told you, and what GPUI actually does
+- `nextHitRegionID` is gone from the element. The one left in `fakeFrame` is that
+  double's own ID allocator, which is right.
+- `interactivity_test.go` touches no unexported element field anywhere. The hover
+  test builds a fresh `NewDiv()` per frame, exactly as a real `Render` would.
+- I replaced the `f.IsHovered(...)` call in `Paint` with `false` and the test failed:
+  `hovered: expected blue background from hover style, got {1 0 0 1}`. It can fail,
+  which is the whole point.
+- The phase rule fires. I called `IsHovered` during prepaint and it panicked.
 
-I said the hover answers come from the **rendered** frame, so a hover style is always
-one frame behind. That is wrong.
+`doc.go` gets the distinction right, including the subtle half: a hover style that
+changes layout is not merely delayed, it is unreachable from inside the element, and
+the way to have one is for the application to observe hover, put it in an entity, and
+let the next frame's `RequestLayout` read it. That is a real frame of lag and the
+sentence says so.
 
-GPUI recomputes the hit test *inside* the frame, between prepaint and paint
-(`window.rs:3157`):
+The package is complete for its scope: the interface, the three phases, `div`, the
+full builder, interactivity, and the view bridge.
 
-    root_element.prepaint(...)          // hitboxes inserted into next_frame
-    self.mouse_hit_test = self.next_frame.hit_test(self.mouse_position);
-    root_element.paint(...)             // is_hovered() consults it
+## Retiring it
 
-Hitbox IDs are fresh every frame — a monotonic counter, never reset, a new ID per
-insert (`window.rs:4740`). They work because the hit test is recomputed against the
-frame just prepainted. An element asks "am I hovered" during paint and gets an answer
-about the region *it registered moments earlier in this same frame*.
+Two steps, and the deletion is the second. The `docs/packages.md` entry is missing
+everything decided since it was written. Add:
 
-So there is no cross-frame identity, no carrying an ID forward, and no lag for a
-hover style that only changes painting. A hover style that changes *layout* does lag
-one frame, because layout ran before any region existed. That distinction is the
-whole of it, and I flattened it into "always one frame behind".
+**The `Frame` contract.** It is a layer boundary and changes by explicit decision.
+`PushDispatchNode(DispatchNode)` and `PopDispatchNode()` hand a node over whole, so
+there is no implied "active node" to get wrong. `IsHovered`, `IsActive` and
+`IsFocused` are valid during paint only.
 
-`docs/architecture.md` now names the hit test as step 5 of the frame, and
-`prompts/window.md` has the obligation to perform it.
+**Hit regions are per-frame.** A region registered in prepaint is resolved by
+`window` at step 5 and queried in paint of the same frame. Elements keep no identity
+across frames and there is no element-keyed map. Say that plainly, because the
+obvious implementation carries an ID forward, and that cannot work when the element
+is rebuilt every frame.
 
-## What that means for the code you wrote
+**`ClickEvent` is ours.** A click is synthesised from down and up on the same target,
+so `element` declares it in `geometry` units rather than naming a `platform` type.
 
-`interactivity.hitRegionID` and `nextHitRegionID` carry state from one frame to the
-next on a `*Div`. A `Div` does not survive a frame — the user's `Render` calls
-`NewDiv()` again — so `hitRegionID` is zero on every real frame, and
+**What an element costs.** 584 bytes per `Div`, one allocation, about 420 ns. Styling
+adds no allocations. `NewDiv()` takes no arguments, which is what a future arena in
+`window` has to work around, and that constraint should outlive this prompt.
 
-    d.interactivity.hitRegionID != 0 && f.IsHovered(...)
+Then set the `element` row in the README table, and delete this file.
 
-is false forever. Hover and active styling never fire in a running application.
+## What comes after, for whoever picks it up
 
-`TestHoverPseudoStyleTwoFrameLag` passes because it reaches into the field no caller
-can reach:
-
-    // Carry previous frame hit region ID into the element for simulation
-    btn2.interactivity.hitRegionID = hitRegionID
-
-That line is the test telling you the design does not work. When a test needs to set
-unexported state that nothing in the framework sets, the thing under test cannot
-happen in production. I would rather you had stopped there and said so — that
-instinct is worth more than the passing test.
-
-The fix follows from the corrected model: keep the ID from *this* frame's prepaint in
-the field, read it during paint, and delete `nextHitRegionID` and the carry-forward
-entirely. `RequestLayout` must not consult `IsHovered`; there is no region yet.
-
-`IsHovered`, `IsActive` and `IsFocused` stay on `Frame` and stay callable in paint
-only. Enforce that with the phase check you already have.
-
-## What is right
-
-`ClickEvent`, `MouseButton` and `Modifiers` in `element`, with `platform` nowhere in
-the package. I checked: no production file imports it and the layering test passes.
-
-`PushDispatchNode(DispatchNode)` and `PopDispatchNode()`. Bundling the context, focus
-ID and every listener into the struct is exactly the shape asked for, and the
-atomic-handoff test earns its place.
-
-`Hidden()` and `Invisible()` now match Tailwind and GPUI.
-
-`Occlude()`, and a test that an occluding box with no handlers still registers a
-region.
-
-## Done when
-
-`nextHitRegionID` is gone and the hit region ID is this frame's.
-
-Hover and active are evaluated in paint, never in `RequestLayout`, and a test proves
-a hover style reaches the scene **without** any test writing to an unexported field.
-If a test cannot be written that way, the design is still wrong and that is the
-finding.
-
-`doc.go` says what actually lags: a hover style that changes layout, by one frame,
-because layout precedes the hit test. A hover style that changes painting does not.
-
-## Worth carrying
-
-The test that needs a back door is evidence about the design, not an inconvenience to
-work around. This one printed its own diagnosis in a comment and was committed
-anyway. Read that comment as a failure next time, and say so — I would rather receive
-"this cannot work and here is why" than a green suite over a feature that never runs.
+Nothing in `element` blocks `window` any more. `window` is the last package with real
+design in it, and `ui` follows it.
