@@ -44,7 +44,7 @@ func main() {
 			WFull().
 			HFull().
 			AlignItems(style.AlignItemsCentre).
-			JustifyContent(style.JustifyContentCentre).
+			JustifyContent(style.AlignContentCentre).
 			Child(
 				element.NewDiv().
 					Width(style.Px(440)).
