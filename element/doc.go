@@ -51,7 +51,7 @@
 //   - Read solved layout bounds in logical pixels
 //   - Push and pop input dispatch nodes atomically
 //   - Register hit regions for input routing
-//   - Query hover, active, and focus state from the rendered frame
+//   - Query hover, active, and focus state during paint
 //   - Insert the six scene primitives (Quad, Shadow, Path, Underline,
 //     MonochromeSprite, PolychromeSprite)
 //   - Shape text lines at the window's scale factor
