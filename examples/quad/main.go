@@ -43,8 +43,8 @@ func main() {
 			Flex().
 			WFull().
 			HFull().
-			ItemsCenter().
-			JustifyCenter().
+			AlignItems(style.AlignItemsCenter).
+			JustifyContent(style.JustifyContentCenter).
 			Child(
 				element.NewDiv().
 					Width(style.Px(440)).
