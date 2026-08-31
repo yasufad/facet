@@ -150,7 +150,8 @@ func (d *Div) Occlude() *Div {
 	return d
 }
 
-// Hover configures style property overrides applied when this element was hovered in the rendered frame.
+// Hover configures style property overrides applied when this element is hovered
+// during the paint phase of the current frame.
 func (d *Div) Hover(f func(r *style.Refinement)) *Div {
 	if d.interactivity.hoverStyle == nil {
 		d.interactivity.hoverStyle = &style.Refinement{}
@@ -159,7 +160,8 @@ func (d *Div) Hover(f func(r *style.Refinement)) *Div {
 	return d
 }
 
-// Active configures style property overrides applied when this element was actively pressed in the rendered frame.
+// Active configures style property overrides applied when this element is actively pressed
+// during the paint phase of the current frame.
 func (d *Div) Active(f func(r *style.Refinement)) *Div {
 	if d.interactivity.activeStyle == nil {
 		d.interactivity.activeStyle = &style.Refinement{}
@@ -168,7 +170,8 @@ func (d *Div) Active(f func(r *style.Refinement)) *Div {
 	return d
 }
 
-// Focus configures style property overrides applied when this element held focus in the rendered frame.
+// Focus configures style property overrides applied when this element holds keyboard focus
+// during the paint phase.
 func (d *Div) Focus(f func(r *style.Refinement)) *Div {
 	if d.interactivity.focusStyle == nil {
 		d.interactivity.focusStyle = &style.Refinement{}
@@ -177,7 +180,8 @@ func (d *Div) Focus(f func(r *style.Refinement)) *Div {
 	return d
 }
 
-// InFocus configures style property overrides applied when an ancestor held focus in the rendered frame.
+// InFocus configures style property overrides applied when an ancestor holds keyboard focus
+// during the paint phase.
 func (d *Div) InFocus(f func(r *style.Refinement)) *Div {
 	if d.interactivity.inFocusStyle == nil {
 		d.interactivity.inFocusStyle = &style.Refinement{}
