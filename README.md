@@ -24,7 +24,7 @@ displays text yet, and no widget library, so it is not usable for an application
 | `platform` | Windows     |
 | `render`   | Direct3D 11 |
 | `element`  | in progress |
-| `window`   | done        |
+| `window`   | in progress |
 | `ui`       | not started |
 
 `examples/quad` drives an element tree through the `window` frame loop and
