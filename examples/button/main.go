@@ -66,7 +66,7 @@ func main() {
 	}
 	defer w.Close()
 
-	counterEnt := a.New(func(cx *app.Context[CounterView]) CounterView {
+	counterEnt := app.New(a, func(cx *app.Context[CounterView]) CounterView {
 		return CounterView{}
 	})
 
