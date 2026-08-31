@@ -38,7 +38,12 @@ func (m Modifiers) Has(other Modifiers) bool {
 // ClickEvent represents a synthesised click interaction (pointer pressed and
 // released within the bounds of the same element).
 type ClickEvent struct {
-	Position   geometry.Point[geometry.Pixels]
+	// Position is the window-relative click position in logical pixels.
+	Position geometry.Point[geometry.Pixels]
+
+	// LocalPosition is the element-relative click position in logical pixels.
+	LocalPosition geometry.Point[geometry.Pixels]
+
 	Button     MouseButton
 	Modifiers  Modifiers
 	ClickCount int
