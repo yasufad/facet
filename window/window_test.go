@@ -304,15 +304,43 @@ func (c *counterView) Render(cx *app.Context[counterView]) element.Element {
 	return element.NewDiv().Width(style.Px(100)).Height(style.Px(50))
 }
 
+type stubPlatform struct {
+	platform.Platform
+	dispatched []func()
+}
+
+func (p *stubPlatform) Run() error { return nil }
+func (p *stubPlatform) Quit()      {}
+func (p *stubPlatform) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
+	return newStubPlatformWindow(opts.Size, 1.0), nil
+}
+func (p *stubPlatform) Dispatch(f func()) {
+	p.dispatched = append(p.dispatched, f)
+}
+func (p *stubPlatform) Drain() int {
+	count := 0
+	for len(p.dispatched) > 0 {
+		callbacks := p.dispatched
+		p.dispatched = nil
+		for _, cb := range callbacks {
+			count++
+			cb()
+		}
+	}
+	return count
+}
+
 func TestFlushNotificationDeduplication(t *testing.T) {
 	a := app.NewApp()
 	defer a.Close()
 
+	plat := &stubPlatform{}
 	size := geometry.NewSize[geometry.Pixels](400, 300)
 	pw := newStubPlatformWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+	w.platform = plat
 
 	ent := app.New(a, func(cx *app.Context[counterView]) counterView {
 		return counterView{}
@@ -321,18 +349,35 @@ func TestFlushNotificationDeduplication(t *testing.T) {
 	v := element.NewView(ent)
 	w.SetRootView(v)
 
+	// Drain initial frame scheduled by SetRootView.
+	plat.Drain()
+	if read := ent.Read(a); read.count != 1 {
+		t.Fatalf("expected initial render count 1, got %d", read.count)
+	}
+
 	// Trigger multiple notify calls inside a single update.
+	// Notification must travel through app.Observe -> w.ScheduleFrame -> plat.Dispatch.
 	ent.Update(a, func(val *counterView, cx *app.Context[counterView]) {
 		cx.Notify()
 		cx.Notify()
 		cx.Notify()
 	})
 
-	w.Draw()
+	if len(plat.dispatched) != 1 {
+		t.Fatalf("expected exactly 1 scheduled frame dispatch after burst of 3 notifies, got %d", len(plat.dispatched))
+	}
+
+	// Process the scheduled frame turn without calling w.Draw() manually.
+	plat.Drain()
 
 	read := ent.Read(a)
-	if read.count != 1 {
-		t.Fatalf("expected view to render exactly once after multiple notifications, got %d", read.count)
+	if read.count != 2 {
+		t.Fatalf("expected view to render exactly once more (count=2) after notifications, got %d", read.count)
+	}
+
+	// Verify no redundant draws are pending.
+	if plat.Drain() != 0 {
+		t.Fatal("expected no further frames scheduled when window is clean")
 	}
 }
 
