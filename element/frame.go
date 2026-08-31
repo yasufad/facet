@@ -11,6 +11,25 @@ import (
 // HitRegionID uniquely identifies a hit-testable region registered during prepaint.
 type HitRegionID uint64
 
+// ActionBinding associates an action name with an ActionHandler.
+type ActionBinding struct {
+	ActionName string
+	Handler    input.ActionHandler
+}
+
+// DispatchNode encapsulates the complete input configuration and event listeners
+// attached to an input dispatch node atomically during prepaint.
+type DispatchNode struct {
+	KeyContext       *input.KeyContext
+	FocusID          input.FocusID
+	ActionBindings   []ActionBinding
+	KeyListeners     []input.KeyEventHandler
+	PointerListeners []input.PointerEventHandler
+	WheelListeners   []input.WheelEventHandler
+	TextListeners    []input.TextEventHandler
+	ClickListeners   []func(event ClickEvent) bool
+}
+
 // Frame is the capability interface that window provides to elements across the
 // three lifecycle phases.
 //
@@ -26,9 +45,25 @@ type Frame interface {
 	// after the layout pass has solved.
 	LayoutBounds(id layout.NodeID) geometry.Bounds[geometry.Pixels]
 
+	// PushDispatchNode opens a new input dispatch node configured with the given
+	// key context, focus handle, and event listeners, returning its identifier.
+	PushDispatchNode(node DispatchNode) input.DispatchNodeID
+
+	// PopDispatchNode closes the top active dispatch node.
+	PopDispatchNode()
+
 	// RegisterHitRegion registers a hit-testable bounding rectangle keyed by an
 	// input dispatch node identifier during the prepaint phase.
 	RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], nodeID input.DispatchNodeID) HitRegionID
+
+	// IsHovered reports whether the given hit region was hovered in the rendered frame.
+	IsHovered(id HitRegionID) bool
+
+	// IsActive reports whether the given hit region was actively pressed in the rendered frame.
+	IsActive(id HitRegionID) bool
+
+	// IsFocused reports whether the given focus identifier held keyboard focus in the rendered frame.
+	IsFocused(id input.FocusID) bool
 
 	// InsertQuad adds a quad primitive to the frame's scene.
 	InsertQuad(q scene.Quad)
