@@ -96,6 +96,11 @@ invariants it holds. Read your package's entry before you start.
   breaks nothing, and the declaration follows once it is already satisfied. Declaring
   first stops the implementing package compiling until it catches up. If the method
   signature names a new type, that type is its own commit before either.
+- Data goes the other way. A field the lower package *reads* on a type the upper
+  package owns has to be declared before it is read. One change can contain both
+  directions — `RequestFocus` on `Frame` needed `window` first, while
+  `DispatchNode.Cursor` needed `element` first — and then they are two commits, not
+  one. Ask which side is waiting on the other, per name, not per change.
 - Import only what your entry in `docs/packages.md` permits. A layering test
   enforces it; a failure means the design changed and needs deciding, not patching.
 - Interfaces at layer boundaries are contracts. `render.Renderer`,
