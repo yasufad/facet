@@ -91,3 +91,27 @@ the glyph sprites emitted during paint carry that colour. `elementtest.Frame` ha
 Worth carrying: a capability added for a named consumer, verified only in the package
 that provides it, is half tested. The provider's test proves the mechanism; the
 consumer's test proves the feature.
+
+## Next round: hold until clipping lands
+
+The button is done and its findings are all acted on. Before the next widgets, two
+things are being fixed underneath you:
+
+- `element` and `window` are joining the clip stack. `Frame` cannot confine children
+  to bounds today, so `Div.OverflowHidden()` sets a property nothing reads. Without it
+  there is no scroll view and no widget that draws inside a box.
+- `element` is adding tab order. Pointer focus works; keyboard focus movement does
+  not exist, so a form cannot be filled in without a mouse.
+
+When both land, the next widget is a **scroll view**, and it is chosen deliberately:
+it is the first thing to exercise clipping, wheel events and scroll offset held in an
+entity across frames, none of which anything has used. Expect it to find gaps the way
+the button did, and keep the same deliverable — the written list is worth more than
+the widget.
+
+A `Label` is not worth a milestone on its own; fold it in if a scroll view needs one.
+
+In the meantime, if you want something to do that does not depend on either: audit
+`Button` against what `element` now offers that it did not when you wrote it. It
+predates text inheritance, `RequestFocus` and `elementtest`, and there may be
+workarounds in it that no longer need to be there.
