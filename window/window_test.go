@@ -263,18 +263,25 @@ func TestTwoFramesInputIsolation(t *testing.T) {
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
 	clicked := false
+	var receivedEvt element.ClickEvent
 	w.SetRootFn(func() element.Element {
 		return element.NewDiv().
-			Width(style.Px(100)).
-			Height(style.Px(100)).
-			OnClick(func(e element.ClickEvent) bool {
-				clicked = true
-				return true
-			})
+			Child(
+				element.NewDiv().
+					MarginLeft(style.Px(20)).
+					MarginTop(style.Px(30)).
+					Width(style.Px(100)).
+					Height(style.Px(100)).
+					OnClick(func(e element.ClickEvent) bool {
+						clicked = true
+						receivedEvt = e
+						return true
+					}),
+			)
 	})
-	w.Draw() // Frame 1 renders button at (0, 0, 100, 100)
+	w.Draw() // Frame 1 renders child button at (20, 30, 100, 100)
 
-	// User clicks at (50, 50). Event resolves against rendered frame.
+	// User clicks at (50, 50) in window coordinates.
 	downEvt := platform.PointerEvent{
 		Phase:    platform.PointerDown,
 		Position: geometry.Point[geometry.DevicePixels]{X: 50, Y: 50},
@@ -293,6 +300,12 @@ func TestTwoFramesInputIsolation(t *testing.T) {
 
 	if !clicked {
 		t.Fatal("expected click event to be dispatched to rendered frame handler")
+	}
+	if receivedEvt.Position.X != 50 || receivedEvt.Position.Y != 50 {
+		t.Errorf("expected Position (50, 50), got %v", receivedEvt.Position)
+	}
+	if receivedEvt.LocalPosition.X != 30 || receivedEvt.LocalPosition.Y != 20 { // 50 - 20, 50 - 30
+		t.Errorf("expected LocalPosition (30, 20), got %v", receivedEvt.LocalPosition)
 	}
 }
 

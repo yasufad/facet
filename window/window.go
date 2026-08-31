@@ -440,10 +440,22 @@ func (w *Window) DispatchEvent(event platform.Event) {
 		} else if e.Phase == platform.PointerUp {
 			w.pointerDown = false
 			if hitID != 0 && hitID == w.downHitRegion {
+				var hitBounds geometry.Bounds[geometry.Pixels]
+				for _, hr := range w.rendered.hitRegions {
+					if hr.id == hitID {
+						hitBounds = hr.bounds
+						break
+					}
+				}
+				localPos := geometry.NewPoint[geometry.Pixels](
+					w.pointerPos.X-hitBounds.Origin.X,
+					w.pointerPos.Y-hitBounds.Origin.Y,
+				)
 				clickEvt := element.ClickEvent{
-					Position:  w.pointerPos,
-					Button:    element.MouseButton(e.Button),
-					Modifiers: element.Modifiers(e.Modifiers),
+					Position:      w.pointerPos,
+					LocalPosition: localPos,
+					Button:        element.MouseButton(e.Button),
+					Modifiers:     element.Modifiers(e.Modifiers),
 				}
 				if listeners, ok := w.rendered.clickListeners[nodeID]; ok {
 					for _, l := range listeners {
