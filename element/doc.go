@@ -180,6 +180,30 @@
 // Text elements instantly reflect parent hover states with zero changes to the
 // Element interface.
 //
+// # Tab Order Collection
+//
+// Keyboard tab order needs tree order, while the input package focus tree only tracks
+// parent-child focus containment. Prepaint walks the element tree in depth-first order
+// and registers dispatch nodes.
+//
+// During Prepaint, as focusable elements push dispatch nodes, their FocusIDs and tab stop
+// configurations are collected in declaration order. Elements can declare participation
+// via TrackFocus, opt out via TabStop(false), or override ordering with an explicit
+// TabIndex(n). At the end of Prepaint, window constructs the frame's tab order (positive
+// indices first in ascending order, followed by index 0 in tree order; negative indices
+// are excluded). Tab and Shift-Tab key events advance and reverse focus along this
+// sequence, wrapping at both ends and skipping unrendered elements.
+//
+// # Clipping and Overflow
+//
+// Frame exposes PushClip and PopClip (valid in the paint phase only) to confine child
+// primitives to container bounds. scene intersects nested clips automatically.
+//
+// Div honours style.Overflow: when overflow is Hidden, Clip, or Scroll, Div pushes its
+// bounds onto the clip stack before painting its children and pops it immediately
+// afterwards. Under facet_debug, window verifies that the clip stack is completely empty
+// at the end of paint, panicking if an element pushed a clip without balancing it.
+//
 // At a baseline of 1,000 elements per frame, unmanaged heap allocation produces
 // ~640 KB of garbage per frame (~38 MB/s at 60 fps). While the CPU time fits within
 // the 16 ms frame budget, eliminating allocation churn via window's per-frame arena
