@@ -14,7 +14,9 @@ const defaultScrollLineHeight = geometry.Pixels(20)
 
 // ScrollState holds retained vertical scrolling state across frames.
 type ScrollState struct {
-	offset geometry.Pixels
+	offset         geometry.Pixels
+	viewportHeight geometry.Pixels
+	contentHeight  geometry.Pixels
 }
 
 // NewScrollState constructs a new initialised ScrollState with zero offset.
@@ -27,17 +29,61 @@ func (s *ScrollState) Offset() geometry.Pixels {
 	return s.offset
 }
 
-// SetOffset sets the vertical scroll offset in logical pixels, clamped to non-negative.
+// MaxOffset returns the maximum valid vertical scroll offset based on recorded
+// viewport and content dimensions.
+func (s *ScrollState) MaxOffset() geometry.Pixels {
+	if s.contentHeight <= s.viewportHeight {
+		return 0
+	}
+	return s.contentHeight - s.viewportHeight
+}
+
+// SetOffset sets the vertical scroll offset in logical pixels, clamped between
+// 0 and MaxOffset.
 func (s *ScrollState) SetOffset(offset geometry.Pixels) {
 	if offset < 0 {
 		offset = 0
 	}
+	maxOffset := s.MaxOffset()
+	if s.viewportHeight > 0 && s.contentHeight > 0 && offset > maxOffset {
+		offset = maxOffset
+	}
 	s.offset = offset
 }
 
-// ScrollBy adjusts the vertical scroll offset by delta in logical pixels.
+// ScrollBy adjusts the vertical scroll offset by delta in logical pixels,
+// clamping to valid scroll boundaries.
 func (s *ScrollState) ScrollBy(delta geometry.Pixels) {
 	s.SetOffset(s.offset + delta)
+}
+
+// UpdateMetrics updates the recorded viewport and content dimensions from the
+// active frame pass and re-clamps the current scroll offset.
+func (s *ScrollState) UpdateMetrics(viewportHeight, contentHeight geometry.Pixels) {
+	s.viewportHeight = viewportHeight
+	s.contentHeight = contentHeight
+	s.SetOffset(s.offset)
+}
+
+type contentWrapper struct {
+	inner    element.Element
+	onLayout func(id element.NodeID)
+}
+
+func (w *contentWrapper) RequestLayout(f element.Frame) element.NodeID {
+	id := w.inner.RequestLayout(f)
+	if w.onLayout != nil {
+		w.onLayout(id)
+	}
+	return id
+}
+
+func (w *contentWrapper) Prepaint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {
+	w.inner.Prepaint(f, bounds)
+}
+
+func (w *contentWrapper) Paint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {
+	w.inner.Paint(f, bounds)
 }
 
 // ScrollView is a container element providing vertical clipping and scroll wheel
@@ -50,8 +96,9 @@ type ScrollView struct {
 	refinement style.Refinement
 
 	// Ephemeral element tree constructed for lifecycle execution
-	viewport *element.Div
-	content  *element.Div
+	viewport        *element.Div
+	content         *element.Div
+	contentLayoutID element.NodeID
 }
 
 // Ensure ScrollView implements element.Element.
@@ -100,6 +147,7 @@ func (s *ScrollView) buildTree() {
 		Flex().
 		FlexCol().
 		WFull().
+		FlexShrink(0).
 		Relative().
 		InsetTop(style.Px(-offset))
 
@@ -107,12 +155,21 @@ func (s *ScrollView) buildTree() {
 		s.content.Child(s.child)
 	}
 
+	wrapper := &contentWrapper{
+		inner: s.content,
+		onLayout: func(id element.NodeID) {
+			s.contentLayoutID = id
+		},
+	}
+
 	s.viewport = element.NewDiv().
 		Flex().
 		FlexCol().
+		WFull().
+		HFull().
 		Relative().
 		OverflowScroll().
-		Child(s.content)
+		Child(wrapper)
 
 	s.viewport.Refine(s.refinement)
 
@@ -152,7 +209,14 @@ func (s *ScrollView) Prepaint(f element.Frame, bounds geometry.Bounds[geometry.P
 	s.viewport.Prepaint(f, bounds)
 }
 
-// Paint draws viewport background and children clipped to the viewport bounds.
+// Paint draws viewport background and children clipped to the viewport bounds,
+// and records layout metrics into ScrollState for scroll clamping.
 func (s *ScrollView) Paint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {
+	if s.app != nil && s.contentLayoutID != (element.NodeID{}) {
+		contentBounds := f.LayoutBounds(s.contentLayoutID)
+		s.state.Update(s.app, func(st *ScrollState, cx *app.Context[ScrollState]) {
+			st.UpdateMetrics(bounds.Size.Height, contentBounds.Size.Height)
+		})
+	}
 	s.viewport.Paint(f, bounds)
 }
