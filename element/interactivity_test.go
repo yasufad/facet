@@ -138,46 +138,40 @@ func TestOccludeRegistersHitRegion(t *testing.T) {
 	}
 }
 
-func TestHoverPseudoStyleTwoFrameLag(t *testing.T) {
+func TestHoverPseudoStyle(t *testing.T) {
 	frame := newFakeFrame()
 	red := colour.Rgba{R: 1, G: 0, B: 0, A: 1}
 	blue := colour.Rgba{R: 0, G: 0, B: 1, A: 1}
 
-	btn := NewDiv().
+	// Case 1: Unhovered
+	btn1 := NewDiv().
 		Bg(red).
 		Hover(func(r *style.Refinement) {
 			r.SetBackground(blue)
 		})
 
-	// Frame 1: Initial layout and prepaint (not hovered in rendered frame)
 	frame.phase = phaseLayoutRequested
-	id1 := btn.RequestLayout(frame)
+	id1 := btn1.RequestLayout(frame)
 	frame.solve(id1, 100, 50)
 	bounds1 := frame.LayoutBounds(id1)
 
 	frame.phase = phasePrepainted
-	btn.Prepaint(frame, bounds1)
+	btn1.Prepaint(frame, bounds1)
 
 	frame.phase = phasePainted
-	btn.Paint(frame, bounds1)
+	btn1.Paint(frame, bounds1)
 
 	if len(frame.quads) != 1 || frame.quads[0].Background != red {
-		t.Fatalf("frame 1: expected red background, got %v", frame.quads[0].Background)
+		t.Fatalf("unhovered: expected red background, got %v", frame.quads[0].Background)
 	}
 
-	hitRegionID := frame.hitRegions[0].id
-
-	// Frame 2: Window reports hitRegionID is hovered in the rendered frame
-	frame.hoveredHitRegions[hitRegionID] = true
+	// Case 2: Hovered (window computes hit test between prepaint and paint)
 	frame.quads = frame.quads[:0]
-
 	btn2 := NewDiv().
 		Bg(red).
 		Hover(func(r *style.Refinement) {
 			r.SetBackground(blue)
 		})
-	// Carry previous frame hit region ID into the element for simulation
-	btn2.interactivity.hitRegionID = hitRegionID
 
 	frame.phase = phaseLayoutRequested
 	id2 := btn2.RequestLayout(frame)
@@ -187,11 +181,45 @@ func TestHoverPseudoStyleTwoFrameLag(t *testing.T) {
 	frame.phase = phasePrepainted
 	btn2.Prepaint(frame, bounds2)
 
+	// Step 5 of the frame: Window calculates mouse hit test against newly registered regions
+	regID := frame.hitRegions[len(frame.hitRegions)-1].id
+	frame.setHovered(regID, true)
+
 	frame.phase = phasePainted
 	btn2.Paint(frame, bounds2)
 
 	if len(frame.quads) != 1 || frame.quads[0].Background != blue {
-		t.Fatalf("frame 2: expected blue background from hover style, got %v", frame.quads[0].Background)
+		t.Fatalf("hovered: expected blue background from hover style, got %v", frame.quads[0].Background)
+	}
+}
+
+func TestActivePseudoStyle(t *testing.T) {
+	frame := newFakeFrame()
+	red := colour.Rgba{R: 1, G: 0, B: 0, A: 1}
+	green := colour.Rgba{R: 0, G: 1, B: 0, A: 1}
+
+	btn := NewDiv().
+		Bg(red).
+		Active(func(r *style.Refinement) {
+			r.SetBackground(green)
+		})
+
+	frame.phase = phaseLayoutRequested
+	id := btn.RequestLayout(frame)
+	frame.solve(id, 100, 50)
+	bounds := frame.LayoutBounds(id)
+
+	frame.phase = phasePrepainted
+	btn.Prepaint(frame, bounds)
+
+	regID := frame.hitRegions[len(frame.hitRegions)-1].id
+	frame.setActive(regID, true)
+
+	frame.phase = phasePainted
+	btn.Paint(frame, bounds)
+
+	if len(frame.quads) != 1 || frame.quads[0].Background != green {
+		t.Fatalf("active: expected green background from active style, got %v", frame.quads[0].Background)
 	}
 }
 
@@ -225,8 +253,8 @@ func TestFocusPseudoStyle(t *testing.T) {
 		t.Fatalf("unfocused: expected default border colour, got %v", frame.quads[0].BorderColour)
 	}
 
-	// Case 2: Focused in rendered frame
-	frame.focusedIDs[focusID] = true
+	// Case 2: Focused in window
+	frame.setFocused(focusID, true)
 	frame.quads = frame.quads[:0]
 
 	inputField2 := NewDiv().
