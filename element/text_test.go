@@ -182,6 +182,65 @@ func TestTextPhasePanics(t *testing.T) {
 	})
 }
 
+func TestTextInheritsParentStyleAndHover(t *testing.T) {
+	frame := newFakeFrame()
+	normalColour := colour.Rgba{R: 0.1, G: 0.2, B: 0.3, A: 1}
+	hoverColour := colour.Rgba{R: 0.9, G: 0.8, B: 0.1, A: 1}
+
+	label := NewText("Button Label")
+	parent := NewDiv().
+		TextColour(normalColour).
+		Hover(func(r *style.Refinement) {
+			r.SetTextColour(hoverColour)
+		}).
+		Child(label)
+
+	// Step 1: Request layout
+	frame.phase = phaseLayoutRequested
+	rootID := parent.RequestLayout(frame)
+	frame.solve(rootID, 120, 30)
+	rootBounds := frame.LayoutBounds(rootID)
+
+	// Step 2: Prepaint
+	frame.phase = phasePrepainted
+	parent.Prepaint(frame, rootBounds)
+
+	// Test Normal Paint (not hovered)
+	frame.phase = phasePainted
+	parent.Paint(frame, rootBounds)
+
+	if len(frame.monoSprites) == 0 {
+		t.Fatal("expected monochrome sprites emitted for label, got 0")
+	}
+	for i, sp := range frame.monoSprites {
+		if sp.Colour != normalColour {
+			t.Errorf("sprite %d: expected normal colour %v, got %v", i, normalColour, sp.Colour)
+		}
+	}
+
+	// Test Hover Paint (hovered)
+	frame.monoSprites = frame.monoSprites[:0]
+	if len(frame.hitRegions) == 0 {
+		t.Fatal("expected hit region registered on parent")
+	}
+	parentHitID := frame.hitRegions[0].id
+	frame.setHovered(parentHitID, true)
+
+	// Reset phase for second paint test
+	parent.phase = phasePrepainted
+	label.phase = phasePrepainted
+	parent.Paint(frame, rootBounds)
+
+	if len(frame.monoSprites) == 0 {
+		t.Fatal("expected monochrome sprites emitted for hovered label, got 0")
+	}
+	for i, sp := range frame.monoSprites {
+		if sp.Colour != hoverColour {
+			t.Errorf("sprite %d: expected hover colour %v, got %v", i, hoverColour, sp.Colour)
+		}
+	}
+}
+
 func assertPanics(t *testing.T, msg string, fn func()) {
 	t.Helper()
 	defer func() {
