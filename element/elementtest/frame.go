@@ -1,6 +1,9 @@
 package elementtest
 
 import (
+	"cmp"
+	"slices"
+
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/input"
@@ -41,6 +44,12 @@ const (
 	PointerMove
 )
 
+type tabStopEntry struct {
+	focusID  input.FocusID
+	tabIndex int
+	order    int
+}
+
 // Frame is an exported test double implementing element.Frame for unit testing
 // elements and widgets without importing internal rendering or platform packages.
 type Frame struct {
@@ -55,6 +64,7 @@ type Frame struct {
 	bounds           map[element.NodeID]geometry.Bounds[geometry.Pixels]
 	measureCallbacks map[element.NodeID]element.MeasureFunc
 
+	focusTree         *input.FocusTree
 	dispatchTree      *input.DispatchTree
 	dispatchNodes     []element.DispatchNode
 	dispatchNodeStack []input.DispatchNodeID
@@ -66,15 +76,14 @@ type Frame struct {
 	activeHitRegions  map[element.HitRegionID]bool
 	focusedIDs        map[input.FocusID]bool
 
+	tabStops []tabStopEntry
+	tabOrder []input.FocusID
+
 	downHitRegion element.HitRegionID
 	downNodeID    input.DispatchNodeID
 
-	quads          []scene.Quad
-	shadows        []scene.Shadow
-	paths          []scene.Path[geometry.ScaledPixels]
-	underlines     []scene.Underline
-	monoSprites    []scene.MonochromeSprite
-	polySprites    []scene.PolychromeSprite
+	scene          *scene.Scene
+	clipDepth      int
 	textSys        *text.System
 	textStyleStack []style.TextStyle
 }
@@ -85,6 +94,7 @@ var _ element.Frame = (*Frame)(nil)
 // NewFrame constructs an initialised test Frame ready for element lifecycle testing.
 func NewFrame() *Frame {
 	txtSys, _ := text.NewSystem()
+	ft := input.NewFocusTree()
 	return &Frame{
 		phase:             PhaseLayout,
 		scaleFactor:       2.0,
@@ -94,11 +104,13 @@ func NewFrame() *Frame {
 		children:          make(map[element.NodeID][]element.NodeID),
 		bounds:            make(map[element.NodeID]geometry.Bounds[geometry.Pixels]),
 		measureCallbacks:  make(map[element.NodeID]element.MeasureFunc),
-		dispatchTree:      input.NewDispatchTree(nil, nil),
+		focusTree:         ft,
+		dispatchTree:      input.NewDispatchTree(nil, ft),
 		clickListeners:    make(map[input.DispatchNodeID][]func(element.ClickEvent) bool),
 		hoveredHitRegions: make(map[element.HitRegionID]bool),
 		activeHitRegions:  make(map[element.HitRegionID]bool),
 		focusedIDs:        make(map[input.FocusID]bool),
+		scene:             scene.New(),
 		textSys:           txtSys,
 		textStyleStack:    []style.TextStyle{style.DefaultTextStyle()},
 	}
@@ -107,6 +119,9 @@ func NewFrame() *Frame {
 // SetPhase updates the active lifecycle phase of the test frame.
 func (f *Frame) SetPhase(p Phase) {
 	f.phase = p
+	if p == PhasePaint || p == PhasePrepaint {
+		f.tabOrder = sortTabStops(f.tabStops)
+	}
 }
 
 // SetScaleFactor sets the display scale factor.
@@ -132,46 +147,52 @@ func (f *Frame) SetActive(id element.HitRegionID, active bool) {
 // SetFocused sets whether a focus identifier is considered focused.
 func (f *Frame) SetFocused(id input.FocusID, focused bool) {
 	f.focusedIDs[id] = focused
+	if focused {
+		f.focusTree.Focus(id)
+	} else {
+		f.focusTree.Blur()
+	}
+}
+
+// Focused returns the currently focused FocusID and true, or (0, false) if nothing is focused.
+func (f *Frame) Focused() (input.FocusID, bool) {
+	return f.focusTree.Focused()
 }
 
 // ClearPrimitives empties all recorded scene primitives.
 func (f *Frame) ClearPrimitives() {
-	f.quads = f.quads[:0]
-	f.shadows = f.shadows[:0]
-	f.paths = f.paths[:0]
-	f.underlines = f.underlines[:0]
-	f.monoSprites = f.monoSprites[:0]
-	f.polySprites = f.polySprites[:0]
+	f.scene.Clear()
+	f.clipDepth = 0
 }
 
 // Quads returns all quads emitted into the frame.
 func (f *Frame) Quads() []scene.Quad {
-	return f.quads
+	return f.scene.Quads()
 }
 
 // Shadows returns all shadows emitted into the frame.
 func (f *Frame) Shadows() []scene.Shadow {
-	return f.shadows
+	return f.scene.Shadows()
 }
 
 // Paths returns all vector paths emitted into the frame.
 func (f *Frame) Paths() []scene.Path[geometry.ScaledPixels] {
-	return f.paths
+	return f.scene.Paths()
 }
 
 // Underlines returns all underlines emitted into the frame.
 func (f *Frame) Underlines() []scene.Underline {
-	return f.underlines
+	return f.scene.Underlines()
 }
 
 // MonochromeSprites returns all monochrome sprites emitted into the frame.
 func (f *Frame) MonochromeSprites() []scene.MonochromeSprite {
-	return f.monoSprites
+	return f.scene.MonochromeSprites()
 }
 
 // PolychromeSprites returns all polychrome sprites emitted into the frame.
 func (f *Frame) PolychromeSprites() []scene.PolychromeSprite {
-	return f.polySprites
+	return f.scene.PolychromeSprites()
 }
 
 // HitRegions returns all hit regions registered during prepaint.
@@ -197,6 +218,63 @@ func (f *Frame) ChildrenOf(parent element.NodeID) []element.NodeID {
 // StyleOf returns the layout style of node.
 func (f *Frame) StyleOf(node element.NodeID) layout.Style {
 	return f.styles[node]
+}
+
+// TabOrder returns the ordered list of focusable identifiers in tab navigation order.
+func (f *Frame) TabOrder() []input.FocusID {
+	if len(f.tabOrder) == 0 && len(f.tabStops) > 0 {
+		f.tabOrder = sortTabStops(f.tabStops)
+	}
+	return f.tabOrder
+}
+
+// FocusNext moves focus to the next focusable element in tab order, wrapping around.
+func (f *Frame) FocusNext() {
+	tabOrder := f.TabOrder()
+	if len(tabOrder) == 0 {
+		return
+	}
+	curr, ok := f.focusTree.Focused()
+	if !ok || curr == 0 {
+		f.RequestFocus(tabOrder[0])
+		return
+	}
+	idx := slices.Index(tabOrder, curr)
+	if idx < 0 {
+		f.RequestFocus(tabOrder[0])
+		return
+	}
+	nextIdx := (idx + 1) % len(tabOrder)
+	f.RequestFocus(tabOrder[nextIdx])
+}
+
+// FocusPrev moves focus to the previous focusable element in tab order, wrapping around.
+func (f *Frame) FocusPrev() {
+	tabOrder := f.TabOrder()
+	if len(tabOrder) == 0 {
+		return
+	}
+	curr, ok := f.focusTree.Focused()
+	if !ok || curr == 0 {
+		f.RequestFocus(tabOrder[len(tabOrder)-1])
+		return
+	}
+	idx := slices.Index(tabOrder, curr)
+	if idx < 0 {
+		f.RequestFocus(tabOrder[len(tabOrder)-1])
+		return
+	}
+	prevIdx := (idx - 1 + len(tabOrder)) % len(tabOrder)
+	f.RequestFocus(tabOrder[prevIdx])
+}
+
+// SimulateTab simulates pressing Tab (or Shift+Tab when shift is true) to navigate focus along tab order.
+func (f *Frame) SimulateTab(shift bool) {
+	if shift {
+		f.FocusPrev()
+	} else {
+		f.FocusNext()
+	}
 }
 
 // DispatchPointer simulates delivering a pointer event to the frame and synthesising clicks.
@@ -379,6 +457,13 @@ func (f *Frame) PushDispatchNode(node element.DispatchNode) input.DispatchNodeID
 	}
 	if node.FocusID != 0 {
 		f.dispatchTree.SetFocusID(node.FocusID)
+		if node.TabStop || node.TabIndex != 0 {
+			f.tabStops = append(f.tabStops, tabStopEntry{
+				focusID:  node.FocusID,
+				tabIndex: node.TabIndex,
+				order:    len(f.tabStops),
+			})
+		}
 	}
 	for _, ab := range node.ActionBindings {
 		f.dispatchTree.OnAction(ab.ActionName, ab.Handler)
@@ -450,15 +535,55 @@ func (f *Frame) IsFocused(id input.FocusID) bool {
 	if f.phase != PhasePaint {
 		panic("elementtest: IsFocused called outside paint phase")
 	}
+	if focused, ok := f.focusTree.Focused(); ok {
+		return focused == id || f.focusTree.Contains(id, focused)
+	}
 	return f.focusedIDs[id]
 }
 
 // RequestFocus moves keyboard focus to the node identified by id.
 func (f *Frame) RequestFocus(id input.FocusID) {
-	f.focusedIDs = make(map[input.FocusID]bool)
-	if id != 0 {
+	if id == 0 {
+		f.focusTree.Blur()
+		clear(f.focusedIDs)
+	} else {
+		f.focusTree.Focus(id)
+		clear(f.focusedIDs)
 		f.focusedIDs[id] = true
 	}
+}
+
+// PushClip pushes a content clip mask onto the scene clip stack.
+func (f *Frame) PushClip(bounds geometry.Bounds[geometry.Pixels]) {
+	if f.phase != PhasePaint {
+		panic("elementtest: PushClip called outside paint phase")
+	}
+	scale := f.scaleFactor
+	scaledBounds := geometry.Bounds[geometry.ScaledPixels]{
+		Origin: geometry.Point[geometry.ScaledPixels]{
+			X: bounds.Origin.X.Scale(scale),
+			Y: bounds.Origin.Y.Scale(scale),
+		},
+		Size: geometry.Size[geometry.ScaledPixels]{
+			Width:  bounds.Size.Width.Scale(scale),
+			Height: bounds.Size.Height.Scale(scale),
+		},
+	}
+	f.clipDepth++
+	f.scene.PushClip(scene.ContentMask[geometry.ScaledPixels]{
+		Bounds: scaledBounds,
+	})
+}
+
+// PopClip pops the top content clip mask from the scene clip stack.
+func (f *Frame) PopClip() {
+	if f.phase != PhasePaint {
+		panic("elementtest: PopClip called outside paint phase")
+	}
+	if f.clipDepth > 0 {
+		f.clipDepth--
+	}
+	f.scene.PopClip()
 }
 
 // InsertQuad adds a quad to the scene.
@@ -466,7 +591,7 @@ func (f *Frame) InsertQuad(q scene.Quad) {
 	if f.phase != PhasePaint {
 		panic("elementtest: InsertQuad called outside paint phase")
 	}
-	f.quads = append(f.quads, q)
+	f.scene.InsertQuad(q)
 }
 
 // InsertShadow adds a shadow to the scene.
@@ -474,7 +599,7 @@ func (f *Frame) InsertShadow(sh scene.Shadow) {
 	if f.phase != PhasePaint {
 		panic("elementtest: InsertShadow called outside paint phase")
 	}
-	f.shadows = append(f.shadows, sh)
+	f.scene.InsertShadow(sh)
 }
 
 // InsertPath adds a vector path to the scene.
@@ -482,7 +607,7 @@ func (f *Frame) InsertPath(p scene.Path[geometry.ScaledPixels]) {
 	if f.phase != PhasePaint {
 		panic("elementtest: InsertPath called outside paint phase")
 	}
-	f.paths = append(f.paths, p)
+	f.scene.InsertPath(p)
 }
 
 // InsertUnderline adds an underline to the scene.
@@ -490,7 +615,7 @@ func (f *Frame) InsertUnderline(u scene.Underline) {
 	if f.phase != PhasePaint {
 		panic("elementtest: InsertUnderline called outside paint phase")
 	}
-	f.underlines = append(f.underlines, u)
+	f.scene.InsertUnderline(u)
 }
 
 // InsertMonochromeSprite adds a monochrome sprite to the scene.
@@ -498,7 +623,7 @@ func (f *Frame) InsertMonochromeSprite(sp scene.MonochromeSprite) {
 	if f.phase != PhasePaint {
 		panic("elementtest: InsertMonochromeSprite called outside paint phase")
 	}
-	f.monoSprites = append(f.monoSprites, sp)
+	f.scene.InsertMonochromeSprite(sp)
 }
 
 // InsertPolychromeSprite adds a polychrome sprite to the scene.
@@ -506,7 +631,7 @@ func (f *Frame) InsertPolychromeSprite(sp scene.PolychromeSprite) {
 	if f.phase != PhasePaint {
 		panic("elementtest: InsertPolychromeSprite called outside paint phase")
 	}
-	f.polySprites = append(f.polySprites, sp)
+	f.scene.InsertPolychromeSprite(sp)
 }
 
 // ShapeLine shapes a single line of text.
@@ -566,4 +691,37 @@ func (f *Frame) TextStyle() style.TextStyle {
 		return style.DefaultTextStyle()
 	}
 	return f.textStyleStack[len(f.textStyleStack)-1]
+}
+
+func sortTabStops(entries []tabStopEntry) []input.FocusID {
+	if len(entries) == 0 {
+		return nil
+	}
+	var valid []tabStopEntry
+	for _, e := range entries {
+		if e.tabIndex >= 0 {
+			valid = append(valid, e)
+		}
+	}
+	slices.SortStableFunc(valid, func(a, b tabStopEntry) int {
+		if a.tabIndex > 0 && b.tabIndex > 0 {
+			if a.tabIndex != b.tabIndex {
+				return cmp.Compare(a.tabIndex, b.tabIndex)
+			}
+			return cmp.Compare(a.order, b.order)
+		}
+		if a.tabIndex > 0 && b.tabIndex == 0 {
+			return -1
+		}
+		if a.tabIndex == 0 && b.tabIndex > 0 {
+			return 1
+		}
+		return cmp.Compare(a.order, b.order)
+	})
+
+	order := make([]input.FocusID, len(valid))
+	for i, e := range valid {
+		order[i] = e.focusID
+	}
+	return order
 }
