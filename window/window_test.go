@@ -854,3 +854,108 @@ func TestRequestFocusPhaseEnforcement(t *testing.T) {
 		w.Draw()
 	})
 }
+
+func TestTabNavigationThroughWindow(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	focus1 := input.NewFocusID()
+	focus2 := input.NewFocusID()
+
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().
+			Width(style.Px(400)).
+			Height(style.Px(300)).
+			Children(
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(50)).
+					TrackFocus(focus1),
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(50)).
+					TrackFocus(focus2),
+			)
+	})
+
+	w.Draw()
+
+	// Initial Tab -> focuses focus1
+	w.DispatchEvent(platform.KeyEvent{
+		Phase: platform.KeyDown,
+		Code:  platform.KeyTab,
+	})
+	if f, _ := w.focusTree.Focused(); f != focus1 {
+		t.Fatalf("expected focus on %v, got %v", focus1, f)
+	}
+
+	// Tab -> focuses focus2
+	w.DispatchEvent(platform.KeyEvent{
+		Phase: platform.KeyDown,
+		Code:  platform.KeyTab,
+	})
+	if f, _ := w.focusTree.Focused(); f != focus2 {
+		t.Fatalf("expected focus on %v, got %v", focus2, f)
+	}
+
+	// Tab -> wraps to focus1
+	w.DispatchEvent(platform.KeyEvent{
+		Phase: platform.KeyDown,
+		Code:  platform.KeyTab,
+	})
+	if f, _ := w.focusTree.Focused(); f != focus1 {
+		t.Fatalf("expected focus wrapped to %v, got %v", focus1, f)
+	}
+
+	// Shift-Tab -> wraps to focus2
+	w.DispatchEvent(platform.KeyEvent{
+		Phase:     platform.KeyDown,
+		Code:      platform.KeyTab,
+		Modifiers: platform.Shift,
+	})
+	if f, _ := w.focusTree.Focused(); f != focus2 {
+		t.Fatalf("expected focus wrapped to %v on Shift-Tab, got %v", focus2, f)
+	}
+}
+
+func TestWindowPushClipPrimitiveMask(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 2.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 2.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().
+			Width(style.Px(100)).
+			Height(style.Px(100)).
+			OverflowHidden().
+			Child(
+				element.NewDiv().
+					Width(style.Px(300)).
+					Height(style.Px(300)).
+					Bg(colour.Rgba{R: 0, G: 0, B: 1, A: 1}),
+			)
+	})
+
+	w.Draw()
+
+	if len(r.quads) == 0 {
+		t.Fatalf("expected at least 1 quad, got %d", len(r.quads))
+	}
+	childQuad := r.quads[len(r.quads)-1]
+	expectedMask := geometry.Bounds[geometry.ScaledPixels]{
+		Origin: geometry.NewPoint[geometry.ScaledPixels](0, 0),
+		Size:   geometry.NewSize[geometry.ScaledPixels](200, 200), // 100 * 2.0
+	}
+	if childQuad.ContentMask.Bounds != expectedMask {
+		t.Fatalf("expected child quad content mask %v, got %v", expectedMask, childQuad.ContentMask.Bounds)
+	}
+}
