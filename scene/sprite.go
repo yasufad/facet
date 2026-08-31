@@ -22,7 +22,7 @@ type MonochromeSprite struct {
 }
 
 // PolychromeSprite draws a full-colour atlas tile: an image or emoji. Opacity
-// scales the tile's alpha; Grayscale desaturates it; CornerRadii rounds its
+// scales the tile's alpha; Greyscale desaturates it; CornerRadii rounds its
 // corners.
 //
 // The tile carries its own colour, so there is no Colour field. Opacity is
@@ -30,7 +30,7 @@ type MonochromeSprite struct {
 // alpha at sample time.
 type PolychromeSprite struct {
 	Order       DrawOrder
-	Grayscale   bool
+	Greyscale   bool
 	Opacity     float32
 	Bounds      geometry.Bounds[geometry.ScaledPixels]
 	ContentMask ContentMask[geometry.ScaledPixels]
