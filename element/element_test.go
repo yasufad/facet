@@ -323,7 +323,20 @@ func TestDivOverflowClipping(t *testing.T) {
 	frame.phase = phasePainted
 	parent.Paint(frame, rootBounds)
 
-	// Clip stack must be empty after Paint finishes (push/pop balanced)
+	// 1. Assert exactly 1 clip was pushed with parent's bounds
+	if len(frame.pushedClips) != 1 {
+		t.Fatalf("expected exactly 1 clip push, got %d", len(frame.pushedClips))
+	}
+	if frame.pushedClips[0] != rootBounds {
+		t.Fatalf("expected pushed clip bounds %v, got %v", rootBounds, frame.pushedClips[0])
+	}
+
+	// 2. Assert PopClip was called
+	if frame.popClipCount != 1 {
+		t.Fatalf("expected exactly 1 clip pop, got %d", frame.popClipCount)
+	}
+
+	// 3. Clip stack must be empty after Paint finishes (push/pop balanced)
 	if len(frame.clips) != 0 {
 		t.Fatalf("expected clip stack to be empty after paint, got depth %d", len(frame.clips))
 	}
@@ -333,6 +346,7 @@ func TestDivTabStopAndTabIndex(t *testing.T) {
 	frame := newFakeFrame()
 	focusID1 := input.NewFocusID()
 	focusID2 := input.NewFocusID()
+	focusID3 := input.NewFocusID()
 
 	d1 := NewDiv().
 		TrackFocus(focusID1).
@@ -342,7 +356,10 @@ func TestDivTabStopAndTabIndex(t *testing.T) {
 		TrackFocus(focusID2).
 		TabStop(false)
 
-	root := NewDiv().Children(d1, d2)
+	d3 := NewDiv().
+		TrackFocus(focusID3)
+
+	root := NewDiv().Children(d1, d2, d3)
 
 	frame.phase = phaseLayoutRequested
 	rootID := root.RequestLayout(frame)
@@ -352,8 +369,8 @@ func TestDivTabStopAndTabIndex(t *testing.T) {
 	frame.phase = phasePrepainted
 	root.Prepaint(frame, rootBounds)
 
-	if len(frame.dispatchNodes) != 2 {
-		t.Fatalf("expected 2 dispatch nodes, got %d", len(frame.dispatchNodes))
+	if len(frame.dispatchNodes) != 3 {
+		t.Fatalf("expected 3 dispatch nodes, got %d", len(frame.dispatchNodes))
 	}
 	n1 := frame.dispatchNodes[0]
 	if n1.FocusID != focusID1 || !n1.TabStop || n1.TabIndex != 3 {
@@ -363,5 +380,10 @@ func TestDivTabStopAndTabIndex(t *testing.T) {
 	n2 := frame.dispatchNodes[1]
 	if n2.FocusID != focusID2 || n2.TabStop {
 		t.Errorf("node 2: got FocusID=%v, TabStop=%v; want %v, false", n2.FocusID, n2.TabStop, focusID2)
+	}
+
+	n3 := frame.dispatchNodes[2]
+	if n3.FocusID != focusID3 || !n3.TabStop || n3.TabIndex != 0 {
+		t.Errorf("node 3 (default): got FocusID=%v, TabStop=%v, TabIndex=%v; want %v, true, 0", n3.FocusID, n3.TabStop, n3.TabIndex, focusID3)
 	}
 }
