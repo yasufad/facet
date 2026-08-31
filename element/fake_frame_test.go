@@ -19,11 +19,12 @@ type fakeFrame struct {
 	scaleFactor float32
 	remSize     geometry.Pixels
 
-	tree     *layout.TaffyTree
-	nodes    []layout.NodeID
-	styles   map[layout.NodeID]layout.Style
-	children map[layout.NodeID][]layout.NodeID
-	bounds   map[layout.NodeID]geometry.Bounds[geometry.Pixels]
+	tree             *layout.TaffyTree
+	nodes            []layout.NodeID
+	styles           map[layout.NodeID]layout.Style
+	children         map[layout.NodeID][]layout.NodeID
+	bounds           map[layout.NodeID]geometry.Bounds[geometry.Pixels]
+	measureCallbacks map[layout.NodeID]MeasureFunc
 
 	dispatchTree      *input.DispatchTree
 	dispatchNodes     []DispatchNode
@@ -41,9 +42,11 @@ type fakeFrame struct {
 	underlines  []scene.Underline
 	monoSprites []scene.MonochromeSprite
 	polySprites []scene.PolychromeSprite
+	textSys     *text.System
 }
 
 func newFakeFrame() *fakeFrame {
+	txtSys, _ := text.NewSystem()
 	return &fakeFrame{
 		phase:             phaseLayoutRequested,
 		scaleFactor:       2.0,
@@ -52,10 +55,12 @@ func newFakeFrame() *fakeFrame {
 		styles:            make(map[layout.NodeID]layout.Style),
 		children:          make(map[layout.NodeID][]layout.NodeID),
 		bounds:            make(map[layout.NodeID]geometry.Bounds[geometry.Pixels]),
+		measureCallbacks:  make(map[layout.NodeID]MeasureFunc),
 		dispatchTree:      input.NewDispatchTree(nil, nil),
 		hoveredHitRegions: make(map[HitRegionID]bool),
 		activeHitRegions:  make(map[HitRegionID]bool),
 		focusedIDs:        make(map[input.FocusID]bool),
+		textSys:           txtSys,
 	}
 }
 
@@ -72,6 +77,19 @@ func (f *fakeFrame) RequestLayout(s layout.Style, children []layout.NodeID) layo
 	f.nodes = append(f.nodes, id)
 	f.styles[id] = s
 	f.children[id] = append([]layout.NodeID(nil), children...)
+	return id
+}
+
+func (f *fakeFrame) RequestMeasuredLayout(s layout.Style, measure MeasureFunc) layout.NodeID {
+	if f.phase != phaseLayoutRequested {
+		panic("fakeFrame: RequestMeasuredLayout called in wrong phase")
+	}
+	id := f.tree.NewLeaf(s)
+	f.nodes = append(f.nodes, id)
+	f.styles[id] = s
+	if measure != nil {
+		f.measureCallbacks[id] = measure
+	}
 	return id
 }
 
@@ -211,7 +229,26 @@ func (f *fakeFrame) InsertPolychromeSprite(sp scene.PolychromeSprite) {
 }
 
 func (f *fakeFrame) ShapeLine(str string, runs []text.StyleRun) (text.ShapedLine, error) {
+	if f.textSys != nil {
+		return f.textSys.ShapeLine(str, runs)
+	}
 	return text.ShapedLine{}, nil
+}
+
+func (f *fakeFrame) RasteriseGlyph(face text.Face, gid text.GlyphID, size geometry.Pixels, subpixel text.SubpixelOffset) (scene.AtlasTile, geometry.Bounds[geometry.DevicePixels], bool) {
+	if f.phase != phasePainted {
+		panic("fakeFrame: RasteriseGlyph called outside paint phase")
+	}
+	tile := scene.AtlasTile{
+		TextureID: scene.AtlasTextureID{Index: 0, Kind: scene.TextureMonochrome},
+		TileID:    1,
+		Bounds:    geometry.NewBounds(geometry.Point[geometry.DevicePixels]{X: 0, Y: 0}, geometry.Size[geometry.DevicePixels]{Width: 10, Height: 10}),
+	}
+	glyphBounds := geometry.NewBounds(
+		geometry.Point[geometry.DevicePixels]{X: 0, Y: -10},
+		geometry.Size[geometry.DevicePixels]{Width: 10, Height: 10},
+	)
+	return tile, glyphBounds, true
 }
 
 func (f *fakeFrame) ScaleFactor() float32 {
