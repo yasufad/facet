@@ -233,18 +233,77 @@ func TestScrollViewStateAcrossFrames(t *testing.T) {
 	}
 }
 
+func TestScrollViewClampingAgainstContent(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	state := app.New(a, func(cx *app.Context[ScrollState]) ScrollState {
+		return NewScrollState()
+	})
+
+	// Content height = 400px, Viewport height = 150px -> Max offset = 250px
+	sv := NewScrollView(a, state).
+		Child(element.NewDiv().Width(style.Px(200)).Height(style.Px(400)))
+
+	frame := elementtest.NewFrame()
+	rootID := sv.RequestLayout(frame)
+	frame.Solve(rootID, 200, 150)
+	bounds := frame.LayoutBounds(rootID)
+
+	frame.SetPhase(elementtest.PhasePrepaint)
+	sv.Prepaint(frame, bounds)
+
+	frame.SetPhase(elementtest.PhasePaint)
+	sv.Paint(frame, bounds)
+
+	// Verify metrics recorded
+	st := state.Read(a)
+	if st.MaxOffset() != 250 {
+		t.Fatalf("expected max offset 250, got %v (viewportHeight: %v, contentHeight: %v)", st.MaxOffset(), st.viewportHeight, st.contentHeight)
+	}
+
+	// Attempt scrolling by 1000px down (past content bottom)
+	wheelDown := platform.WheelEvent{
+		Delta: platform.ScrollDelta{Unit: platform.ScrollPixels, DeltaY: 1000},
+	}
+	for _, n := range frame.DispatchNodes() {
+		for _, wl := range n.WheelListeners {
+			wl(wheelDown, input.Bubble)
+		}
+	}
+
+	if state.Read(a).Offset() != 250 {
+		t.Fatalf("expected scroll offset clamped to max 250, got %v", state.Read(a).Offset())
+	}
+
+	// Attempt scrolling by -500px up (past top)
+	wheelUp := platform.WheelEvent{
+		Delta: platform.ScrollDelta{Unit: platform.ScrollPixels, DeltaY: -500},
+	}
+	for _, n := range frame.DispatchNodes() {
+		for _, wl := range n.WheelListeners {
+			wl(wheelUp, input.Bubble)
+		}
+	}
+
+	if state.Read(a).Offset() != 0 {
+		t.Fatalf("expected scroll offset clamped to min 0, got %v", state.Read(a).Offset())
+	}
+}
+
 func TestScrollStateClamping(t *testing.T) {
 	st := NewScrollState()
 	st.SetOffset(-50)
 	if st.Offset() != 0 {
 		t.Errorf("expected negative offset to clamp to 0, got %v", st.Offset())
 	}
-	st.ScrollBy(100)
-	if st.Offset() != 100 {
-		t.Errorf("expected offset 100, got %v", st.Offset())
+	st.UpdateMetrics(100, 300) // max offset = 200
+	st.ScrollBy(500)
+	if st.Offset() != 200 {
+		t.Errorf("expected offset clamped to 200, got %v", st.Offset())
 	}
-	st.ScrollBy(-150)
+	st.ScrollBy(-300)
 	if st.Offset() != 0 {
-		t.Errorf("expected offset to clamp to 0, got %v", st.Offset())
+		t.Errorf("expected offset clamped to 0, got %v", st.Offset())
 	}
 }
