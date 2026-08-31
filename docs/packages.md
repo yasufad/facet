@@ -374,8 +374,13 @@ Invariants and guarantees:
   presentation happen in the frame turn without flashing blank or stretched buffers.
 - Scale factor invalidation: `ScaleChangedEvent` clears the CPU glyph cache (`text.Atlas`)
   and GPU texture atlas (`render.Renderer.ClearAtlas`), resizing the swapchain and relayouting.
+- Reactivity: `SetRootView` observes the root view entity (`app.Observe`); entity
+  notifications mark the window dirty and schedule a redraw automatically.
+- Re-rendering: the root view re-renders unconditionally on every frame; precise
+  per-view dirty tracking and subtree caching are deferred to a future milestone.
 - Threading: all frame loop operations run on the UI goroutine. Background operations
-  marshal back via `app.ForegroundExecutor` wired to `platform.Dispatch`.
+  marshal back via `app.ForegroundExecutor` wired to `platform.Dispatch`. `ScheduleFrame`
+  is thread-safe via an internal mutex so background tasks can request redraws safely.
 
 ## ui
 
