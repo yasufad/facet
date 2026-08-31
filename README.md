@@ -23,7 +23,7 @@ tree on screen. Windows is the only platform with a backend.
 | `platform` | Windows     |
 | `render`   | Direct3D 11 |
 | `element`  | done        |
-| `window`   | not started |
+| `window`   | done        |
 | `ui`       | not started |
 
 `examples/quad` draws through Direct3D 11, wiring `platform` and `render` by hand.
