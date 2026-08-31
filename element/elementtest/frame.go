@@ -453,6 +453,14 @@ func (f *Frame) IsFocused(id input.FocusID) bool {
 	return f.focusedIDs[id]
 }
 
+// RequestFocus moves keyboard focus to the node identified by id.
+func (f *Frame) RequestFocus(id input.FocusID) {
+	f.focusedIDs = make(map[input.FocusID]bool)
+	if id != 0 {
+		f.focusedIDs[id] = true
+	}
+}
+
 // InsertQuad adds a quad to the scene.
 func (f *Frame) InsertQuad(q scene.Quad) {
 	if f.phase != PhasePaint {

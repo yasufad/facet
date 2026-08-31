@@ -908,9 +908,10 @@ func (d *Div) Prepaint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		return
 	}
 
-	hasDispatch := d.interactivity.hasDispatchNode()
+	hasDispatch := d.interactivity.hasDispatchNode() || st.MouseCursor != style.CursorDefault
 	if hasDispatch {
 		node := d.interactivity.toDispatchNode()
+		node.Cursor = st.MouseCursor
 		nodeID := f.PushDispatchNode(node)
 		d.interactivity.hitRegionID = f.RegisterHitRegion(d.bounds, nodeID)
 	}

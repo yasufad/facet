@@ -177,6 +177,13 @@ func (f *fakeFrame) IsFocused(id input.FocusID) bool {
 	return f.focusedIDs[id]
 }
 
+func (f *fakeFrame) RequestFocus(id input.FocusID) {
+	f.focusedIDs = make(map[input.FocusID]bool)
+	if id != 0 {
+		f.focusedIDs[id] = true
+	}
+}
+
 func (f *fakeFrame) setHovered(id HitRegionID, hovered bool) {
 	f.hoveredHitRegions[id] = hovered
 }

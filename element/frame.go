@@ -23,6 +23,7 @@ type ActionBinding struct {
 type DispatchNode struct {
 	KeyContext       *input.KeyContext
 	FocusID          input.FocusID
+	Cursor           style.CursorStyle
 	ActionBindings   []ActionBinding
 	KeyListeners     []input.KeyEventHandler
 	PointerListeners []input.PointerEventHandler
@@ -77,6 +78,9 @@ type Frame interface {
 	// IsFocused reports whether the given focus identifier currently holds
 	// keyboard focus. Valid during the paint phase only.
 	IsFocused(id input.FocusID) bool
+
+	// RequestFocus moves keyboard focus to the node identified by id.
+	RequestFocus(id input.FocusID)
 
 	// InsertQuad adds a quad primitive to the frame's scene.
 	InsertQuad(q scene.Quad)
