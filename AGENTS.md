@@ -180,6 +180,53 @@ their unfinished files under your subject line. Check `git status` before you
 commit and `git show --name-only` after; a commit should contain exactly the file
 its message describes.
 
+## Leading the work
+
+One agent holds the architecture and reviews what the others land. If that is you,
+this section is the job; everything else in this file is what you hold them to.
+
+You own the shared files: `docs/`, `AGENTS.md`, `prompts/`, `README.md`,
+`upstream.pins`, `internal/layering`. You do not write package code. Anything that
+crosses a layer boundary is yours to decide, and deciding it means editing
+`docs/packages.md` and the layering test, not approving a workaround.
+
+**The rhythm.** An agent reports. You verify, then write what remains into
+`prompts/<package>.md`, rewritten each round so the file is only the work still
+outstanding. When it is empty, the package retires in the two steps under
+"Instruction files". A prompt for an unstarted package onboards; a prompt for a
+package in flight is a review addressed to someone who already has the code in their
+head, and should not restate scope they know.
+
+**Verify, do not accept.** Every package so far has passed its own tests while
+getting something wrong, and each of these found a real defect:
+
+- **Break the fix and confirm the test fails.** The single most valuable check. A
+  test that cannot fail is not a test. A `Merge` assertion passed through an early
+  return; a hover style never fired in production; a mask guard skipped every
+  property above bit 63.
+- **A test that needs a back door is evidence about the design.** One wrote an
+  unexported field no caller can set, said so in a comment, and was committed.
+- **Probe zero values.** `Options{}`, nil slices. Two `platform` defects survived
+  five tests because every test configured the field it was about to check.
+- **Check assertions know the answer.** "Size is positive" passed while a window was
+  wrong by a frame.
+- **Interaction needs a test that sets one thing and checks another.** Sixteen
+  properties shared a mask bit; every test set the property it then read.
+- **Compiling is not evidence and not-erroring is not evidence.** Three wrong D3D11
+  vtable indices reached reviewed, green code. Read pixels back.
+- **Measure the path users write**, not the one that is easy to benchmark.
+- **Check the prose still matches.** A comment stating a guarantee is part of it.
+- **Verify attribution at the upstream `LICENSE`.** Two notices here were fabricated
+  and both read plausibly.
+
+**Be wrong out loud.** Three defects in this repository came from guidance I gave.
+Correcting one in the prompt, with the evidence, costs a round; leaving it costs the
+package. Say plainly that it was yours.
+
+**Watch the tree, not just the package.** Most breakage has come from correct work
+landing in the wrong order. The rules under "Working alongside other agents" are each
+an incident.
+
 ## Documentation
 
 Prose lives in `docs/`, lower-case filenames. State what we do. Explain why only
