@@ -3,6 +3,7 @@ package element
 import (
 	"github.com/yasufad/facet/colour"
 	"github.com/yasufad/facet/geometry"
+	"github.com/yasufad/facet/input"
 	"github.com/yasufad/facet/layout"
 	"github.com/yasufad/facet/scene"
 	"github.com/yasufad/facet/style"
@@ -20,11 +21,13 @@ const (
 
 // Div is the general-purpose container element in Facet.
 //
-// It lays out and paints its children according to its flexbox style properties
+// It lays out and paints its children according to its flexbox style properties,
+// registers input dispatch nodes and hit regions for interactive listeners,
 // and emits background and border primitives into the frame scene.
 type Div struct {
-	refinement style.Refinement
-	children   []Element
+	refinement    style.Refinement
+	interactivity Interactivity
+	children      []Element
 
 	// Per-phase state mutated across the lifecycle.
 	layoutID       layout.NodeID
@@ -59,6 +62,127 @@ func (d *Div) Children(children ...Element) *Div {
 // Refine applies all explicitly set properties from r onto this element.
 func (d *Div) Refine(r style.Refinement) *Div {
 	d.refinement.MergeFrom(&r)
+	return d
+}
+
+// --- Interactivity & Event Handlers ---
+
+// KeyContext sets the keymap context associated with this element.
+func (d *Div) KeyContext(ctx input.KeyContext) *Div {
+	d.interactivity.keyContext = &ctx
+	return d
+}
+
+// TrackFocus associates a focus identifier with this element.
+func (d *Div) TrackFocus(focusID input.FocusID) *Div {
+	d.interactivity.focusID = focusID
+	return d
+}
+
+// OnAction registers an action listener invoked when a matching action reaches this element.
+func (d *Div) OnAction(actionName string, handler input.ActionHandler) *Div {
+	d.interactivity.actionBindings = append(d.interactivity.actionBindings, ActionBinding{
+		ActionName: actionName,
+		Handler:    handler,
+	})
+	return d
+}
+
+// CaptureAction registers an action handler for the capture dispatch phase.
+func (d *Div) CaptureAction(actionName string, handler input.ActionHandler) *Div {
+	d.interactivity.actionBindings = append(d.interactivity.actionBindings, ActionBinding{
+		ActionName: actionName,
+		Handler: func(action input.Action, phase input.DispatchPhase) bool {
+			if phase == input.Capture {
+				return handler(action, phase)
+			}
+			return false
+		},
+	})
+	return d
+}
+
+// OnKeyDown registers a raw key event listener.
+func (d *Div) OnKeyDown(handler input.KeyEventHandler) *Div {
+	d.interactivity.keyListeners = append(d.interactivity.keyListeners, handler)
+	return d
+}
+
+// OnKeyUp registers a raw key up event listener.
+func (d *Div) OnKeyUp(handler input.KeyEventHandler) *Div {
+	d.interactivity.keyListeners = append(d.interactivity.keyListeners, handler)
+	return d
+}
+
+// OnMouseDown registers a pointer event listener.
+func (d *Div) OnMouseDown(handler input.PointerEventHandler) *Div {
+	d.interactivity.pointerListeners = append(d.interactivity.pointerListeners, handler)
+	return d
+}
+
+// OnMouseUp registers a pointer event listener.
+func (d *Div) OnMouseUp(handler input.PointerEventHandler) *Div {
+	d.interactivity.pointerListeners = append(d.interactivity.pointerListeners, handler)
+	return d
+}
+
+// OnMouseMove registers a pointer move listener.
+func (d *Div) OnMouseMove(handler input.PointerEventHandler) *Div {
+	d.interactivity.pointerListeners = append(d.interactivity.pointerListeners, handler)
+	return d
+}
+
+// OnScrollWheel registers a scroll wheel event listener.
+func (d *Div) OnScrollWheel(handler input.WheelEventHandler) *Div {
+	d.interactivity.wheelListeners = append(d.interactivity.wheelListeners, handler)
+	return d
+}
+
+// OnClick registers a callback invoked upon a synthesised click interaction.
+func (d *Div) OnClick(handler func(event ClickEvent) bool) *Div {
+	d.interactivity.clickListeners = append(d.interactivity.clickListeners, handler)
+	return d
+}
+
+// Occlude marks this element as blocking pointer interactions for elements behind it.
+func (d *Div) Occlude() *Div {
+	d.interactivity.occlude = true
+	return d
+}
+
+// Hover configures style property overrides applied when this element was hovered in the rendered frame.
+func (d *Div) Hover(f func(r *style.Refinement)) *Div {
+	if d.interactivity.hoverStyle == nil {
+		d.interactivity.hoverStyle = &style.Refinement{}
+	}
+	f(d.interactivity.hoverStyle)
+	return d
+}
+
+// Active configures style property overrides applied when this element was actively pressed in the rendered frame.
+func (d *Div) Active(f func(r *style.Refinement)) *Div {
+	if d.interactivity.activeStyle == nil {
+		d.interactivity.activeStyle = &style.Refinement{}
+	}
+	f(d.interactivity.activeStyle)
+	return d
+}
+
+// Focus configures style property overrides applied when this element held focus in the rendered frame.
+func (d *Div) Focus(f func(r *style.Refinement)) *Div {
+	if d.interactivity.focusStyle == nil {
+		d.interactivity.focusStyle = &style.Refinement{}
+	}
+	f(d.interactivity.focusStyle)
+	return d
+}
+
+// InFocus configures style property overrides applied when an ancestor held focus in the rendered frame.
+func (d *Div) InFocus(f func(r *style.Refinement)) *Div {
+	if d.interactivity.inFocusStyle == nil {
+		d.interactivity.inFocusStyle = &style.Refinement{}
+	}
+	f(d.interactivity.inFocusStyle)
 	return d
 }
 
@@ -757,13 +881,25 @@ func (d *Div) RequestLayout(f Frame) layout.NodeID {
 	st := style.Default()
 	st.Refine(d.refinement)
 
+	// Apply pseudo-state overrides from the rendered frame.
+	if d.interactivity.hoverStyle != nil && d.interactivity.hitRegionID != 0 && f.IsHovered(d.interactivity.hitRegionID) {
+		st.Refine(*d.interactivity.hoverStyle)
+	}
+	if d.interactivity.activeStyle != nil && d.interactivity.hitRegionID != 0 && f.IsActive(d.interactivity.hitRegionID) {
+		st.Refine(*d.interactivity.activeStyle)
+	}
+	if d.interactivity.focusStyle != nil && d.interactivity.focusID != 0 && f.IsFocused(d.interactivity.focusID) {
+		st.Refine(*d.interactivity.focusStyle)
+	}
+
 	rem := f.RemSize()
 	layoutStyle := st.ToLayout(rem)
 	d.layoutID = f.RequestLayout(layoutStyle, d.childLayoutIDs)
 	return d.layoutID
 }
 
-// Prepaint commits computed bounds and prepaints children.
+// Prepaint commits computed bounds, registers input dispatch nodes and hit regions,
+// and prepaints children.
 func (d *Div) Prepaint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	if d.phase != phaseLayoutRequested {
 		panic("element: Prepaint called before RequestLayout or out of order")
@@ -777,10 +913,21 @@ func (d *Div) Prepaint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		return
 	}
 
+	hasDispatch := d.interactivity.hasDispatchNode()
+	if hasDispatch {
+		node := d.interactivity.toDispatchNode()
+		nodeID := f.PushDispatchNode(node)
+		d.interactivity.nextHitRegionID = f.RegisterHitRegion(d.bounds, nodeID)
+	}
+
 	for i, child := range d.children {
 		childLayoutID := d.childLayoutIDs[i]
 		childBounds := f.LayoutBounds(childLayoutID)
 		child.Prepaint(f, childBounds)
+	}
+
+	if hasDispatch {
+		f.PopDispatchNode()
 	}
 }
 
@@ -794,6 +941,21 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 
 	st := style.Default()
 	st.Refine(d.refinement)
+	if d.interactivity.hoverStyle != nil && d.interactivity.hitRegionID != 0 && f.IsHovered(d.interactivity.hitRegionID) {
+		st.Refine(*d.interactivity.hoverStyle)
+	}
+	if d.interactivity.activeStyle != nil && d.interactivity.hitRegionID != 0 && f.IsActive(d.interactivity.hitRegionID) {
+		st.Refine(*d.interactivity.activeStyle)
+	}
+	if d.interactivity.focusStyle != nil && d.interactivity.focusID != 0 && f.IsFocused(d.interactivity.focusID) {
+		st.Refine(*d.interactivity.focusStyle)
+	}
+
+	// Advance the registered hit region ID for subsequent frames.
+	if d.interactivity.nextHitRegionID != 0 {
+		d.interactivity.hitRegionID = d.interactivity.nextHitRegionID
+	}
+
 	if st.Display == style.DisplayNone {
 		return
 	}
