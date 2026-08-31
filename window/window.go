@@ -12,6 +12,7 @@ import (
 	"github.com/yasufad/facet/platform"
 	"github.com/yasufad/facet/render"
 	"github.com/yasufad/facet/scene"
+	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/text"
 )
 
@@ -94,6 +95,7 @@ type Window struct {
 	nodeBounds       map[layout.NodeID]geometry.Bounds[geometry.Pixels]
 	measureCallbacks map[layout.NodeID]element.MeasureFunc
 	glyphTileCache   map[glyphCacheKey]cachedGlyph
+	textStyleStack   []style.TextStyle
 
 	mu             sync.Mutex
 	frameScheduled bool
@@ -192,6 +194,7 @@ func NewWithRenderer(pw platform.Window, r render.Renderer, a *app.App, opts Win
 		nodeBounds:       make(map[layout.NodeID]geometry.Bounds[geometry.Pixels]),
 		measureCallbacks: make(map[layout.NodeID]element.MeasureFunc),
 		glyphTileCache:   make(map[glyphCacheKey]cachedGlyph),
+		textStyleStack:   []style.TextStyle{style.DefaultTextStyle()},
 	}
 
 	if pw != nil {
@@ -276,6 +279,8 @@ func (w *Window) Draw() {
 	}
 
 	// 2. Request layout: evaluate root view and construct Taffy layout nodes.
+	w.textStyleStack = w.textStyleStack[:1]
+	w.textStyleStack[0] = style.DefaultTextStyle()
 	w.phase = phaseLayout
 	el := w.rootView.Render(w.app)
 	if el == nil {

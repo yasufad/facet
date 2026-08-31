@@ -9,6 +9,7 @@ import (
 	"github.com/yasufad/facet/input"
 	"github.com/yasufad/facet/layout"
 	"github.com/yasufad/facet/scene"
+	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/text"
 )
 
@@ -283,4 +284,29 @@ func (w *Window) ScaleFactor() float32 {
 // RemSize returns the root font size in logical pixels.
 func (w *Window) RemSize() geometry.Pixels {
 	return w.remSize
+}
+
+// PushTextStyle pushes a text style refinement onto the inherited text style stack.
+func (w *Window) PushTextStyle(refinement style.Refinement) {
+	current := w.TextStyle()
+	var s style.Style
+	s.Text = current
+	s.Refine(refinement)
+	w.textStyleStack = append(w.textStyleStack, s.Text)
+}
+
+// PopTextStyle pops the top text style refinement from the stack.
+func (w *Window) PopTextStyle() {
+	if len(w.textStyleStack) > 1 {
+		w.textStyleStack = w.textStyleStack[:len(w.textStyleStack)-1]
+	}
+}
+
+// TextStyle returns the current inherited text style computed by layering all
+// pushed refinements from root to the current element.
+func (w *Window) TextStyle() style.TextStyle {
+	if len(w.textStyleStack) == 0 {
+		return style.DefaultTextStyle()
+	}
+	return w.textStyleStack[len(w.textStyleStack)-1]
 }
