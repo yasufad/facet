@@ -1,102 +1,78 @@
-# element: response to the milestone 2 plan
+# element: builder milestone reviewed — one naming trap, then interactivity
 
-The builder half is right and mostly mechanical — go. The interactivity half has one
-layering violation, one interface problem, and one capability it needs and does not
-have. And the two halves should not land together.
+Coverage is complete. I diffed every `Set*` on `style.Refinement` against `*Div`'s
+methods: all eighty-one are reachable, the eight that do not match by name being the
+deliberate short forms — `Bg`, `Border*`, `Cursor`. Nothing is stranded.
 
-The constructor decision is recorded and reasonable, and identifying the five
-non-element allocations was worth doing.
+The allocation result is the one that matters and it holds:
 
-## Split the milestone
+    unstyled        3942 ns   6896 B   15 allocs
+    fully styled    4103 ns   6896 B   15 allocs
 
-The full builder is a hundred-odd methods with no design in them. Interactivity is
-most of GPUI's 5,200-line `div.rs` and has open questions below. Landing them
-together produces a diff nobody can review and buries the interesting decisions in
-property setters.
+Styling every element with a dozen properties adds no allocations at all and about
+3% of construction time. The mutators-on-a-pointer decision is now paid off twice
+over.
 
-Builder first, on its own. Then interactivity. Say so when the first is done.
+## 1 — `Hidden()` does not mean what anyone will expect
 
-## 1 — `OnClick` puts `platform` in `element`
+    func (d *Div) None() *Div     { SetDisplay(DisplayNone) }
+    func (d *Div) Hidden() *Div   { SetVisibility(VisibilityHidden) }
 
-    OnClick(handler func(event platform.PointerEvent) bool)
+GPUI's `hidden()` sets `display: none` (`styled.rs:59`), and so does Tailwind's
+`hidden`, which is where GPUI took its vocabulary. Ours sets visibility.
 
-`element` may not import `platform`, and this is not a hole in the table like `input`
-was — the OS layer has no business in the element tree.
+So `div().Hidden()` leaves the element occupying its full space in the layout, which
+is the opposite of what the person writing it wanted, and nothing tells them. It is a
+silent behavioural difference in the API users touch most, and the kind that gets
+discovered as "why is there a gap here" three weeks later.
 
-Every other listener you propose is fine, because `input.PointerEventHandler` and its
-neighbours are named types in `input`; naming them does not require importing
-`platform`. Only `OnClick` spells a `platform` type directly.
+Follow the convention:
 
-A click is not a platform event anyway — it is down and up on the same target, which
-somebody has to synthesise. GPUI's `Interactivity` does it and hands the listener its
-own `ClickEvent`. Do the same: declare a `ClickEvent` in `element`, carrying position
-in `geometry` units, the button, and the modifiers. Then `element` owns the concept it
-invented and imports nothing new.
+    Hidden()      display: none
+    Invisible()   visibility: hidden
 
-## 2 — Nine new `Frame` methods, with a protocol between them
+`None()` can stay as an explicit alias or go; say which. Where we take a vocabulary
+from somewhere, we take it whole — deviating on one word costs more than inventing a
+different scheme would have.
 
-`Frame` goes from twelve methods to twenty-one, and seven of the new ones operate on
-an implied "active dispatch node" established by `PushDispatchNode`. That is a
-stateful protocol across an interface boundary: unbalanced push and pop is silent
-corruption, and `SetFocusID` called with no node open is a question every
-implementation has to answer separately.
+Worth a general check while you are in there: any other method whose name matches
+GPUI's or Tailwind's but whose behaviour does not.
 
-Hand the node over in one piece instead:
+## 2 — The benchmark numbers in `doc.go` do not reproduce
 
-    PushDispatchNode(node DispatchNode) input.DispatchNodeID
-    PopDispatchNode()
+`doc.go` records ~5.0 µs unstyled and ~5.5 µs fully styled. I measure 3.9 µs and
+4.1 µs on the same machine, twice each. Nothing is wrong with the code — the box was
+busier when you ran it — but a recorded absolute that is 25% off is worse than no
+number, because the next person treats a change to 5.0 µs as a regression.
 
-where `DispatchNode` is a struct in `element` carrying the key context, the focus ID
-and the handlers. Two methods instead of nine, the handlers are attached atomically
-with the node they belong to, and "which node is active" stops being askable.
+Record what survives the machine: allocations per node, which are exact and
+meaningful, and the styling overhead as a proportion rather than in nanoseconds. Keep
+one absolute if you like, and say what it was measured on.
 
-`prompts/window.md` says `Frame` is the third interface we commit to after
-`Renderer` and `Platform`, and the one users' code sits closest to. Nine methods that
-only make sense in a particular order is not the shape to commit to.
+## Then interactivity
 
-## 3 — Nothing can tell you whether the element is hovered
+The four answers from the previous round still stand, and none of them has been
+addressed yet because the milestone split deferred them:
 
-`Hover`, `Focus`, `InFocus` and `Active` all take a refinement closure, and nothing on
-`Frame` reports the state that decides whether to apply it. As specified, they can be
-stored and never evaluated.
+- `OnClick` cannot name `platform`. Declare a `ClickEvent` in `element`, in
+  `geometry` units — a click is synthesised from down and up on the same target, so
+  it is ours to define.
+- `Frame` takes `PushDispatchNode(DispatchNode) input.DispatchNodeID` and
+  `PopDispatchNode()`, not nine methods sharing an implied active node.
+- `Hover`, `Focus`, `InFocus` and `Active` need `IsHovered`, `IsActive` and
+  `IsFocused` on `Frame` to be evaluated at all, and the answers come from the
+  **rendered** frame, so a hover style is always one frame behind. Say that in
+  `doc.go`. Agree the three names with `window`'s agent before either of you writes
+  them.
+- Corner radii: decide whether percentages are supported, and be consistent about
+  why rather than by which type came to hand.
 
-The state lives in `window` — pointer position, the hit test, the focused node — so
-`Frame` has to expose it. Roughly:
+`Occlude()` was a good call. Keep it.
 
-    IsHovered(HitRegionID) bool
-    IsActive(HitRegionID) bool
-    IsFocused(input.FocusID) bool
+## Done when
 
-Two things make this more interesting than it looks, and both belong in `doc.go`:
+`Hidden()` removes the element from layout, `Invisible()` hides it in place.
 
-The answers come from the **rendered** frame, not the one being built. That is the
-whole point of `window`'s two-frame model — the pointer is over what is on screen,
-which is last frame's geometry. Your hit region for this frame does not exist yet when
-prepaint asks.
+`doc.go` records allocations per node and the styling overhead as a proportion.
 
-So a hover style is always one frame behind. That is correct and it is what GPUI does,
-but it needs saying out loud, because the alternative — laying out, then hit testing,
-then re-laying-out with the hover style applied — is a second layout pass per frame
-and is how frameworks end up with a hover that flickers.
-
-Agree the three method names with `window`'s agent before either of you writes them.
-
-## 4 — Smaller
-
-`Padding` and `Margin` take `style.Length`; `BorderWidth` and the radii take
-`geometry.Pixels`. Border widths cannot be percentages, so that half is right, but
-corner radii can be in CSS. Decide whether we support that and be consistent about
-why, rather than by which type came to hand.
-
-`Occlude()` is a good inclusion — an element that blocks the pointer without handling
-anything is exactly the case people discover late.
-
-## Done when — builder milestone
-
-Every property `style.Refinement` exposes has a builder method, and a test sets one
-of each and asserts it reaches `layout.Style` through `ToLayout`.
-
-The tree-construction benchmark is re-run on a styled element, and `doc.go` says what
-styling adds to the 420 ns floor.
-
-Then stop, and we will look at interactivity with these four answered.
+Then interactivity, with the four above settled first rather than discovered during.
