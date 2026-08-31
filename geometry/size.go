@@ -54,9 +54,9 @@ func (s Size[T]) Min(r Size[T]) Size[T] {
 	return Size[T]{Width: min(s.Width, r.Width), Height: min(s.Height, r.Height)}
 }
 
-// Center returns the point at the centre of a Size of the given dimensions,
+// Centre returns the point at the centre of a Size of the given dimensions,
 // treating the top-left as the origin.
-func (s Size[T]) Center() Point[T] {
+func (s Size[T]) Centre() Point[T] {
 	return Point[T]{X: s.Width / 2, Y: s.Height / 2}
 }
 
