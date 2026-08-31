@@ -8,6 +8,10 @@ import (
 	"github.com/yasufad/facet/layout"
 )
 
+// NodeID is an alias for layout.NodeID so implementers of Element do not need
+// to import layout directly.
+type NodeID = layout.NodeID
+
 // Element is implemented by types that participate in laying out, hit testing,
 // and painting contents in a frame.
 //
@@ -20,7 +24,7 @@ import (
 type Element interface {
 	// RequestLayout adds layout nodes to the layout tree via Frame and returns
 	// the root layout identifier for this element.
-	RequestLayout(f Frame) layout.NodeID
+	RequestLayout(f Frame) NodeID
 
 	// Prepaint commits the element's solved bounds to the frame, registers hit
 	// regions, and prepares geometry for painting.
