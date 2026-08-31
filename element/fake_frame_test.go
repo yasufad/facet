@@ -25,8 +25,15 @@ type fakeFrame struct {
 	children map[layout.NodeID][]layout.NodeID
 	bounds   map[layout.NodeID]geometry.Bounds[geometry.Pixels]
 
-	nextHitRegionID HitRegionID
-	hitRegions      []recordedHitRegion
+	dispatchTree      *input.DispatchTree
+	dispatchNodes     []DispatchNode
+	dispatchNodeStack []input.DispatchNodeID
+
+	nextHitRegionID   HitRegionID
+	hitRegions        []recordedHitRegion
+	hoveredHitRegions map[HitRegionID]bool
+	activeHitRegions  map[HitRegionID]bool
+	focusedIDs        map[input.FocusID]bool
 
 	quads       []scene.Quad
 	shadows     []scene.Shadow
@@ -38,13 +45,17 @@ type fakeFrame struct {
 
 func newFakeFrame() *fakeFrame {
 	return &fakeFrame{
-		phase:       phaseLayoutRequested,
-		scaleFactor: 2.0,
-		remSize:     16.0,
-		tree:        layout.NewTaffyTree(),
-		styles:      make(map[layout.NodeID]layout.Style),
-		children:    make(map[layout.NodeID][]layout.NodeID),
-		bounds:      make(map[layout.NodeID]geometry.Bounds[geometry.Pixels]),
+		phase:             phaseLayoutRequested,
+		scaleFactor:       2.0,
+		remSize:           16.0,
+		tree:              layout.NewTaffyTree(),
+		styles:            make(map[layout.NodeID]layout.Style),
+		children:          make(map[layout.NodeID][]layout.NodeID),
+		bounds:            make(map[layout.NodeID]geometry.Bounds[geometry.Pixels]),
+		dispatchTree:      input.NewDispatchTree(nil, nil),
+		hoveredHitRegions: make(map[HitRegionID]bool),
+		activeHitRegions:  make(map[HitRegionID]bool),
+		focusedIDs:        make(map[input.FocusID]bool),
 	}
 }
 
@@ -68,6 +79,48 @@ func (f *fakeFrame) LayoutBounds(id layout.NodeID) geometry.Bounds[geometry.Pixe
 	return f.bounds[id]
 }
 
+func (f *fakeFrame) PushDispatchNode(node DispatchNode) input.DispatchNodeID {
+	if f.phase != phasePrepainted {
+		panic("fakeFrame: PushDispatchNode called outside prepaint phase")
+	}
+	nodeID := f.dispatchTree.PushNode()
+	if node.KeyContext != nil {
+		f.dispatchTree.SetContext(*node.KeyContext)
+	}
+	if node.FocusID != 0 {
+		f.dispatchTree.SetFocusID(node.FocusID)
+	}
+	for _, ab := range node.ActionBindings {
+		f.dispatchTree.OnAction(ab.ActionName, ab.Handler)
+	}
+	for _, kl := range node.KeyListeners {
+		f.dispatchTree.OnKeyEvent(kl)
+	}
+	for _, pl := range node.PointerListeners {
+		f.dispatchTree.OnPointerEvent(pl)
+	}
+	for _, wl := range node.WheelListeners {
+		f.dispatchTree.OnWheelEvent(wl)
+	}
+	for _, tl := range node.TextListeners {
+		f.dispatchTree.OnTextEvent(tl)
+	}
+
+	f.dispatchNodes = append(f.dispatchNodes, node)
+	f.dispatchNodeStack = append(f.dispatchNodeStack, nodeID)
+	return nodeID
+}
+
+func (f *fakeFrame) PopDispatchNode() {
+	if f.phase != phasePrepainted {
+		panic("fakeFrame: PopDispatchNode called outside prepaint phase")
+	}
+	f.dispatchTree.PopNode()
+	if len(f.dispatchNodeStack) > 0 {
+		f.dispatchNodeStack = f.dispatchNodeStack[:len(f.dispatchNodeStack)-1]
+	}
+}
+
 func (f *fakeFrame) RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], nodeID input.DispatchNodeID) HitRegionID {
 	if f.phase != phasePrepainted {
 		panic("fakeFrame: RegisterHitRegion called outside prepaint phase")
@@ -80,6 +133,18 @@ func (f *fakeFrame) RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], n
 		nodeID: nodeID,
 	})
 	return id
+}
+
+func (f *fakeFrame) IsHovered(id HitRegionID) bool {
+	return f.hoveredHitRegions[id]
+}
+
+func (f *fakeFrame) IsActive(id HitRegionID) bool {
+	return f.activeHitRegions[id]
+}
+
+func (f *fakeFrame) IsFocused(id input.FocusID) bool {
+	return f.focusedIDs[id]
 }
 
 func (f *fakeFrame) InsertQuad(q scene.Quad) {
