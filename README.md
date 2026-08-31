@@ -3,11 +3,13 @@
 A GUI framework for Go. You write Go, you get a native desktop application.
 
 The design follows GPUI, the framework behind the Zed editor. State lives in an
-entity map, invalidation is precise, and the element tree is rebuilt each frame.
+entity map, and the element tree is rebuilt each frame from retained state.
 
 ## Status
 
-`window`, the frame loop, is complete. Windows (Direct3D 11) is the first supported platform.
+The frame loop is complete and draws, on Windows through Direct3D 11. A program can
+open a window and put a styled element tree on screen. There is no element that
+displays text yet, and no widget library, so it is not usable for an application.
 
 | Package    | State       |
 |------------|-------------|
@@ -21,11 +23,12 @@ entity map, invalidation is precise, and the element tree is rebuilt each frame.
 | `style`    | done        |
 | `platform` | Windows     |
 | `render`   | Direct3D 11 |
-| `element`  | done        |
+| `element`  | in progress |
 | `window`   | done        |
 | `ui`       | not started |
 
-`examples/quad` drives an element tree through the `window` frame loop and Direct3D 11.
+`examples/quad` drives an element tree through the `window` frame loop and
+Direct3D 11.
 
 ## How this is built
 
