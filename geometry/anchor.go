@@ -9,10 +9,10 @@ const (
 	TopRight
 	BottomLeft
 	BottomRight
-	TopCenter
-	BottomCenter
-	LeftCenter
-	RightCenter
+	TopCentre
+	BottomCentre
+	LeftCentre
+	RightCentre
 )
 
 // Opposite returns the directly opposite anchor.
@@ -26,14 +26,14 @@ func (a Anchor) Opposite() Anchor {
 		return TopRight
 	case BottomRight:
 		return TopLeft
-	case TopCenter:
-		return BottomCenter
-	case BottomCenter:
-		return TopCenter
-	case LeftCenter:
-		return RightCenter
-	case RightCenter:
-		return LeftCenter
+	case TopCentre:
+		return BottomCentre
+	case BottomCentre:
+		return TopCentre
+	case LeftCentre:
+		return RightCentre
+	case RightCentre:
+		return LeftCentre
 	}
 	return a
 }
@@ -51,10 +51,10 @@ func (a Anchor) OtherSideAlong(axis Axis) Anchor {
 			return TopLeft
 		case BottomRight:
 			return TopRight
-		case TopCenter:
-			return BottomCenter
-		case BottomCenter:
-			return TopCenter
+		case TopCentre:
+			return BottomCentre
+		case BottomCentre:
+			return TopCentre
 		}
 		return a
 	}
@@ -67,15 +67,15 @@ func (a Anchor) OtherSideAlong(axis Axis) Anchor {
 		return BottomRight
 	case BottomRight:
 		return BottomLeft
-	case LeftCenter:
-		return RightCenter
-	case RightCenter:
-		return LeftCenter
+	case LeftCentre:
+		return RightCentre
+	case RightCentre:
+		return LeftCentre
 	}
 	return a
 }
 
-// IsCenter reports whether a is one of the four edge-midpoint anchors.
-func (a Anchor) IsCenter() bool {
-	return a == TopCenter || a == BottomCenter || a == LeftCenter || a == RightCenter
+// IsCentre reports whether a is one of the four edge-midpoint anchors.
+func (a Anchor) IsCentre() bool {
+	return a == TopCentre || a == BottomCentre || a == LeftCentre || a == RightCentre
 }
