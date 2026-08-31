@@ -5,7 +5,6 @@ import (
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/input"
-	"github.com/yasufad/facet/layout"
 	"github.com/yasufad/facet/style"
 )
 
@@ -174,7 +173,7 @@ func (b *Button) buildTree() {
 
 // RequestLayout builds the ephemeral element tree, calculates flexbox layout
 // nodes through Frame, and returns the root NodeID.
-func (b *Button) RequestLayout(f element.Frame) layout.NodeID {
+func (b *Button) RequestLayout(f element.Frame) element.NodeID {
 	b.buildTree()
 	return b.div.RequestLayout(f)
 }
