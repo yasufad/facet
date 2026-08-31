@@ -327,10 +327,19 @@ so there is no implied "active node" to get wrong. `IsHovered`, `IsActive`, `IsF
 and `RasteriseGlyph` are valid during paint only. `ShapeLine` is legal during layout solve
 and paint.
 
+Text style inheritance: Typographic properties (colour, font family, font size, weight,
+style, line height, text alignment) inherit from ancestor elements via an ambient text
+style stack on `Frame` (`PushTextStyle`, `PopTextStyle`, `TextStyle`). In `Paint`, active
+pseudo-state overrides (hover, active, focus) on container elements are merged into the
+pushed style so child `Text` elements immediately reflect parent hover states.
+
+`NodeID` alias: `element.NodeID` is an alias for `layout.NodeID` so widget authors
+implementing `Element.RequestLayout` do not need to import `layout`.
+
 Text rendering: `Text` is a single-line, left-aligned text element that measures
 via `Frame.RequestMeasuredLayout`, caches the shaped output across flexbox passes
-keyed by text, style and available width, and emits `scene.MonochromeSprite`
-primitives for each glyph in paint with subpixel offsets.
+keyed by text, style and available width, inherits typographic styling from `f.TextStyle()`,
+and emits `scene.MonochromeSprite` primitives for each glyph in paint with subpixel offsets.
 
 Hit regions are per-frame: Monotonic, per-frame identifiers. A region registered
 during prepaint is resolved by `window` at step 5 (the intra-frame hit test) and
@@ -342,9 +351,14 @@ lag; layout-altering hover styles lag by one frame when tracked in persistent
 entity state, because `RequestLayout` precedes prepaint and hit testing.
 
 `ClickEvent` is ours: A click is synthesised from down and up on the same target,
-so `element` declares it in `geometry` units (`geometry.Point[geometry.Pixels]`,
+so `element` declares it in `geometry` units (`Position`, `LocalPosition`,
 `MouseButton`, `Modifiers`) rather than naming a `platform` type. `element` never
 imports `platform`.
+
+Exported test double: `element/elementtest` provides an exported `Frame` double that
+records layout requests, hit regions, dispatch nodes, and primitives, enabling widget
+packages (such as `ui`) to test lifecycle and interaction without importing `platform`,
+`scene`, `text`, or `render`.
 
 What an element costs: 584 bytes per `Div` (embeds `style.Refinement`, 504 of them),
 one allocation, about 420 ns baseline. Styling adds no allocations (~3% to 5% CPU
