@@ -45,6 +45,7 @@ type fakeFrame struct {
 	polySprites    []scene.PolychromeSprite
 	textSys        *text.System
 	textStyleStack []style.TextStyle
+	clips          []geometry.Bounds[geometry.Pixels]
 }
 
 func newFakeFrame() *fakeFrame {
@@ -181,6 +182,22 @@ func (f *fakeFrame) RequestFocus(id input.FocusID) {
 	f.focusedIDs = make(map[input.FocusID]bool)
 	if id != 0 {
 		f.focusedIDs[id] = true
+	}
+}
+
+func (f *fakeFrame) PushClip(bounds geometry.Bounds[geometry.Pixels]) {
+	if f.phase != phasePainted {
+		panic("fakeFrame: PushClip called outside paint phase")
+	}
+	f.clips = append(f.clips, bounds)
+}
+
+func (f *fakeFrame) PopClip() {
+	if f.phase != phasePainted {
+		panic("fakeFrame: PopClip called outside paint phase")
+	}
+	if len(f.clips) > 0 {
+		f.clips = f.clips[:len(f.clips)-1]
 	}
 }
 
