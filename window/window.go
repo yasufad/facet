@@ -529,9 +529,9 @@ func (w *Window) DispatchEvent(event platform.Event) {
 		w.ScheduleFrame()
 
 	case platform.KeyEvent:
-		handled := w.rendered.dispatchTree.DispatchKey(e)
-		if !handled && e.Type == platform.KeyDown && e.Key == platform.KeyTab {
-			if e.Modifiers.Has(platform.ModShift) {
+		res := w.rendered.dispatchTree.DispatchKey(e)
+		if !res.Handled && e.Phase == platform.KeyDown && e.Code == platform.KeyTab {
+			if e.Modifiers.Has(platform.Shift) {
 				w.FocusPrev()
 			} else {
 				w.FocusNext()
