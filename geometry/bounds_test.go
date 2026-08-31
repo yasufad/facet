@@ -95,17 +95,17 @@ func TestFromCorners(t *testing.T) {
 	}
 }
 
-func TestCenter(t *testing.T) {
+func TestCentre(t *testing.T) {
 	b := boundsFromInts(0, 0, 10, 20)
-	if got := b.Center(); got != NewPoint(5, 10) {
-		t.Fatalf("Center = %v, want (5,10)", got)
+	if got := b.Centre(); got != NewPoint(5, 10) {
+		t.Fatalf("Centre = %v, want (5,10)", got)
 	}
 }
 
-func TestCenteredAt(t *testing.T) {
-	got := CenteredAt(NewPoint(10, 10), NewSize(4, 6))
+func TestCentredAt(t *testing.T) {
+	got := CentredAt(NewPoint(10, 10), NewSize(4, 6))
 	want := boundsFromInts(8, 7, 4, 6)
 	if got != want {
-		t.Fatalf("CenteredAt = %v, want %v", got, want)
+		t.Fatalf("CentredAt = %v, want %v", got, want)
 	}
 }
