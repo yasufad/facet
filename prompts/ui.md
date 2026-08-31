@@ -115,3 +115,36 @@ In the meantime, if you want something to do that does not depend on either: aud
 `Button` against what `element` now offers that it did not when you wrote it. It
 predates text inheritance, `RequestFocus` and `elementtest`, and there may be
 workarounds in it that no longer need to be there.
+
+## Now: the scroll view
+
+Clipping and tab order both landed, so this is unblocked. `elementtest.Frame` has
+`PushClip`, `PopClip`, `SimulateTab` and `TabOrder`, so all of it is testable from
+here without reaching below `element`.
+
+A scroll view is the next widget because it is the first thing to use three
+capabilities nothing has touched:
+
+- **Clipping.** Content larger than the viewport, confined to it. `Div.OverflowScroll`
+  now pushes a clip; assert the child primitives carry the intersected mask, not that
+  they were emitted.
+- **Wheel events.** They already reach `window.DispatchEvent` and no widget has ever
+  handled one. Keep the distinction `platform` preserved: a trackpad's exact pixel
+  delta and a mouse notch's inexact line delta are different things and flattening
+  them is how scrolling ends up feeling wrong on one device.
+- **State across frames.** The scroll offset is the first widget state that must
+  survive a frame, so it belongs in an `app.Entity`, not on the element. This is the
+  case `docs/packages.md` has been describing since before any of it existed, and the
+  first time it appears in ordinary code rather than framework code.
+
+Start with vertical scrolling of a fixed-height content column. No scrollbars, no
+horizontal, no virtualisation, no scroll-into-view. Then stop and report.
+
+Same deliverable as the button: the written list of what you had to reach for, work
+around, or do awkwardly, with the package that owns each. That list has been worth
+more than the widget twice now.
+
+One thing to check as you go, since it has bitten twice: for each behaviour you add,
+ask which single line you would delete to break it, and whether a test of yours
+notices. Both the hover text colour and the overflow clip had tests in the owning
+package that survived the behaviour being removed.
