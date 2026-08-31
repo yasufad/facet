@@ -277,16 +277,16 @@ func (r *d3d11Renderer) drawPolySpriteBatch(sprites []scene.PolychromeSprite, te
 		tile      [4]float32
 		radii     [4]float32
 		opacity   float32
-		grayscale uint32
+		greyscale uint32
 		pad0      [2]float32
 	}
 
 	data := make([]polyInstance, len(sprites))
 	for i, sp := range sprites {
 		tb := sp.Tile.Bounds
-		gray := uint32(0)
-		if sp.Grayscale {
-			gray = 1
+		grey := uint32(0)
+		if sp.Greyscale {
+			grey = 1
 		}
 		data[i] = polyInstance{
 			bounds:    boundsToFloats(sp.Bounds),
@@ -294,7 +294,7 @@ func (r *d3d11Renderer) drawPolySpriteBatch(sprites []scene.PolychromeSprite, te
 			tile:      [4]float32{float32(tb.Origin.X), float32(tb.Origin.Y), float32(tb.Origin.X + tb.Size.Width), float32(tb.Origin.Y + tb.Size.Height)},
 			radii:     [4]float32{sp.CornerRadii.TopLeft.Float32(), sp.CornerRadii.TopRight.Float32(), sp.CornerRadii.BottomRight.Float32(), sp.CornerRadii.BottomLeft.Float32()},
 			opacity:   sp.Opacity,
-			grayscale: gray,
+			greyscale: grey,
 		}
 	}
 
