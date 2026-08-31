@@ -1,78 +1,90 @@
-# element: builder milestone reviewed — one naming trap, then interactivity
+# element: I gave you the wrong model for hover
 
-Coverage is complete. I diffed every `Set*` on `style.Refinement` against `*Div`'s
-methods: all eighty-one are reachable, the eight that do not match by name being the
-deliberate short forms — `Bg`, `Border*`, `Cursor`. Nothing is stranded.
+Most of this round is right and I will get to it. Start here, because the correction
+is mine and it invalidates a design decision I handed you.
 
-The allocation result is the one that matters and it holds:
+## What I told you, and what GPUI actually does
 
-    unstyled        3942 ns   6896 B   15 allocs
-    fully styled    4103 ns   6896 B   15 allocs
+I said the hover answers come from the **rendered** frame, so a hover style is always
+one frame behind. That is wrong.
 
-Styling every element with a dozen properties adds no allocations at all and about
-3% of construction time. The mutators-on-a-pointer decision is now paid off twice
-over.
+GPUI recomputes the hit test *inside* the frame, between prepaint and paint
+(`window.rs:3157`):
 
-## 1 — `Hidden()` does not mean what anyone will expect
+    root_element.prepaint(...)          // hitboxes inserted into next_frame
+    self.mouse_hit_test = self.next_frame.hit_test(self.mouse_position);
+    root_element.paint(...)             // is_hovered() consults it
 
-    func (d *Div) None() *Div     { SetDisplay(DisplayNone) }
-    func (d *Div) Hidden() *Div   { SetVisibility(VisibilityHidden) }
+Hitbox IDs are fresh every frame — a monotonic counter, never reset, a new ID per
+insert (`window.rs:4740`). They work because the hit test is recomputed against the
+frame just prepainted. An element asks "am I hovered" during paint and gets an answer
+about the region *it registered moments earlier in this same frame*.
 
-GPUI's `hidden()` sets `display: none` (`styled.rs:59`), and so does Tailwind's
-`hidden`, which is where GPUI took its vocabulary. Ours sets visibility.
+So there is no cross-frame identity, no carrying an ID forward, and no lag for a
+hover style that only changes painting. A hover style that changes *layout* does lag
+one frame, because layout ran before any region existed. That distinction is the
+whole of it, and I flattened it into "always one frame behind".
 
-So `div().Hidden()` leaves the element occupying its full space in the layout, which
-is the opposite of what the person writing it wanted, and nothing tells them. It is a
-silent behavioural difference in the API users touch most, and the kind that gets
-discovered as "why is there a gap here" three weeks later.
+`docs/architecture.md` now names the hit test as step 5 of the frame, and
+`prompts/window.md` has the obligation to perform it.
 
-Follow the convention:
+## What that means for the code you wrote
 
-    Hidden()      display: none
-    Invisible()   visibility: hidden
+`interactivity.hitRegionID` and `nextHitRegionID` carry state from one frame to the
+next on a `*Div`. A `Div` does not survive a frame — the user's `Render` calls
+`NewDiv()` again — so `hitRegionID` is zero on every real frame, and
 
-`None()` can stay as an explicit alias or go; say which. Where we take a vocabulary
-from somewhere, we take it whole — deviating on one word costs more than inventing a
-different scheme would have.
+    d.interactivity.hitRegionID != 0 && f.IsHovered(...)
 
-Worth a general check while you are in there: any other method whose name matches
-GPUI's or Tailwind's but whose behaviour does not.
+is false forever. Hover and active styling never fire in a running application.
 
-## 2 — The benchmark numbers in `doc.go` do not reproduce
+`TestHoverPseudoStyleTwoFrameLag` passes because it reaches into the field no caller
+can reach:
 
-`doc.go` records ~5.0 µs unstyled and ~5.5 µs fully styled. I measure 3.9 µs and
-4.1 µs on the same machine, twice each. Nothing is wrong with the code — the box was
-busier when you ran it — but a recorded absolute that is 25% off is worse than no
-number, because the next person treats a change to 5.0 µs as a regression.
+    // Carry previous frame hit region ID into the element for simulation
+    btn2.interactivity.hitRegionID = hitRegionID
 
-Record what survives the machine: allocations per node, which are exact and
-meaningful, and the styling overhead as a proportion rather than in nanoseconds. Keep
-one absolute if you like, and say what it was measured on.
+That line is the test telling you the design does not work. When a test needs to set
+unexported state that nothing in the framework sets, the thing under test cannot
+happen in production. I would rather you had stopped there and said so — that
+instinct is worth more than the passing test.
 
-## Then interactivity
+The fix follows from the corrected model: keep the ID from *this* frame's prepaint in
+the field, read it during paint, and delete `nextHitRegionID` and the carry-forward
+entirely. `RequestLayout` must not consult `IsHovered`; there is no region yet.
 
-The four answers from the previous round still stand, and none of them has been
-addressed yet because the milestone split deferred them:
+`IsHovered`, `IsActive` and `IsFocused` stay on `Frame` and stay callable in paint
+only. Enforce that with the phase check you already have.
 
-- `OnClick` cannot name `platform`. Declare a `ClickEvent` in `element`, in
-  `geometry` units — a click is synthesised from down and up on the same target, so
-  it is ours to define.
-- `Frame` takes `PushDispatchNode(DispatchNode) input.DispatchNodeID` and
-  `PopDispatchNode()`, not nine methods sharing an implied active node.
-- `Hover`, `Focus`, `InFocus` and `Active` need `IsHovered`, `IsActive` and
-  `IsFocused` on `Frame` to be evaluated at all, and the answers come from the
-  **rendered** frame, so a hover style is always one frame behind. Say that in
-  `doc.go`. Agree the three names with `window`'s agent before either of you writes
-  them.
-- Corner radii: decide whether percentages are supported, and be consistent about
-  why rather than by which type came to hand.
+## What is right
 
-`Occlude()` was a good call. Keep it.
+`ClickEvent`, `MouseButton` and `Modifiers` in `element`, with `platform` nowhere in
+the package. I checked: no production file imports it and the layering test passes.
+
+`PushDispatchNode(DispatchNode)` and `PopDispatchNode()`. Bundling the context, focus
+ID and every listener into the struct is exactly the shape asked for, and the
+atomic-handoff test earns its place.
+
+`Hidden()` and `Invisible()` now match Tailwind and GPUI.
+
+`Occlude()`, and a test that an occluding box with no handlers still registers a
+region.
 
 ## Done when
 
-`Hidden()` removes the element from layout, `Invisible()` hides it in place.
+`nextHitRegionID` is gone and the hit region ID is this frame's.
 
-`doc.go` records allocations per node and the styling overhead as a proportion.
+Hover and active are evaluated in paint, never in `RequestLayout`, and a test proves
+a hover style reaches the scene **without** any test writing to an unexported field.
+If a test cannot be written that way, the design is still wrong and that is the
+finding.
 
-Then interactivity, with the four above settled first rather than discovered during.
+`doc.go` says what actually lags: a hover style that changes layout, by one frame,
+because layout precedes the hit test. A hover style that changes painting does not.
+
+## Worth carrying
+
+The test that needs a back door is evidence about the design, not an inconvenience to
+work around. This one printed its own diagnosis in a comment and was committed
+anyway. Read that comment as a failure next time, and say so — I would rather receive
+"this cannot work and here is why" than a green suite over a feature that never runs.
