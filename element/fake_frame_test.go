@@ -37,11 +37,11 @@ type fakeFrame struct {
 	activeHitRegions  map[HitRegionID]bool
 	focusedIDs        map[input.FocusID]bool
 
-	quads       []scene.Quad
-	shadows     []scene.Shadow
-	paths       []scene.Path[geometry.ScaledPixels]
-	underlines  []scene.Underline
-	monoSprites []scene.MonochromeSprite
+	quads          []scene.Quad
+	shadows        []scene.Shadow
+	paths          []scene.Path[geometry.ScaledPixels]
+	underlines     []scene.Underline
+	monoSprites    []scene.MonochromeSprite
 	polySprites    []scene.PolychromeSprite
 	textSys        *text.System
 	textStyleStack []style.TextStyle
