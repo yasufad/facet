@@ -136,4 +136,20 @@
 // floor (Refine + MergeFrom + ToLayout). While the CPU time is well within the 16 ms
 // frame budget, the ~38 MB/s allocation rate would trigger GC pauses and frame
 // stutter without the per-frame arena in window.
+//
+// # What Styling Adds to the Construction Floor
+//
+// Fluent styling methods on *Div mutate the embedded style.Refinement in place
+// through pointer receivers. Because mutators perform direct bitset updates and
+// scalar writes (~1.3 to 2.4 ns each), styling adds only a small fraction to the
+// allocation floor:
+//
+//	Unstyled 11-node tree:         ~5.0 µs / op    6896 B/op    15 allocs/op
+//	Basic styled 11-node tree:     ~5.2 µs / op    6896 B/op    15 allocs/op
+//	Fully styled 11-node tree:     ~5.5 µs / op    6896 B/op    15 allocs/op
+//
+// Applying full styling across all 11 nodes (flexbox, gap, padding, margin, width,
+// height, background colour, border, rounded corners) adds ~20 to ~50 ns per
+// element over the unstyled construction floor (~500 ns total for the tree), with
+// zero additional allocations.
 package element
