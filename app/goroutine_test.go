@@ -122,7 +122,7 @@ func TestObserveFromWrongGoroutinePanics(t *testing.T) {
 			}
 			close(done)
 		}()
-		app.Observe(anyEntity{id: c.EntityID()}, func(app *App) bool { return true })
+		app.Observe(c.AnyEntity(), func(app *App) bool { return true })
 	}()
 	<-done
 }
@@ -142,7 +142,7 @@ func TestSubscribeFromWrongGoroutinePanics(t *testing.T) {
 			}
 			close(done)
 		}()
-		app.Subscribe(anyEntity{id: c.EntityID()}, reflectTypeOf[pingEvent](), func(app *App, event any) bool { return true })
+		app.Subscribe(c.AnyEntity(), reflectTypeOf[pingEvent](), func(app *App, event any) bool { return true })
 	}()
 	<-done
 }
@@ -162,7 +162,7 @@ func TestOnReleaseFromWrongGoroutinePanics(t *testing.T) {
 			}
 			close(done)
 		}()
-		app.OnRelease(anyEntity{id: c.EntityID()}, func(value any, app *App) {})
+		app.OnRelease(c.AnyEntity(), func(value any, app *App) {})
 	}()
 	<-done
 }
