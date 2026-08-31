@@ -1,65 +1,55 @@
-# window: focus and the cursor, from the first widget
+# window: focus and the cursor work. One ordering note, then retire.
 
-`ui` built a button and found two things that are yours. Both are the difference
-between a widget that renders and a widget that behaves.
+Both seams are joined and all three tests can fail. I broke the pointer-down focus
+call and `TestPointerDownFocusAndStyling` and `TestFocusDroppedWhenElementLeavesTree`
+both failed; I removed the cursor comparison so `SetCursor` fires unconditionally and
+`TestCursorTransitionsAndDeduplication` failed. Those are real tests.
 
-## 1 — Clicking a button does not focus it
+Dropping focus at present when the focused ID is not in the new frame is the right
+answer and the right place for it — a focus ID surviving its element is the failure
+mode that produces keystrokes going nowhere, and it would have taken weeks to find.
 
-Three halves of this are missing and they are in three packages:
+## The ordering, which you half got right
 
-- `DispatchEvent` does not move focus on pointer down. Clicking anything focuses
-  nothing.
-- `Frame` has `IsFocused(input.FocusID)` and no way to *request* focus, so an element
-  cannot take it even deliberately.
-- Nothing moves focus by keyboard. Tab and Shift-Tab do nothing.
+You implemented `RequestFocus` on `*Window` before `element` declared it on `Frame`.
+That is the rule, followed deliberately, and it is the first time.
 
-`input` already owns the focus tree and the dispatch precedence; this is about
-connecting it, which is your job by the same argument as every other seam in this
-package.
+But the same change carried `DispatchNode.Cursor`, a field `element` owns and `window`
+reads, and that one runs the other way. Two commits do not build:
 
-Start with pointer focus and `Frame.RequestFocus(input.FocusID)`, which together make
-`:focus` styling real in a running window rather than only in a synthetic test. Tab
-order is a separate question and a harder one — `docs/packages.md` says tab order
-belongs to `element`, which knows tree order, so do not invent it here. Raise it when
-the first two work.
+    2278735  window\frame.go:111:10: node.Cursor undefined
+    f375e85  window\frame.go:111:10: node.Cursor undefined
 
-Follow the interface ordering rule: implement `RequestFocus` on `*Window` first, then
-`element` adds it to `Frame`. Declaring first stops this package compiling.
+The rule as written only covered interface methods. I have extended it: data flows the
+opposite way to behaviour, so a field the lower package reads has to be declared
+first, and a change containing both directions is two commits rather than one. The
+question to ask is which side is waiting on the other **per name**, not per change.
 
-Decide and record what focus does when the focused element is not rendered in the next
-frame — a button that is focused and then scrolled out of the tree. Dropping focus to
-nothing is a defensible answer; leaving a focus ID that no longer corresponds to
-anything is not.
+Nothing to fix in the code. Read the amended entry in `AGENTS.md` before the next one.
 
-## 2 — The cursor never reaches the operating system
+## Then retire it
 
-`Div.Cursor(style.CursorPointer)` sets a property nothing reads. Step 5 already
-resolves which hit region is under the pointer, so the cursor for that region is
-known at exactly the point the hit test finishes. Take it to
-`platform.Window.SetCursor`.
+`docs/packages.md` already has the focus lifecycle and the cursor deduplication. Check
+it also records:
 
-Set it once per frame when it changes, not on every mouse move: a cursor set on every
-motion event is a visible flicker on Windows and a wasted syscall everywhere.
+- `RequestFocus` is on `Frame`, and is illegal inside a measure callback, since that
+  is now a third rule about `phaseLayoutSolve` and they should be in one place.
+- Pointer down focuses the hit region's focus ID and blurs when the background is
+  clicked. That is a behaviour a widget author will rely on and will not find in
+  `input`, which owns the focus tree but not this policy.
 
-A disabled button asks for `CursorNotAllowed`, so this is already exercised by the
-example if you want to see it working.
+Then the README row and delete this file.
 
-## Done when
+## What is not yours
 
-Clicking a button focuses it and its focus styling appears in a running window, not
-only under a test frame.
-
-`Frame.RequestFocus` exists here before it exists on the interface.
-
-The cursor changes over a button and over a disabled button, and does not change
-while the pointer is still.
-
-`docs/packages.md` records what happens to focus when the focused element leaves the
-tree.
+Tab order. `docs/packages.md` assigns it to `element` because it needs tree order, and
+`element` is retired pending exactly this. Say in your report that pointer focus works
+and keyboard focus movement does not exist, so it gets picked up rather than assumed.
 
 ## Worth carrying
 
-Both of these are seams that were designed, built on both sides, and never joined.
-`Cursor` has been settable since the style property list landed and readable since hit
-testing landed, and in between nobody asked what read it. When a package exposes
-something nothing consumes, that is worth noticing before the widget library finds it.
+Both of these were seams designed on both sides and never joined, and both were found
+by the first widget rather than by any test in the packages that owned them. `ui`
+existing is now doing more for correctness than another round of unit tests would.
+That is an argument for building the next few widgets sooner rather than deepening
+what is here.
