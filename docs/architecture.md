@@ -152,7 +152,10 @@ Three ways to react, in increasing order of coupling:
     Subscribe    receive typed events an entity emits
     Render       a view is an entity whose notification schedules a repaint
 
-A view repaints when the entities it holds change, and at no other time.
+A view repaints when its own entity notifies, and at no other time. State a view
+reads from another entity does not repaint it on its own: the view observes that
+entity and notifies itself, which is explicit and one line. Nothing tracks which
+entities a render happened to read.
 
 ## The frame
 
