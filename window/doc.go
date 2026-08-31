@@ -72,6 +72,11 @@
 //     and no geometry changes, drawing and presentation are skipped. The idle
 //     cost of an open Facet window is exactly 0 GPU draw calls and 0 present calls
 //     per second. The native event loop sleeps waiting for OS messages.
+//   - View invalidation and re-rendering: When a frame executes, the root view
+//     re-renders unconditionally. Fine-grained per-view dirty tracking and
+//     subtree caching are deferred to a future milestone; for now, when an
+//     entity mutation or event marks the window dirty, the complete element tree
+//     is rebuilt.
 //   - Per-element state lifetime: Elements are ephemeral value types rebuilt
 //     fresh every frame and discarded after paint. Any state that must survive
 //     the frame (scroll offsets, selection, cursor position) belongs in an
@@ -94,4 +99,8 @@
 // All window methods and frame loop executions run strictly on the single UI
 // goroutine. Background operations marshal back to the UI goroutine via
 // app.ForegroundExecutor, which window wires directly to platform.Dispatch.
+//
+// The sole exception to single-goroutine access is ScheduleFrame, which protects
+// its frameScheduled flag with an internal mutex so background tasks or thread
+// wakeups can safely request a redraw without racing with the UI loop.
 package window
