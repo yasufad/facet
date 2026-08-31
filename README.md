@@ -24,7 +24,7 @@ open a window, layout boxes and text, and put a styled element tree on screen.
 | `render`   | Direct3D 11 |
 | `element`  | done        |
 | `window`   | done        |
-| `ui`       | not started |
+| `ui`       | in progress |
 
 `examples/quad` drives an element tree through the `window` frame loop and
 Direct3D 11.
