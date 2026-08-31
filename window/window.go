@@ -23,6 +23,10 @@ func (s staticView) Render(_ *app.App) element.Element {
 	return s.el
 }
 
+func (s staticView) Observe(_ *app.App, _ func(*app.App) bool) app.Subscription {
+	return app.Subscription{}
+}
+
 type fnView struct {
 	fn func() element.Element
 }
@@ -32,6 +36,10 @@ func (f fnView) Render(_ *app.App) element.Element {
 		return nil
 	}
 	return f.fn()
+}
+
+func (f fnView) Observe(_ *app.App, _ func(*app.App) bool) app.Subscription {
+	return app.Subscription{}
 }
 
 // Window owns a platform window, layout engine, and graphics renderer, and
@@ -49,6 +57,7 @@ type Window struct {
 	rendered *frame
 	next     *frame
 	rootView element.AnyView
+	rootSub  app.Subscription
 
 	scaleFactor float32
 	size        geometry.Size[geometry.Pixels]
@@ -185,9 +194,19 @@ func (w *Window) SetRootFn(fn func() element.Element) {
 	w.SetRootView(fnView{fn: fn})
 }
 
-// SetRootView sets the root renderable view for the window.
+// SetRootView sets the root renderable view for the window and attaches an
+// observer so entity mutations trigger redraws automatically.
 func (w *Window) SetRootView(view element.AnyView) {
+	w.rootSub.Close()
+	w.rootSub = app.Subscription{}
 	w.rootView = view
+	if w.app != nil && view != nil {
+		w.rootSub = view.Observe(w.app, func(_ *app.App) bool {
+			w.dirty = true
+			w.ScheduleFrame()
+			return true
+		})
+	}
 	w.dirty = true
 	w.ScheduleFrame()
 }
@@ -430,9 +449,16 @@ func (w *Window) DispatchEvent(event platform.Event) {
 	}
 }
 
+// Renderer returns the graphics renderer attached to the window.
+func (w *Window) Renderer() render.Renderer {
+	return w.renderer
+}
+
 // Close releases platform window and renderer resources.
 func (w *Window) Close() error {
 	w.closed = true
+	w.rootSub.Close()
+	w.rootSub = app.Subscription{}
 	if w.renderer != nil {
 		_ = w.renderer.Close()
 	}
