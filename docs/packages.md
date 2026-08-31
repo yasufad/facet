@@ -327,9 +327,21 @@ so there is no implied "active node" to get wrong. The text style stack is carri
 on `Frame` (`PushTextStyle`, `PopTextStyle`, `TextStyle`), pushed and popped around
 children during layout and paint; container elements merge active pseudo-state
 refinements (hover, active, focus) into the pushed style before children paint so
-child `Text` elements immediately reflect parent state. `IsHovered`, `IsActive`,
-`IsFocused` and `RasteriseGlyph` are valid during paint only. `ShapeLine` is legal
-during layout solve and paint.
+child `Text` elements immediately reflect parent state. `PushClip(Bounds)` and `PopClip()`
+confine child primitives to container bounds during paint; layers are deliberately not
+exposed yet. `IsHovered`, `IsActive`, `IsFocused`, `PushClip`, `PopClip` and `RasteriseGlyph`
+are valid during paint only. `ShapeLine` is legal during layout solve and paint.
+
+Overflow clipping: `Div` honours `style.Overflow`: when overflow is `Hidden`, `Clip`, or
+`Scroll`, `Div` pushes its bounds onto `Frame`'s clip stack around painting its children
+and pops it afterwards.
+
+Tab order collection: Tab order requires tree order, collected in Prepaint as focusable
+elements register dispatch nodes. Elements declare participation via `TrackFocus(id)`,
+can opt out via `TabStop(false)`, or set an explicit ordering index via `TabIndex(n)`.
+Window sorts active tab stops (positive indices first ascending, followed by index 0 in
+tree order; negative indices excluded). Tab and Shift-Tab key events advance and reverse
+focus along this sequence, wrapping at both ends and skipping unrendered elements.
 
 `NodeID` alias: `element.NodeID` is an alias for `layout.NodeID` so widget authors
 implementing `Element.RequestLayout` do not need to import `layout`.
@@ -398,13 +410,14 @@ in order:
 - Phase ordering is enforced strictly:
   - `RequestLayout` and `RequestMeasuredLayout` are valid in layout only.
   - `PushDispatchNode`, `PopDispatchNode`, and `RegisterHitRegion` are valid in prepaint only.
-  - `IsHovered`, `IsActive`, `IsFocused`, `RasteriseGlyph`, and `Insert*` primitive insertions are valid in paint only.
+  - `IsHovered`, `IsActive`, `IsFocused`, `PushClip`, `PopClip`, `RasteriseGlyph`, and `Insert*` primitive insertions are valid in paint only.
   - `ShapeLine` is valid in layout solve and paint.
   - `RequestFocus` is on `Frame` and is valid during event handlers, prepaint, and paint.
   - `phaseLayoutSolve` restriction: only `ShapeLine` is legal during layout solve. Calling any other `Frame` method (including `RequestLayout`, `RegisterHitRegion`, `Insert*`, `RasteriseGlyph`, or `RequestFocus`) from a measure callback panics immediately.
+  - Under `facet_debug`, `window` asserts that the clip stack is empty at the end of paint and panics if an element pushed a clip without a matching pop.
 - Measure seam: `RequestMeasuredLayout` registers a measurement callback against a Taffy leaf node, solved through `layout.ComputeLayoutWithMeasure` and `layout.ComputeLeafLayout`.
 - Glyph rasterisation & texture atlas caching: `RasteriseGlyph` queries `text.Atlas` for coverage masks, uploads them to the GPU via `render.Renderer.Upload`, and caches the resulting `scene.AtlasTile`.
-- Focus lifecycle and unmount behaviour: Pointer down on a focusable hit region moves keyboard focus to that element's focus ID; clicking empty background blurs focus. Elements can request focus programmatically via `Frame.RequestFocus(id)`. When an element with active focus is not rendered in the subsequent frame (unmounted, conditionally removed, or scrolled out), focus drops to nothing (`Blur()`) at Step 7 presentation. Stale focus IDs never survive after leaving the tree.
+- Focus lifecycle, tab navigation, and unmount behaviour: Pointer down on a focusable hit region moves keyboard focus to that element's focus ID; clicking empty background blurs focus. Tab and Shift-Tab key events advance and reverse focus along the frame's tab order, wrapping at boundaries. Elements can request focus programmatically via `Frame.RequestFocus(id)`. When an element with active focus is not rendered in the subsequent frame (unmounted, conditionally removed, or scrolled out), focus drops to nothing (`Blur()`) at Step 7 presentation. Stale focus IDs never survive after leaving the tree.
 - Pointer cursor resolution: Cursor shape is resolved in Step 5 (intra-frame hit test) from the hovered hit region's cursor property. The window calls `platform.Platform.SetCursor` once per frame only when the cursor shape changes, avoiding redundant OS syscalls and mouse flicker during continuous motion within the same element.
 - Frame scheduling: `frameScheduled` collapses an event or notification burst into
   exactly one frame turn. Idle cost is 0 GPU draw calls and 0 present calls per second;
