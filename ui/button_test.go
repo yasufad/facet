@@ -121,6 +121,40 @@ func TestButtonHoverStyling(t *testing.T) {
 	}
 }
 
+func TestButtonHoverTextColour(t *testing.T) {
+	frame := elementtest.NewFrame()
+	hoverTextColour := colour.Rgba{R: 1.0, G: 0.9, B: 0.2, A: 1.0}
+
+	btn := NewButton("Hover Text").
+		Hover(func(r *style.Refinement) {
+			r.SetTextColour(hoverTextColour)
+		})
+
+	rootID := btn.RequestLayout(frame)
+	frame.Solve(rootID, 200, 100)
+
+	bounds := frame.LayoutBounds(rootID)
+	frame.SetPhase(elementtest.PhasePrepaint)
+	btn.Prepaint(frame, bounds)
+
+	hitRegions := frame.HitRegions()
+	hitID := hitRegions[0].ID
+	frame.SetHovered(hitID, true)
+
+	frame.SetPhase(elementtest.PhasePaint)
+	btn.Paint(frame, bounds)
+
+	sprites := frame.MonochromeSprites()
+	if len(sprites) == 0 {
+		t.Fatalf("expected text sprites emitted for button label, got 0")
+	}
+	for i, sp := range sprites {
+		if sp.Colour != hoverTextColour {
+			t.Errorf("sprite %d: expected hover text colour %v, got %v", i, hoverTextColour, sp.Colour)
+		}
+	}
+}
+
 func TestButtonActiveStyling(t *testing.T) {
 	frame := elementtest.NewFrame()
 	btn := NewButton("Active Test")
