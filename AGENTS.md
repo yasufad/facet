@@ -198,7 +198,9 @@ work is done, not that it was never scoped. What the package guarantees lives in
 Retiring is two steps and the deletion is the second. First move what the package now
 guarantees into its `docs/packages.md` entry — the decisions taken, the invariants
 that must survive a rewrite, the traps found. `doc.go` is not that place; nobody
-reads another package's `doc.go` before starting work. Then delete the prompt.
+reads another package's `doc.go` before starting work. Set the package's row in the
+`README.md` status table at the same time, because that table is the only claim about
+this project anyone reads before the code. Then delete the prompt.
 
 The test for whether a prompt can be retired is that it is empty of work, not that
 the last thing it asked about is done. If an item in it looks wrong or unnecessary,
