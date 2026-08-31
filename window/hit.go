@@ -4,13 +4,16 @@ import (
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/input"
+	"github.com/yasufad/facet/style"
 )
 
 // hitRegion records a hit-testable bounding rectangle registered during prepaint.
 type hitRegion struct {
-	id     element.HitRegionID
-	bounds geometry.Bounds[geometry.Pixels]
-	nodeID input.DispatchNodeID
+	id      element.HitRegionID
+	bounds  geometry.Bounds[geometry.Pixels]
+	nodeID  input.DispatchNodeID
+	focusID input.FocusID
+	cursor  style.CursorStyle
 }
 
 // hitTest resolves pt against regions in reverse insertion order (back to front),
