@@ -98,6 +98,12 @@ type Entity[T any] struct {
 // lifetime of the entity and equal across all strong and weak handles to it.
 func (e Entity[T]) EntityID() entityID { return e.id }
 
+// AnyEntity returns the type-erased handle for this entity.
+func (e Entity[T]) AnyEntity() AnyEntity {
+	e.mustValid()
+	return AnyEntity{id: e.id}
+}
+
 // Clone returns an owning handle to the same entity, incrementing its strong
 // count. Use it whenever a handle is stored in a long-lived structure; pair it
 // with a Release when that structure is done.
@@ -155,6 +161,11 @@ type WeakEntity[T any] struct {
 
 // EntityID returns the identifier backing this weak handle.
 func (w WeakEntity[T]) EntityID() entityID { return w.id }
+
+// AnyEntity returns the type-erased handle for this weak entity.
+func (w WeakEntity[T]) AnyEntity() AnyEntity {
+	return AnyEntity{id: w.id}
+}
 
 // Upgrade attempts to turn this weak handle into a strong one. It returns the
 // strong handle and true if the entity is still alive, or the zero WeakEntity
