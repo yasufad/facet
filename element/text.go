@@ -173,13 +173,14 @@ func (t *Text) LineClamp(lines int) *Text {
 // RequestLayout resolves text styling, registers a measured layout callback
 // that shapes the text run through Frame.ShapeLine, and adds the leaf node
 // to the layout tree.
-func (t *Text) RequestLayout(f Frame) layout.NodeID {
+func (t *Text) RequestLayout(f Frame) NodeID {
 	if t.phase != phaseInitial {
 		panic("element: RequestLayout called out of order or multiple times")
 	}
 	t.phase = phaseLayoutRequested
 
 	st := style.Default()
+	st.Text = f.TextStyle()
 	st.Refine(t.refinement)
 
 	rem := f.RemSize()
@@ -256,6 +257,7 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	}
 
 	st := style.Default()
+	st.Text = f.TextStyle()
 	st.Refine(t.refinement)
 	textStyle := st.Text
 
