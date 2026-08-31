@@ -305,12 +305,38 @@ regions and paint. `window` implements it. Elements never import `window` — th
 would be a cycle, and the interface is what breaks it.
 
 It owns the fluent style builder. `style` exposes mutators on `*Refinement` and the
-chain — `div().Flex().Gap(4).Bg(c)` — hangs off the element, which is already behind
-a pointer, so no style struct is copied per call.
+chain — `NewDiv().Flex().Gap(4).Bg(c)` — hangs off the element, which is already
+behind a pointer, so no style struct is copied per call.
 
 Invariants: elements are values built fresh each frame and discarded after paint.
 Anything that must survive the frame belongs in an entity. Layout, prepaint and
-paint run in that order and no phase may reach backwards.
+paint run strictly in that order and no phase may reach backwards. Out-of-order
+calls panic.
+
+The `Frame` contract: It is a layer boundary and changes by explicit decision.
+`PushDispatchNode(DispatchNode)` and `PopDispatchNode()` hand a node over whole,
+so there is no implied "active node" to get wrong. `IsHovered`, `IsActive` and
+`IsFocused` are valid during paint only.
+
+Hit regions are per-frame: Monotonic, per-frame identifiers. A region registered
+during prepaint is resolved by `window` at step 5 (the intra-frame hit test) and
+queried in paint of the same frame. Elements keep no identity across frames and
+there is no element-keyed map. The obvious implementation carries an ID forward,
+and that cannot work when the element is rebuilt every frame. Visual paint styles
+(backgrounds, borders, shadows, text colours) evaluate in paint with zero frame
+lag; layout-altering hover styles lag by one frame when tracked in persistent
+entity state, because `RequestLayout` precedes prepaint and hit testing.
+
+`ClickEvent` is ours: A click is synthesised from down and up on the same target,
+so `element` declares it in `geometry` units (`geometry.Point[geometry.Pixels]`,
+`MouseButton`, `Modifiers`) rather than naming a `platform` type. `element` never
+imports `platform`.
+
+What an element costs: 584 bytes per `Div` (embeds `style.Refinement`, 504 of them),
+one allocation, about 420 ns baseline. Styling adds no allocations (~3% to 5% CPU
+overhead). `NewDiv()` takes no arguments, which is what a future arena in `window`
+has to work around: `window` establishes an active per-frame arena scope on the
+single UI goroutine during frame draw.
 
 It imports `input` because an element declares key contexts, focus handles and
 action handlers, and that vocabulary lives there. Without it neither `element` nor
