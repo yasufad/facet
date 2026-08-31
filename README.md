@@ -18,7 +18,7 @@ open a window, layout boxes and text, and put a styled element tree on screen.
 | `layout`   | done        |
 | `scene`    | done        |
 | `text`     | done        |
-| `input`    | done        |
+| `input`    | in progress |
 | `style`    | done        |
 | `platform` | Windows     |
 | `render`   | Direct3D 11 |
