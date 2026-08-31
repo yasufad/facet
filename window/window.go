@@ -1,7 +1,9 @@
 package window
 
 import (
+	"cmp"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/yasufad/facet/app"
@@ -97,6 +99,7 @@ type Window struct {
 	glyphTileCache   map[glyphCacheKey]cachedGlyph
 	textStyleStack   []style.TextStyle
 	currentCursor    platform.Cursor
+	clipDepth        int
 
 	mu             sync.Mutex
 	frameScheduled bool
@@ -282,6 +285,7 @@ func (w *Window) Draw() {
 	// 2. Request layout: evaluate root view and construct Taffy layout nodes.
 	w.textStyleStack = w.textStyleStack[:1]
 	w.textStyleStack[0] = style.DefaultTextStyle()
+	w.clipDepth = 0
 	w.phase = phaseLayout
 	el := w.rootView.Render(w.app)
 	if el == nil {
@@ -298,6 +302,7 @@ func (w *Window) Draw() {
 	w.phase = phasePrepaint
 	rootBounds := w.LayoutBounds(rootLayoutID)
 	el.Prepaint(w, rootBounds)
+	w.next.tabOrder = sortTabStops(w.next.tabStops)
 
 	// 5. Hit test (intra-frame): resolve pointer against regions registered in next.
 	w.phase = phaseHitTest
@@ -306,6 +311,7 @@ func (w *Window) Draw() {
 	// 6. Paint: elements evaluate hover/active/focus styles and emit primitives into next.scene.
 	w.phase = phasePaint
 	el.Paint(w, rootBounds)
+	w.checkClipStackEmpty()
 
 	// 7. Present: finish scene, swap frames, reset next, and submit to GPU.
 	// Clean up focus if the focused element is no longer rendered in the tree.
@@ -523,7 +529,14 @@ func (w *Window) DispatchEvent(event platform.Event) {
 		w.ScheduleFrame()
 
 	case platform.KeyEvent:
-		w.rendered.dispatchTree.DispatchKey(e)
+		handled := w.rendered.dispatchTree.DispatchKey(e)
+		if !handled && e.Type == platform.KeyDown && e.Key == platform.KeyTab {
+			if e.Modifiers.Has(platform.ModShift) {
+				w.FocusPrev()
+			} else {
+				w.FocusNext()
+			}
+		}
 		w.dirty = true
 		w.ScheduleFrame()
 
@@ -545,6 +558,79 @@ func (w *Window) DispatchEvent(event platform.Event) {
 		w.dirty = true
 		w.ScheduleFrame()
 	}
+}
+
+// FocusNext moves keyboard focus to the next element in tab order, wrapping around.
+func (w *Window) FocusNext() {
+	tabOrder := w.rendered.tabOrder
+	if len(tabOrder) == 0 {
+		return
+	}
+	curr, ok := w.focusTree.Focused()
+	if !ok || curr == 0 {
+		w.RequestFocus(tabOrder[0])
+		return
+	}
+	idx := slices.Index(tabOrder, curr)
+	if idx < 0 {
+		w.RequestFocus(tabOrder[0])
+		return
+	}
+	nextIdx := (idx + 1) % len(tabOrder)
+	w.RequestFocus(tabOrder[nextIdx])
+}
+
+// FocusPrev moves keyboard focus to the previous element in tab order, wrapping around.
+func (w *Window) FocusPrev() {
+	tabOrder := w.rendered.tabOrder
+	if len(tabOrder) == 0 {
+		return
+	}
+	curr, ok := w.focusTree.Focused()
+	if !ok || curr == 0 {
+		w.RequestFocus(tabOrder[len(tabOrder)-1])
+		return
+	}
+	idx := slices.Index(tabOrder, curr)
+	if idx < 0 {
+		w.RequestFocus(tabOrder[len(tabOrder)-1])
+		return
+	}
+	prevIdx := (idx - 1 + len(tabOrder)) % len(tabOrder)
+	w.RequestFocus(tabOrder[prevIdx])
+}
+
+func sortTabStops(entries []tabStopEntry) []input.FocusID {
+	if len(entries) == 0 {
+		return nil
+	}
+	var valid []tabStopEntry
+	for _, e := range entries {
+		if e.tabIndex >= 0 {
+			valid = append(valid, e)
+		}
+	}
+	slices.SortStableFunc(valid, func(a, b tabStopEntry) int {
+		if a.tabIndex > 0 && b.tabIndex > 0 {
+			if a.tabIndex != b.tabIndex {
+				return cmp.Compare(a.tabIndex, b.tabIndex)
+			}
+			return cmp.Compare(a.order, b.order)
+		}
+		if a.tabIndex > 0 && b.tabIndex == 0 {
+			return -1
+		}
+		if a.tabIndex == 0 && b.tabIndex > 0 {
+			return 1
+		}
+		return cmp.Compare(a.order, b.order)
+	})
+
+	order := make([]input.FocusID, len(valid))
+	for i, e := range valid {
+		order[i] = e.focusID
+	}
+	return order
 }
 
 // Renderer returns the graphics renderer attached to the window.

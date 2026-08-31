@@ -24,6 +24,12 @@ const (
 	phasePaint
 )
 
+type tabStopEntry struct {
+	focusID  input.FocusID
+	tabIndex int
+	order    int
+}
+
 // frame holds the complete scene, hit regions, and input dispatch hierarchy for
 // a single frame.
 type frame struct {
@@ -34,6 +40,8 @@ type frame struct {
 	nodeCursors    map[input.DispatchNodeID]style.CursorStyle
 	nodeFocusIDs   map[input.DispatchNodeID]input.FocusID
 	focusIDs       map[input.FocusID]bool
+	tabStops       []tabStopEntry
+	tabOrder       []input.FocusID
 }
 
 func newFrame(keymap *input.Keymap, focusTree *input.FocusTree) *frame {
@@ -55,6 +63,8 @@ func (f *frame) clear() {
 	clear(f.nodeCursors)
 	clear(f.nodeFocusIDs)
 	clear(f.focusIDs)
+	f.tabStops = f.tabStops[:0]
+	f.tabOrder = f.tabOrder[:0]
 }
 
 // Ensure *Window implements element.Frame.
@@ -107,6 +117,13 @@ func (w *Window) PushDispatchNode(node element.DispatchNode) input.DispatchNodeI
 		w.next.dispatchTree.SetFocusID(node.FocusID)
 		w.next.focusIDs[node.FocusID] = true
 		w.next.nodeFocusIDs[nodeID] = node.FocusID
+		if node.TabStop || node.TabIndex != 0 {
+			w.next.tabStops = append(w.next.tabStops, tabStopEntry{
+				focusID:  node.FocusID,
+				tabIndex: node.TabIndex,
+				order:    len(w.next.tabStops),
+			})
+		}
 	}
 	if node.Cursor != style.CursorDefault {
 		w.next.nodeCursors[nodeID] = node.Cursor
@@ -202,6 +219,39 @@ func (w *Window) RequestFocus(id input.FocusID) {
 	}
 	w.dirty = true
 	w.ScheduleFrame()
+}
+
+// PushClip pushes a content clip mask onto the scene clip stack.
+func (w *Window) PushClip(bounds geometry.Bounds[geometry.Pixels]) {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: PushClip called in phase %v (expected phasePaint)", w.phase))
+	}
+	scale := w.scaleFactor
+	scaledBounds := geometry.Bounds[geometry.ScaledPixels]{
+		Origin: geometry.Point[geometry.ScaledPixels]{
+			X: bounds.Origin.X.Scale(scale),
+			Y: bounds.Origin.Y.Scale(scale),
+		},
+		Size: geometry.Size[geometry.ScaledPixels]{
+			Width:  bounds.Size.Width.Scale(scale),
+			Height: bounds.Size.Height.Scale(scale),
+		},
+	}
+	w.clipDepth++
+	w.next.scene.PushClip(scene.ContentMask[geometry.ScaledPixels]{
+		Bounds: scaledBounds,
+	})
+}
+
+// PopClip pops the top content clip mask from the scene clip stack.
+func (w *Window) PopClip() {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: PopClip called in phase %v (expected phasePaint)", w.phase))
+	}
+	if w.clipDepth > 0 {
+		w.clipDepth--
+	}
+	w.next.scene.PopClip()
 }
 
 // InsertQuad adds a quad primitive to the in-flight frame scene.
