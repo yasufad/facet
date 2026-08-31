@@ -98,3 +98,94 @@ func TestRenderWindowPixelAssertion(t *testing.T) {
 		t.Fatalf("p.Run: %v", err)
 	}
 }
+
+func TestRenderTextWindowPixelAssertion(t *testing.T) {
+	p, err := platform.New(platform.Options{Name: "facet-text-pixel-test"})
+	if err != nil {
+		t.Fatalf("platform.New: %v", err)
+	}
+
+	a := app.NewApp()
+	defer a.Close()
+
+	w, err := window.New(p, a, window.WindowOptions{
+		Title:       "TextPixelAssertion",
+		Size:        geometry.NewSize[geometry.Pixels](200, 200),
+		Visible:     false,
+		Resizable:   false,
+		Decorated:   false,
+		Transparent: false,
+		VSync:       false,
+	})
+	if err != nil {
+		t.Fatalf("window.New: %v", err)
+	}
+	defer w.Close()
+
+	black := colour.Rgba{R: 0.0, G: 0.0, B: 0.0, A: 1.0}
+	white := colour.Rgba{R: 1.0, G: 1.0, B: 1.0, A: 1.0}
+
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().
+			Width(style.Px(200)).
+			Height(style.Px(200)).
+			Bg(black).
+			Child(
+				element.NewText("A").
+					FontSize(64).
+					TextColour(white),
+			)
+	})
+
+	p.Dispatch(func() {
+		defer p.Quit()
+
+		w.Draw()
+
+		pixels, err := d3d11.ReadBackbuffer(w.Renderer())
+		if err != nil {
+			t.Fatalf("ReadBackbuffer: %v", err)
+		}
+
+		scale := w.ScaleFactor()
+		h := len(pixels)
+		wPx := len(pixels[0])
+
+		// Search within the 0..100 region where glyph "A" is placed for non-black pixel coverage.
+		var maxCoverage float32
+		searchMaxX := int(100.0 * scale)
+		if searchMaxX > wPx {
+			searchMaxX = wPx
+		}
+		searchMaxY := int(100.0 * scale)
+		if searchMaxY > h {
+			searchMaxY = h
+		}
+
+		for y := 0; y < searchMaxY; y++ {
+			for x := 0; x < searchMaxX; x++ {
+				px := pixels[y][x]
+				if px.R > maxCoverage {
+					maxCoverage = px.R
+				}
+			}
+		}
+
+		if maxCoverage < 0.5 {
+			t.Fatalf("expected glyph raster coverage inside text bounding box, max coverage was %v", maxCoverage)
+		}
+
+		// Check outside text region: bottom-right corner must be background black.
+		outsideX := int(180.0 * scale)
+		outsideY := int(180.0 * scale)
+		gotOutside := pixels[outsideY][outsideX]
+		black := colour.Rgba{R: 0.0, G: 0.0, B: 0.0, A: 1.0}
+		if !coloursMatch(gotOutside, black, 0.05) {
+			t.Errorf("outside text pixel (%d, %d): got %v, want %v (black)", outsideX, outsideY, gotOutside, black)
+		}
+	})
+
+	if err := p.Run(); err != nil {
+		t.Fatalf("p.Run: %v", err)
+	}
+}
