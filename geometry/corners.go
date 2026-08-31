@@ -61,13 +61,13 @@ func (c Corners[T]) Corner(a Anchor) T {
 		return c.BottomLeft
 	case BottomRight:
 		return c.BottomRight
-	case TopCenter:
+	case TopCentre:
 		return (c.TopLeft + c.TopRight) / 2
-	case BottomCenter:
+	case BottomCentre:
 		return (c.BottomLeft + c.BottomRight) / 2
-	case LeftCenter:
+	case LeftCentre:
 		return (c.TopLeft + c.BottomLeft) / 2
-	case RightCenter:
+	case RightCentre:
 		return (c.TopRight + c.BottomRight) / 2
 	}
 	return c.TopLeft
