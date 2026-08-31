@@ -8,13 +8,35 @@
 // or methods on a single instantiation of a generic type.
 package layout
 
-// optF32 is the Go stand-in for Taffy's Option<f32>: a value that may or may not
+// OptF32 is the Go stand-in for Taffy's Option<f32>: a value that may or may not
 // be defined. It is a value type so that structs containing it copy cleanly.
 // nil would do the same job with less storage, but pointer aliasing under copy
 // would silently share state between sizes that ought to be independent.
-type optF32 struct {
+type OptF32 struct {
 	v   float32
 	set bool
+}
+
+type optF32 = OptF32
+
+// SomeOptF32 wraps a defined float32 into an OptF32.
+func SomeOptF32(v float32) OptF32 { return OptF32{v: v, set: true} }
+
+// NoneOptF32 returns an undefined OptF32.
+func NoneOptF32() OptF32 { return OptF32{} }
+
+// IsSome reports whether the value is defined.
+func (o OptF32) IsSome() bool { return o.set }
+
+// Value returns the inner value and whether it is defined.
+func (o OptF32) Value() (float32, bool) { return o.v, o.set }
+
+// UnwrapOr returns the inner value if defined, otherwise def.
+func (o OptF32) UnwrapOr(def float32) float32 {
+	if o.set {
+		return o.v
+	}
+	return def
 }
 
 // some wraps a defined float32.
