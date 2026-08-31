@@ -58,7 +58,7 @@ func (a *AsyncApp) Update(f func(app *App)) error {
 
 // Observe registers a notify callback on the UI goroutine. The subscription is
 // activated at the end of the next flush.
-func (a *AsyncApp) Observe(entity anyEntity, onNotify func(app *App) bool) (Subscription, error) {
+func (a *AsyncApp) Observe(entity AnyEntity, onNotify func(app *App) bool) (Subscription, error) {
 	var sub Subscription
 	err := a.Update(func(app *App) {
 		sub = app.Observe(entity, onNotify)
@@ -67,7 +67,7 @@ func (a *AsyncApp) Observe(entity anyEntity, onNotify func(app *App) bool) (Subs
 }
 
 // Subscribe registers a typed-event callback on the UI goroutine.
-func (a *AsyncApp) Subscribe(entity anyEntity, eventType reflect.Type, onEvent func(app *App, event any) bool) (Subscription, error) {
+func (a *AsyncApp) Subscribe(entity AnyEntity, eventType reflect.Type, onEvent func(app *App, event any) bool) (Subscription, error) {
 	var sub Subscription
 	err := a.Update(func(app *App) {
 		sub = app.Subscribe(entity, eventType, onEvent)
