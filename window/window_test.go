@@ -76,7 +76,7 @@ func (w *stubPlatformWindow) Show()                                           {}
 func (w *stubPlatformWindow) Hide()                                           {}
 func (w *stubPlatformWindow) Close()                                          {}
 func (w *stubPlatformWindow) SetTitle(title string)                           {}
-func (w *stubPlatformWindow) SetSize(size geometry.Size[geometry.Pixels])      { w.size = size }
+func (w *stubPlatformWindow) SetSize(size geometry.Size[geometry.Pixels])     { w.size = size }
 func (w *stubPlatformWindow) Size() geometry.Size[geometry.Pixels]            { return w.size }
 func (w *stubPlatformWindow) SetPosition(pos geometry.Point[geometry.Pixels]) { w.pos = pos }
 func (w *stubPlatformWindow) Position() geometry.Point[geometry.Pixels]       { return w.pos }
