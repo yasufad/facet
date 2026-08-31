@@ -77,6 +77,20 @@
 //     subtree caching are deferred to a future milestone; for now, when an
 //     entity mutation or event marks the window dirty, the complete element tree
 //     is rebuilt.
+//   - Reactivity and entity observation: SetRootView observes the root view's
+//     underlying entity directly. When that entity notifies (cx.Notify()), the
+//     window marks itself dirty and schedules a redraw. Reactivity stops at the
+//     root view: if a view reads secondary entities during Render, those entities
+//     do not automatically trigger repaints when they change because there is no
+//     automatic read tracking. Instead, the view explicitly observes any secondary
+//     entity it depends on and forwards notifications to itself:
+//
+//         app.Observe(cx, childEntity, func(v *MyView, e app.Entity[Child], cx *app.Context[MyView]) {
+//             cx.Notify()
+//         })
+//
+//     This pattern makes dependencies explicit, avoiding the runtime overhead
+//     and cache churn of per-frame read tracking.
 //   - Per-element state lifetime: Elements are ephemeral value types rebuilt
 //     fresh every frame and discarded after paint. Any state that must survive
 //     the frame (scroll offsets, selection, cursor position) belongs in an
