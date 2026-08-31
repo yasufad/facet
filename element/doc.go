@@ -88,16 +88,25 @@
 // sizes during layout solve), quad corner radii represent absolute geometric
 // curves rasterised during paint.
 //
-// # Two-Frame Model and Pseudo-State Styling
+// # Hit Testing and Pseudo-State Styling
 //
-// Interactive state queries (IsHovered, IsActive, IsFocused) on Frame resolve
-// against the rendered frame — the completed frame currently presented on
-// screen — rather than the frame currently being assembled.
+// In each frame, hit regions are registered during Prepaint with monotonic,
+// per-frame identifiers. Between Prepaint and Paint (Step 5 of the frame loop),
+// window executes a hit test against the cursor's current position on the newly
+// registered geometry.
 //
-// Consequently, pseudo-state styling (such as :hover or :active overrides)
-// evaluates against the previous frame's layout and hit test results, lagging by
-// exactly one frame. This avoids a second layout solve per frame and eliminates
-// layout instability or visual flicker.
+// During Paint, elements query Frame.IsHovered and Frame.IsActive using the
+// HitRegionID assigned moments earlier in Prepaint. Consequently:
+//
+//   - Visual styling overrides on hover and active (background colours, borders,
+//     shadows, text colours) evaluate in Paint with zero frame lag.
+//   - Layout-altering styles (e.g. changing element width or padding on hover)
+//     lag by one frame if tracked across frames in persistent entity state,
+//     because RequestLayout executes before Prepaint and before hit testing.
+//     RequestLayout never queries hover or active state directly.
+//
+// Focus styling (Frame.IsFocused) evaluates against the current keyboard focus
+// target on input.FocusID during Paint.
 //
 // # Element Identity Across Frames
 //
