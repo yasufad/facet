@@ -79,6 +79,19 @@ func (d *Div) TrackFocus(focusID input.FocusID) *Div {
 	return d
 }
 
+// TabStop configures whether this element participates in keyboard tab order navigation.
+func (d *Div) TabStop(tabStop bool) *Div {
+	d.interactivity.tabStop = tabStop
+	d.interactivity.tabStopSet = true
+	return d
+}
+
+// TabIndex sets an explicit ordering index for keyboard tab navigation.
+func (d *Div) TabIndex(index int) *Div {
+	d.interactivity.tabIndex = index
+	return d
+}
+
 // OnAction registers an action listener invoked when a matching action reaches this element.
 func (d *Div) OnAction(actionName string, handler input.ActionHandler) *Div {
 	d.interactivity.actionBindings = append(d.interactivity.actionBindings, ActionBinding{
@@ -988,6 +1001,11 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		f.InsertQuad(q)
 	}
 
+	clips := st.Overflow.X != style.OverflowVisible || st.Overflow.Y != style.OverflowVisible
+	if clips {
+		f.PushClip(bounds)
+	}
+
 	f.PushTextStyle(activeRefinement)
 	for i, child := range d.children {
 		childLayoutID := d.childLayoutIDs[i]
@@ -995,4 +1013,8 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		child.Paint(f, childBounds)
 	}
 	f.PopTextStyle()
+
+	if clips {
+		f.PopClip()
+	}
 }
