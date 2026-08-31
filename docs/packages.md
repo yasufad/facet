@@ -364,23 +364,34 @@ Invariants and guarantees:
   a `render.Renderer`.
 - Two-frame isolation: `rendered` holds the on-screen scene, hit regions and dispatch
   tree for user event routing. `next` holds in-construction state. They swap on presentation.
-- Step 5 intra-frame hit testing resolves the pointer against `next` before paint runs,
-  so hover queries answer in the same frame without element persistent identity.
-- Phase ordering is enforced strictly: calling `RequestLayout` outside step 2,
-  `RegisterHitRegion` outside step 4, or `IsHovered`/`Insert*` outside step 6 panics.
-- Idle cost: an unchanged, clean window executes 0 GPU draw calls and 0 present calls
-  per second; the event loop sleeps.
-- Resize order: `ResizeEvent` records logical dimensions; swapchain resize and atomic
-  presentation happen in the frame turn without flashing blank or stretched buffers.
-- Scale factor invalidation: `ScaleChangedEvent` clears the CPU glyph cache (`text.Atlas`)
-  and GPU texture atlas (`render.Renderer.ClearAtlas`), resizing the swapchain and relayouting.
-- Reactivity: `SetRootView` observes the root view entity (`app.Observe`); entity
-  notifications mark the window dirty and schedule a redraw automatically.
+- Two distinct hit tests: Step 5 intra-frame hit testing resolves the pointer against
+  `next` before paint runs, so hover queries answer in the same frame without element
+  persistent identity. Event routing resolves arriving `platform.Event` instances against
+  `rendered`, because that is what the user sees and interacts with. Conflating the two
+  breaks click handling or hover state.
+- Phase ordering is enforced strictly: `RequestLayout` is valid in layout only;
+  `PushDispatchNode`, `PopDispatchNode`, and `RegisterHitRegion` are valid in prepaint only;
+  `IsHovered`, `IsActive`, `IsFocused`, and `Insert*` primitive insertions are valid in paint only.
+  Any out-of-order invocation panics immediately.
+- Frame scheduling: `frameScheduled` collapses an event or notification burst into
+  exactly one frame turn. Idle cost is 0 GPU draw calls and 0 present calls per second;
+  the event loop sleeps.
+- Reactivity: `SetRootView` observes the root view's entity (`app.Observe`); entity
+  notifications mark the window dirty and schedule a redraw automatically. Reactivity
+  stops at the root view: secondary entities read during `Render` must be observed
+  explicitly by the parent view.
 - Re-rendering: the root view re-renders unconditionally on every frame; precise
   per-view dirty tracking and subtree caching are deferred to a future milestone.
-- Threading: all frame loop operations run on the UI goroutine. Background operations
+- Resize order: `ResizeEvent` records logical dimensions; swapchain resize and atomic
+  presentation happen during the frame loop without flashing blank or stretched buffers.
+- Scale factor invalidation: `ScaleChangedEvent` clears the CPU glyph cache (`text.Atlas`)
+  and GPU texture atlas (`render.Renderer.ClearAtlas`), resizing the swapchain and relayouting.
+- Threading: all frame loop operations run on the single UI goroutine. Background operations
   marshal back via `app.ForegroundExecutor` wired to `platform.Dispatch`. `ScheduleFrame`
   is thread-safe via an internal mutex so background tasks can request redraws safely.
+- Verification by pixel readback: correctness across the integrated stack (`platform` ->
+  `window` -> `element` -> `style` -> `layout` -> `scene` -> `render`) is established by
+  reading swapchain backbuffer pixels back in `window_debug_test.go` under `facet_debug`.
 
 ## ui
 
