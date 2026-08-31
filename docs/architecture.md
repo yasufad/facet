@@ -160,12 +160,23 @@ A view repaints when the entities it holds change, and at no other time.
     2. request layout     walk dirty views, build elements, compute style
     3. layout             flexbox solve, producing bounds for every node
     4. prepaint           hit-test regions, scroll offsets, focus geometry
-    5. paint              emit primitives into the scene
-    6. present            hand the scene to the renderer
+    5. hit test           resolve the pointer against the regions just registered
+    6. paint              emit primitives into the scene
+    7. present            hand the scene to the renderer
 
-Steps 2 and 5 rebuild rather than mutate. An element is a cheap value describing what
+Steps 2 and 6 rebuild rather than mutate. An element is a cheap value describing what
 should be on screen, discarded after paint. State that survives the frame lives in an
 entity.
+
+Step 5 is what makes hover work without giving elements an identity that survives the
+frame. A region registered during prepaint is resolved against the pointer before
+paint runs, so an element asking "am I hovered" during paint is asking about the
+regions this frame registered, not last frame's. Nothing has to be remembered between
+frames and no element-keyed map is needed.
+
+A hover style that changes layout still lags one frame, because layout ran at step 3
+before any region existed. A hover style that only changes what is painted does not
+lag at all.
 
 ## Threading
 
