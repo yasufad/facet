@@ -4,10 +4,23 @@
 // min/max clamping around a measure function that reports the content size.
 package layout
 
-// measureContentSize reports the intrinsic content size of a leaf given the
+// LeafMeasureFunc reports the intrinsic content size of a leaf given the
 // known dimensions and available space. Taffy passes this as a closure; here it
 // is a function value so the algorithm and tests can supply their own.
-type measureContentSize func(known Size[optF32], avail Size[AvailableSpace]) Size[float32]
+type LeafMeasureFunc func(known Size[OptF32], avail Size[AvailableSpace]) Size[float32]
+
+type measureContentSize = LeafMeasureFunc
+
+// ComputeLeafLayout lays out a leaf node (a node with no children), applying
+// padding, borders, margins, box-sizing, and min/max clamping around the provided
+// measure function.
+func ComputeLeafLayout(
+	in LayoutInput,
+	style *Style,
+	measure LeafMeasureFunc,
+) LayoutOutput {
+	return computeLeafLayout(in, style, nil, measure)
+}
 
 // computeLeafLayout lays out a leaf node (a node with no children).
 //
