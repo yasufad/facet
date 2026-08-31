@@ -323,15 +323,13 @@ The `Frame` contract: It is a layer boundary and changes by explicit decision.
 to shape and measure content dynamically within flexbox constraints.
 `RasteriseGlyph` resolves and uploads glyph masks to the GPU atlas texture during paint.
 `PushDispatchNode(DispatchNode)` and `PopDispatchNode()` hand a node over whole,
-so there is no implied "active node" to get wrong. `IsHovered`, `IsActive`, `IsFocused`
-and `RasteriseGlyph` are valid during paint only. `ShapeLine` is legal during layout solve
-and paint.
-
-Text style inheritance: Typographic properties (colour, font family, font size, weight,
-style, line height, text alignment) inherit from ancestor elements via an ambient text
-style stack on `Frame` (`PushTextStyle`, `PopTextStyle`, `TextStyle`). In `Paint`, active
-pseudo-state overrides (hover, active, focus) on container elements are merged into the
-pushed style so child `Text` elements immediately reflect parent hover states.
+so there is no implied "active node" to get wrong. The text style stack is carried
+on `Frame` (`PushTextStyle`, `PopTextStyle`, `TextStyle`), pushed and popped around
+children during layout and paint; container elements merge active pseudo-state
+refinements (hover, active, focus) into the pushed style before children paint so
+child `Text` elements immediately reflect parent state. `IsHovered`, `IsActive`,
+`IsFocused` and `RasteriseGlyph` are valid during paint only. `ShapeLine` is legal
+during layout solve and paint.
 
 `NodeID` alias: `element.NodeID` is an alias for `layout.NodeID` so widget authors
 implementing `Element.RequestLayout` do not need to import `layout`.
