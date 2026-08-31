@@ -22,7 +22,7 @@ open a window, layout boxes and text, and put a styled element tree on screen.
 | `style`    | done        |
 | `platform` | Windows     |
 | `render`   | Direct3D 11 |
-| `element`  | in progress |
+| `element`  | done        |
 | `window`   | in progress |
 | `ui`       | in progress |
 
