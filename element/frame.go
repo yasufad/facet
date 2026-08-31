@@ -30,6 +30,10 @@ type DispatchNode struct {
 	ClickListeners   []func(event ClickEvent) bool
 }
 
+// MeasureFunc computes the intrinsic content size of an element given known
+// dimensions and available space constraints provided by the layout solver.
+type MeasureFunc func(known layout.Size[layout.OptF32], available layout.Size[layout.AvailableSpace]) geometry.Size[geometry.Pixels]
+
 // Frame is the capability interface that window provides to elements across the
 // three lifecycle phases.
 //
@@ -40,6 +44,10 @@ type Frame interface {
 	// RequestLayout adds a node with the given style and children to the layout
 	// engine and returns its layout identifier.
 	RequestLayout(style layout.Style, children []layout.NodeID) layout.NodeID
+
+	// RequestMeasuredLayout adds a leaf node with the given style and content
+	// measurement callback to the layout engine, returning its layout identifier.
+	RequestMeasuredLayout(style layout.Style, measure MeasureFunc) layout.NodeID
 
 	// LayoutBounds returns the computed bounds of a layout node in logical pixels
 	// after the layout pass has solved.
@@ -90,6 +98,10 @@ type Frame interface {
 	// ShapeLine shapes a single line of text with the given style runs at the
 	// window's scale factor.
 	ShapeLine(str string, runs []text.StyleRun) (text.ShapedLine, error)
+
+	// RasteriseGlyph returns the atlas tile and device-pixel bounding box relative to
+	// the pen position for the specified glyph, rasterising and uploading on miss.
+	RasteriseGlyph(face text.Face, gid text.GlyphID, size geometry.Pixels, subpixel text.SubpixelOffset) (scene.AtlasTile, geometry.Bounds[geometry.DevicePixels], bool)
 
 	// ScaleFactor returns the display scale factor for snapping to physical device pixels.
 	ScaleFactor() float32
