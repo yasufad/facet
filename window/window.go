@@ -23,6 +23,17 @@ func (s staticView) Render(_ *app.App) element.Element {
 	return s.el
 }
 
+type fnView struct {
+	fn func() element.Element
+}
+
+func (f fnView) Render(_ *app.App) element.Element {
+	if f.fn == nil {
+		return nil
+	}
+	return f.fn()
+}
+
 // Window owns a platform window, layout engine, and graphics renderer, and
 // coordinates the seven-step frame loop from layout through paint and presentation.
 type Window struct {
@@ -94,7 +105,7 @@ func New(p platform.Platform, a *app.App, opts WindowOptions) (*Window, error) {
 		sf = 1.0
 	}
 
-	devSize := opts.Size.ToDevicePixels(sf)
+	devSize := geometry.SizeToDevicePixels(opts.Size, sf)
 	r, err := newDefaultRenderer(pw.NativeSurface(), devSize, render.Options{VSync: opts.VSync})
 	if err != nil {
 		pw.Close()
@@ -167,6 +178,11 @@ func NewWithRenderer(pw platform.Window, r render.Renderer, a *app.App, opts Win
 // SetRoot configures a static root element for the window.
 func (w *Window) SetRoot(el element.Element) {
 	w.SetRootView(staticView{el: el})
+}
+
+// SetRootFn configures a root element generator function for the window.
+func (w *Window) SetRootFn(fn func() element.Element) {
+	w.SetRootView(fnView{fn: fn})
 }
 
 // SetRootView sets the root renderable view for the window.
@@ -258,7 +274,7 @@ func (w *Window) Draw() {
 	w.needsPresent = true
 
 	if w.renderer != nil && w.needsPresent {
-		devSize := w.size.ToDevicePixels(w.scaleFactor)
+		devSize := geometry.SizeToDevicePixels(w.size, w.scaleFactor)
 		if w.renderer.Size() != devSize {
 			_ = w.renderer.Resize(devSize)
 		}
