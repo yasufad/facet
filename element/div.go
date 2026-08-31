@@ -881,17 +881,6 @@ func (d *Div) RequestLayout(f Frame) layout.NodeID {
 	st := style.Default()
 	st.Refine(d.refinement)
 
-	// Apply pseudo-state overrides from the rendered frame.
-	if d.interactivity.hoverStyle != nil && d.interactivity.hitRegionID != 0 && f.IsHovered(d.interactivity.hitRegionID) {
-		st.Refine(*d.interactivity.hoverStyle)
-	}
-	if d.interactivity.activeStyle != nil && d.interactivity.hitRegionID != 0 && f.IsActive(d.interactivity.hitRegionID) {
-		st.Refine(*d.interactivity.activeStyle)
-	}
-	if d.interactivity.focusStyle != nil && d.interactivity.focusID != 0 && f.IsFocused(d.interactivity.focusID) {
-		st.Refine(*d.interactivity.focusStyle)
-	}
-
 	rem := f.RemSize()
 	layoutStyle := st.ToLayout(rem)
 	d.layoutID = f.RequestLayout(layoutStyle, d.childLayoutIDs)
@@ -917,7 +906,7 @@ func (d *Div) Prepaint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	if hasDispatch {
 		node := d.interactivity.toDispatchNode()
 		nodeID := f.PushDispatchNode(node)
-		d.interactivity.nextHitRegionID = f.RegisterHitRegion(d.bounds, nodeID)
+		d.interactivity.hitRegionID = f.RegisterHitRegion(d.bounds, nodeID)
 	}
 
 	for i, child := range d.children {
@@ -949,11 +938,6 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	}
 	if d.interactivity.focusStyle != nil && d.interactivity.focusID != 0 && f.IsFocused(d.interactivity.focusID) {
 		st.Refine(*d.interactivity.focusStyle)
-	}
-
-	// Advance the registered hit region ID for subsequent frames.
-	if d.interactivity.nextHitRegionID != 0 {
-		d.interactivity.hitRegionID = d.interactivity.nextHitRegionID
 	}
 
 	if st.Display == style.DisplayNone {
