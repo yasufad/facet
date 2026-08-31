@@ -114,7 +114,11 @@ func (a AvailableSpace) computeFreeSpace(used float32) float32 {
 	}
 }
 
-// isRoughlyEqual compares equality, treating near-equal definite values as equal.
+// IsRoughlyEqual compares equality, treating near-equal definite values as equal.
+func (a AvailableSpace) IsRoughlyEqual(other AvailableSpace) bool {
+	return a.isRoughlyEqual(other)
+}
+
 func (a AvailableSpace) isRoughlyEqual(other AvailableSpace) bool {
 	if a.kind != other.kind {
 		return false
