@@ -5,6 +5,7 @@ import (
 	"github.com/yasufad/facet/input"
 	"github.com/yasufad/facet/layout"
 	"github.com/yasufad/facet/scene"
+	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/text"
 )
 
@@ -41,8 +42,9 @@ type fakeFrame struct {
 	paths       []scene.Path[geometry.ScaledPixels]
 	underlines  []scene.Underline
 	monoSprites []scene.MonochromeSprite
-	polySprites []scene.PolychromeSprite
-	textSys     *text.System
+	polySprites    []scene.PolychromeSprite
+	textSys        *text.System
+	textStyleStack []style.TextStyle
 }
 
 func newFakeFrame() *fakeFrame {
@@ -61,6 +63,7 @@ func newFakeFrame() *fakeFrame {
 		activeHitRegions:  make(map[HitRegionID]bool),
 		focusedIDs:        make(map[input.FocusID]bool),
 		textSys:           txtSys,
+		textStyleStack:    []style.TextStyle{style.DefaultTextStyle()},
 	}
 }
 
@@ -257,6 +260,27 @@ func (f *fakeFrame) ScaleFactor() float32 {
 
 func (f *fakeFrame) RemSize() geometry.Pixels {
 	return f.remSize
+}
+
+func (f *fakeFrame) PushTextStyle(refinement style.Refinement) {
+	current := f.TextStyle()
+	var s style.Style
+	s.Text = current
+	s.Refine(refinement)
+	f.textStyleStack = append(f.textStyleStack, s.Text)
+}
+
+func (f *fakeFrame) PopTextStyle() {
+	if len(f.textStyleStack) > 1 {
+		f.textStyleStack = f.textStyleStack[:len(f.textStyleStack)-1]
+	}
+}
+
+func (f *fakeFrame) TextStyle() style.TextStyle {
+	if len(f.textStyleStack) == 0 {
+		return style.DefaultTextStyle()
+	}
+	return f.textStyleStack[len(f.textStyleStack)-1]
 }
 
 // solve computes layout on the underlying layout tree and derives window-relative bounds.
