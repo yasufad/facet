@@ -182,3 +182,13 @@ told to implement a package, read `prompts/<package>.md` first.
 An assignment is retired once its package is finished, so a missing file means the
 work is done, not that it was never scoped. What the package guarantees lives in
 `docs/packages.md`, which outlives the assignment.
+
+Retiring is two steps and the deletion is the second. First move what the package now
+guarantees into its `docs/packages.md` entry — the decisions taken, the invariants
+that must survive a rewrite, the traps found. `doc.go` is not that place; nobody
+reads another package's `doc.go` before starting work. Then delete the prompt.
+
+The test for whether a prompt can be retired is that it is empty of work, not that
+the last thing it asked about is done. If an item in it looks wrong or unnecessary,
+say so and leave it — do not close it silently. Three packages have been retired with
+open items so far, and each came back.
