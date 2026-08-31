@@ -7,8 +7,7 @@ entity map, invalidation is precise, and the element tree is rebuilt each frame.
 
 ## Status
 
-Not usable yet. `window`, the frame loop, is unwritten, so nothing puts an element
-tree on screen. Windows is the only platform with a backend.
+`window`, the frame loop, is complete. Windows (Direct3D 11) is the first supported platform.
 
 | Package    | State       |
 |------------|-------------|
@@ -26,7 +25,7 @@ tree on screen. Windows is the only platform with a backend.
 | `window`   | done        |
 | `ui`       | not started |
 
-`examples/quad` draws through Direct3D 11, wiring `platform` and `render` by hand.
+`examples/quad` drives an element tree through the `window` frame loop and Direct3D 11.
 
 ## How this is built
 
