@@ -31,9 +31,16 @@
 //     clear the next frame, reset the layout engine, and submit the scene to
 //     the GPU renderer.
 //
-// Phase ordering is enforced strictly at runtime: calling RequestLayout outside
-// step 2, RegisterHitRegion outside step 4, or IsHovered/InsertQuad outside step 6
-// panics immediately.
+// Phase ordering is enforced strictly at runtime:
+//   - RequestLayout and RequestMeasuredLayout are legal in step 2 (layout) only.
+//   - PushDispatchNode, PopDispatchNode, and RegisterHitRegion are legal in step 4 (prepaint) only.
+//   - IsHovered, IsActive, IsFocused, RasteriseGlyph, and Insert* primitives are legal in step 6 (paint) only.
+//   - ShapeLine is legal in both step 3 (layout solve) and step 6 (paint).
+//   - Nothing else on Frame is legal during step 3 (layout solve). A measure callback
+//     running inside the layout solver may shape text to measure intrinsic content size,
+//     but cannot re-entrantly request layout, register hit regions, or emit paint primitives.
+//
+// Any out-of-order or invalid phase invocation panics immediately.
 //
 // # Two Frames, and Two Hit Tests
 //
