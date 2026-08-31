@@ -46,6 +46,8 @@ type fakeFrame struct {
 	textSys        *text.System
 	textStyleStack []style.TextStyle
 	clips          []geometry.Bounds[geometry.Pixels]
+	pushedClips    []geometry.Bounds[geometry.Pixels]
+	popClipCount   int
 }
 
 func newFakeFrame() *fakeFrame {
@@ -190,12 +192,14 @@ func (f *fakeFrame) PushClip(bounds geometry.Bounds[geometry.Pixels]) {
 		panic("fakeFrame: PushClip called outside paint phase")
 	}
 	f.clips = append(f.clips, bounds)
+	f.pushedClips = append(f.pushedClips, bounds)
 }
 
 func (f *fakeFrame) PopClip() {
 	if f.phase != phasePainted {
 		panic("fakeFrame: PopClip called outside paint phase")
 	}
+	f.popClipCount++
 	if len(f.clips) > 0 {
 		f.clips = f.clips[:len(f.clips)-1]
 	}
