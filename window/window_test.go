@@ -8,6 +8,7 @@ import (
 	"github.com/yasufad/facet/colour"
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
+	"github.com/yasufad/facet/input"
 	"github.com/yasufad/facet/layout"
 	"github.com/yasufad/facet/platform"
 	"github.com/yasufad/facet/scene"
@@ -321,12 +322,16 @@ func (c *counterView) Render(cx *app.Context[counterView]) element.Element {
 type stubPlatform struct {
 	platform.Platform
 	dispatched []func()
+	cursors    []platform.Cursor
 }
 
 func (p *stubPlatform) Run() error { return nil }
 func (p *stubPlatform) Quit()      {}
 func (p *stubPlatform) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
 	return newStubPlatformWindow(opts.Size, 1.0), nil
+}
+func (p *stubPlatform) SetCursor(shape platform.Cursor) {
+	p.cursors = append(p.cursors, shape)
 }
 func (p *stubPlatform) Dispatch(f func()) {
 	p.dispatched = append(p.dispatched, f)
@@ -621,4 +626,231 @@ func TestTextElementMeasuresFromShaping(t *testing.T) {
 	if !foundChild {
 		t.Fatal("child text node not found in nodeBounds")
 	}
+}
+
+func TestPointerDownFocusAndStyling(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	focusID := input.NewFocusID()
+	defaultBg := colour.Rgba{R: 0.1, G: 0.1, B: 0.1, A: 1.0}
+	focusBg := colour.Rgba{R: 0.0, G: 1.0, B: 0.0, A: 1.0}
+
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().
+			Width(style.Px(400)).
+			Height(style.Px(300)).
+			Child(
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(50)).
+					Bg(defaultBg).
+					TrackFocus(focusID).
+					Focus(func(r *style.Refinement) {
+						r.SetBackground(focusBg)
+					}),
+			)
+	})
+
+	// Initial frame: nothing focused
+	w.Draw()
+	if len(r.quads) != 1 {
+		t.Fatalf("expected exactly 1 quad, got %d", len(r.quads))
+	}
+	if r.quads[0].Background != defaultBg {
+		t.Fatalf("expected initial quad background %v, got %v", defaultBg, r.quads[0].Background)
+	}
+	if _, ok := w.focusTree.Focused(); ok {
+		t.Fatalf("element unexpectedly focused initially")
+	}
+
+	// Pointer down inside the child button (50, 25)
+	w.DispatchEvent(platform.PointerEvent{
+		Position: geometry.NewPoint[geometry.DevicePixels](50, 25),
+		Phase:    platform.PointerDown,
+		Button:   platform.PointerLeft,
+	})
+
+	// Redraw: focus style should now be active
+	w.Draw()
+	if focused, ok := w.focusTree.Focused(); !ok || focused != focusID {
+		t.Fatalf("expected element %v to be focused after pointer down, got (%v, %v)", focusID, focused, ok)
+	}
+	if len(r.quads) != 1 || r.quads[0].Background != focusBg {
+		t.Fatalf("expected focused quad background %v, got %v", focusBg, r.quads[0].Background)
+	}
+
+	// Pointer down outside the child button (200, 200)
+	w.DispatchEvent(platform.PointerEvent{
+		Position: geometry.NewPoint[geometry.DevicePixels](200, 200),
+		Phase:    platform.PointerDown,
+		Button:   platform.PointerLeft,
+	})
+
+	// Redraw: focus should be cleared
+	w.Draw()
+	if focused, ok := w.focusTree.Focused(); ok {
+		t.Fatalf("expected focus to be cleared after clicking outside, got %v", focused)
+	}
+	if len(r.quads) != 1 || r.quads[0].Background != defaultBg {
+		t.Fatalf("expected unfocused quad background %v, got %v", defaultBg, r.quads[0].Background)
+	}
+}
+
+func TestFocusDroppedWhenElementLeavesTree(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	focusID := input.NewFocusID()
+	renderChild := true
+
+	w.SetRootFn(func() element.Element {
+		div := element.NewDiv().Width(style.Px(400)).Height(style.Px(300))
+		if renderChild {
+			div.Child(
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(50)).
+					TrackFocus(focusID),
+			)
+		}
+		return div
+	})
+
+	// Frame 1: child is present; focus it
+	w.Draw()
+	w.DispatchEvent(platform.PointerEvent{
+		Position: geometry.NewPoint[geometry.DevicePixels](50, 25),
+		Phase:    platform.PointerDown,
+		Button:   platform.PointerLeft,
+	})
+	w.Draw()
+
+	if focused, ok := w.focusTree.Focused(); !ok || focused != focusID {
+		t.Fatalf("expected focusTree focused on %v, got (%v, %v)", focusID, focused, ok)
+	}
+
+	// Frame 2: child is removed from the tree
+	renderChild = false
+	w.dirty = true
+	w.Draw()
+
+	// Focus must drop to nothing
+	if focused, ok := w.focusTree.Focused(); ok || focused != 0 {
+		t.Fatalf("expected focus to drop when element left tree, got (%v, %v)", focused, ok)
+	}
+}
+
+func TestCursorTransitionsAndDeduplication(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	plat := &stubPlatform{}
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+	w.platform = plat
+
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().
+			Width(style.Px(400)).
+			Height(style.Px(300)).
+			Children(
+				// Div A: 0..100 -> CursorPointer
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(100)).
+					Cursor(style.CursorPointer),
+				// Div B: 100..200 -> CursorNotAllowed
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(100)).
+					Cursor(style.CursorNotAllowed),
+			)
+	})
+
+	// 1. Initial draw with pointer at (350, 250) (background area)
+	w.DispatchEvent(platform.PointerEvent{
+		Position: geometry.NewPoint[geometry.DevicePixels](350, 250),
+		Phase:    platform.PointerMove,
+	})
+	w.Draw()
+	if len(plat.cursors) != 0 {
+		t.Fatalf("expected no SetCursor calls for default background cursor, got %v", plat.cursors)
+	}
+
+	// 2. Move pointer onto Div A (50, 50)
+	w.DispatchEvent(platform.PointerEvent{
+		Position: geometry.NewPoint[geometry.DevicePixels](50, 50),
+		Phase:    platform.PointerMove,
+	})
+	w.Draw()
+	if len(plat.cursors) != 1 || plat.cursors[0] != platform.CursorPointer {
+		t.Fatalf("expected [CursorPointer], got %v", plat.cursors)
+	}
+
+	// 3. Move pointer slightly within Div A (60, 60): must NOT call SetCursor again
+	w.DispatchEvent(platform.PointerEvent{
+		Position: geometry.NewPoint[geometry.DevicePixels](60, 60),
+		Phase:    platform.PointerMove,
+	})
+	w.Draw()
+	if len(plat.cursors) != 1 {
+		t.Fatalf("expected no redundant SetCursor call when moving within same cursor region, got %v", plat.cursors)
+	}
+
+	// 4. Move pointer onto Div B (150, 50)
+	w.DispatchEvent(platform.PointerEvent{
+		Position: geometry.NewPoint[geometry.DevicePixels](150, 50),
+		Phase:    platform.PointerMove,
+	})
+	w.Draw()
+	if len(plat.cursors) != 2 || plat.cursors[1] != platform.CursorNotAllowed {
+		t.Fatalf("expected [CursorPointer, CursorNotAllowed], got %v", plat.cursors)
+	}
+
+	// 5. Move pointer back to background area (350, 250)
+	w.DispatchEvent(platform.PointerEvent{
+		Position: geometry.NewPoint[geometry.DevicePixels](350, 250),
+		Phase:    platform.PointerMove,
+	})
+	w.Draw()
+	if len(plat.cursors) != 3 || plat.cursors[2] != platform.CursorDefault {
+		t.Fatalf("expected [CursorPointer, CursorNotAllowed, CursorDefault], got %v", plat.cursors)
+	}
+}
+
+func TestRequestFocusPhaseEnforcement(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	focusID := input.NewFocusID()
+
+	// Calling RequestFocus inside a measure callback (phaseLayoutSolve) must panic.
+	assertPanic(t, "RequestFocus inside measure callback", func() {
+		w.SetRootFn(func() element.Element {
+			return &testMeasureElement{
+				onMeasure: func(f element.Frame) {
+					f.RequestFocus(focusID)
+				},
+			}
+		})
+		w.Draw()
+	})
 }
