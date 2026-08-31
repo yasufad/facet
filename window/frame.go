@@ -31,6 +31,9 @@ type frame struct {
 	hitRegions     []hitRegion
 	dispatchTree   *input.DispatchTree
 	clickListeners map[input.DispatchNodeID][]func(element.ClickEvent) bool
+	nodeCursors    map[input.DispatchNodeID]style.CursorStyle
+	nodeFocusIDs   map[input.DispatchNodeID]input.FocusID
+	focusIDs       map[input.FocusID]bool
 }
 
 func newFrame(keymap *input.Keymap, focusTree *input.FocusTree) *frame {
@@ -38,6 +41,9 @@ func newFrame(keymap *input.Keymap, focusTree *input.FocusTree) *frame {
 		scene:          scene.New(),
 		dispatchTree:   input.NewDispatchTree(keymap, focusTree),
 		clickListeners: make(map[input.DispatchNodeID][]func(element.ClickEvent) bool),
+		nodeCursors:    make(map[input.DispatchNodeID]style.CursorStyle),
+		nodeFocusIDs:   make(map[input.DispatchNodeID]input.FocusID),
+		focusIDs:       make(map[input.FocusID]bool),
 	}
 }
 
@@ -46,6 +52,9 @@ func (f *frame) clear() {
 	f.hitRegions = f.hitRegions[:0]
 	f.dispatchTree.Clear()
 	clear(f.clickListeners)
+	clear(f.nodeCursors)
+	clear(f.nodeFocusIDs)
+	clear(f.focusIDs)
 }
 
 // Ensure *Window implements element.Frame.
@@ -96,6 +105,11 @@ func (w *Window) PushDispatchNode(node element.DispatchNode) input.DispatchNodeI
 	}
 	if node.FocusID != 0 {
 		w.next.dispatchTree.SetFocusID(node.FocusID)
+		w.next.focusIDs[node.FocusID] = true
+		w.next.nodeFocusIDs[nodeID] = node.FocusID
+	}
+	if node.Cursor != style.CursorDefault {
+		w.next.nodeCursors[nodeID] = node.Cursor
 	}
 	for _, ab := range node.ActionBindings {
 		w.next.dispatchTree.OnAction(ab.ActionName, ab.Handler)
@@ -133,10 +147,14 @@ func (w *Window) RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], node
 	}
 	w.nextHitRegionID++
 	id := w.nextHitRegionID
+	cursor := w.next.nodeCursors[nodeID]
+	focusID := w.next.nodeFocusIDs[nodeID]
 	w.next.hitRegions = append(w.next.hitRegions, hitRegion{
-		id:     id,
-		bounds: bounds,
-		nodeID: nodeID,
+		id:      id,
+		bounds:  bounds,
+		nodeID:  nodeID,
+		focusID: focusID,
+		cursor:  cursor,
 	})
 	return id
 }
@@ -170,6 +188,20 @@ func (w *Window) IsFocused(id input.FocusID) bool {
 		return false
 	}
 	return focused == id || w.focusTree.Contains(id, focused)
+}
+
+// RequestFocus moves keyboard focus to the node identified by id.
+func (w *Window) RequestFocus(id input.FocusID) {
+	if w.phase == phaseLayoutSolve {
+		panic("window: RequestFocus called in phaseLayoutSolve")
+	}
+	if id == 0 {
+		w.focusTree.Blur()
+	} else {
+		w.focusTree.Focus(id)
+	}
+	w.dirty = true
+	w.ScheduleFrame()
 }
 
 // InsertQuad adds a quad primitive to the in-flight frame scene.
