@@ -96,6 +96,7 @@ type Window struct {
 	measureCallbacks map[layout.NodeID]element.MeasureFunc
 	glyphTileCache   map[glyphCacheKey]cachedGlyph
 	textStyleStack   []style.TextStyle
+	currentCursor    platform.Cursor
 
 	mu             sync.Mutex
 	frameScheduled bool
@@ -307,6 +308,13 @@ func (w *Window) Draw() {
 	el.Paint(w, rootBounds)
 
 	// 7. Present: finish scene, swap frames, reset next, and submit to GPU.
+	// Clean up focus if the focused element is no longer rendered in the tree.
+	if currFocus, hasFocus := w.focusTree.Focused(); hasFocus && currFocus != 0 {
+		if !w.next.focusIDs[currFocus] {
+			w.focusTree.Blur()
+		}
+	}
+
 	w.next.scene.Finish()
 	w.rendered, w.next = w.next, w.rendered
 	w.next.clear()
@@ -390,6 +398,7 @@ func (w *Window) populateNodeBounds(parentID layout.NodeID, parentOrigin geometr
 // resolveNextHitTest executes Step 5 by resolving the pointer against next.hitRegions.
 func (w *Window) resolveNextHitTest() {
 	hitID, nodeID, ok := hitTest(w.next.hitRegions, w.pointerPos)
+	var cursor style.CursorStyle
 	if ok {
 		w.hoveredHitRegion = hitID
 		w.hoveredNodeID = nodeID
@@ -398,10 +407,25 @@ func (w *Window) resolveNextHitTest() {
 		} else {
 			w.activeHitRegion = 0
 		}
+		for _, hr := range w.next.hitRegions {
+			if hr.id == hitID {
+				cursor = hr.cursor
+				break
+			}
+		}
 	} else {
 		w.hoveredHitRegion = 0
 		w.hoveredNodeID = 0
 		w.activeHitRegion = 0
+		cursor = style.CursorDefault
+	}
+
+	platCursor := cursorStyleToPlatform(cursor)
+	if platCursor != w.currentCursor {
+		w.currentCursor = platCursor
+		if w.platform != nil {
+			w.platform.SetCursor(platCursor)
+		}
 	}
 }
 
@@ -442,6 +466,23 @@ func (w *Window) DispatchEvent(event platform.Event) {
 			w.pointerDown = true
 			w.downHitRegion = hitID
 			w.downNodeID = nodeID
+
+			if hitID != 0 {
+				var targetFocusID input.FocusID
+				for _, hr := range w.rendered.hitRegions {
+					if hr.id == hitID {
+						targetFocusID = hr.focusID
+						break
+					}
+				}
+				if targetFocusID != 0 {
+					w.RequestFocus(targetFocusID)
+				} else {
+					w.focusTree.Blur()
+				}
+			} else {
+				w.focusTree.Blur()
+			}
 		} else if e.Phase == platform.PointerUp {
 			w.pointerDown = false
 			if hitID != 0 && hitID == w.downHitRegion {
