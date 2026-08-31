@@ -8,8 +8,7 @@ entity map, and the element tree is rebuilt each frame from retained state.
 ## Status
 
 The frame loop is complete and draws, on Windows through Direct3D 11. A program can
-open a window and put a styled element tree on screen. There is no element that
-displays text yet, and no widget library, so it is not usable for an application.
+open a window, layout boxes and text, and put a styled element tree on screen.
 
 | Package    | State       |
 |------------|-------------|
@@ -23,8 +22,8 @@ displays text yet, and no widget library, so it is not usable for an application
 | `style`    | done        |
 | `platform` | Windows     |
 | `render`   | Direct3D 11 |
-| `element`  | in progress |
-| `window`   | in progress |
+| `element`  | done        |
+| `window`   | done        |
 | `ui`       | not started |
 
 `examples/quad` drives an element tree through the `window` frame loop and
