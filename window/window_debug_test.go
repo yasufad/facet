@@ -189,3 +189,59 @@ func TestRenderTextWindowPixelAssertion(t *testing.T) {
 		t.Fatalf("p.Run: %v", err)
 	}
 }
+
+type unbalancingClipElement struct{}
+
+func (u *unbalancingClipElement) RequestLayout(f element.Frame) element.NodeID {
+	return f.RequestLayout(style.Default().ToLayout(f.RemSize()), nil)
+}
+
+func (u *unbalancingClipElement) Prepaint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {}
+
+func (u *unbalancingClipElement) Paint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {
+	f.PushClip(bounds)
+	// deliberately omit f.PopClip()
+}
+
+func TestUnbalancedClipStackPanicsUnderDebug(t *testing.T) {
+	p, err := platform.New(platform.Options{Name: "facet-clip-debug-test"})
+	if err != nil {
+		t.Fatalf("platform.New: %v", err)
+	}
+
+	a := app.NewApp()
+	defer a.Close()
+
+	w, err := window.New(p, a, window.WindowOptions{
+		Title:   "UnbalancedClip",
+		Size:    geometry.NewSize[geometry.Pixels](200, 200),
+		Visible: false,
+	})
+	if err != nil {
+		t.Fatalf("window.New: %v", err)
+	}
+	defer w.Close()
+
+	panicked := false
+	p.Dispatch(func() {
+		defer p.Quit()
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+
+		w.SetRootFn(func() element.Element {
+			return &unbalancingClipElement{}
+		})
+		w.Draw()
+	})
+
+	if err := p.Run(); err != nil {
+		t.Fatalf("p.Run: %v", err)
+	}
+
+	if !panicked {
+		t.Fatalf("expected panic on unbalanced clip stack at end of paint under facet_debug")
+	}
+}
