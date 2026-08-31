@@ -56,13 +56,17 @@ type Frame interface {
 	// input dispatch node identifier during the prepaint phase.
 	RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], nodeID input.DispatchNodeID) HitRegionID
 
-	// IsHovered reports whether the given hit region was hovered in the rendered frame.
+	// IsHovered reports whether the given hit region is hovered by the pointer
+	// in the current frame (evaluated during step 5 between prepaint and paint).
+	// Valid during the paint phase only.
 	IsHovered(id HitRegionID) bool
 
-	// IsActive reports whether the given hit region was actively pressed in the rendered frame.
+	// IsActive reports whether the given hit region is actively pressed by the
+	// pointer in the current frame. Valid during the paint phase only.
 	IsActive(id HitRegionID) bool
 
-	// IsFocused reports whether the given focus identifier held keyboard focus in the rendered frame.
+	// IsFocused reports whether the given focus identifier currently holds
+	// keyboard focus. Valid during the paint phase only.
 	IsFocused(id input.FocusID) bool
 
 	// InsertQuad adds a quad primitive to the frame's scene.
