@@ -22,9 +22,8 @@ type Interactivity struct {
 	inFocusStyle *style.Refinement
 	activeStyle  *style.Refinement
 
-	occlude         bool
-	hitRegionID     HitRegionID
-	nextHitRegionID HitRegionID
+	occlude     bool
+	hitRegionID HitRegionID
 }
 
 // hasDispatchNode reports whether this interactivity configuration requires
