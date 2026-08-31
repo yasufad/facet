@@ -50,7 +50,11 @@ that happens quietly when someone re-clones.
     GPUI          https://github.com/zed-industries/zed — crates/gpui
     Taffy         https://github.com/DioxusLabs/taffy
     Wails v3      https://github.com/wailsapp/wails — v3/ on master
-    typesetting   https://github.com/go-text/typesetting
+
+`go-text/typesetting` and `golang.org/x/image` are module dependencies rather than
+checkouts, because `text` calls them rather than porting them. Read them through the
+module cache; they are not in `upstream.pins` and `tools/upstream` will not fetch
+them.
 
 `docs/sources.md` says which layer draws on which, and which parts none of them
 provide. Read it before assuming something has to be written from scratch.
