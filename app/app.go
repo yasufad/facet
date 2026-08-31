@@ -276,7 +276,7 @@ func (app *App) Notify(id entityID) {
 }
 
 // observe is the unexported inner of Observe.
-func (app *App) observe(entity anyEntity, onNotify func(cx *App) bool) Subscription {
+func (app *App) observe(entity AnyEntity, onNotify func(cx *App) bool) Subscription {
 	sub, activate := app.observers.insert(entity.id, observerHandler(onNotify))
 	app.deferFn(func(*App) { activate() })
 	return sub
@@ -290,13 +290,13 @@ func (app *App) observe(entity anyEntity, onNotify func(cx *App) bool) Subscript
 // This is the low-level, App-scoped form. Context.Observe wraps it to forward
 // to a specific observer entity through a weak handle, so the observer is not
 // kept alive by what it watches.
-func (app *App) Observe(entity anyEntity, onNotify func(cx *App) bool) Subscription {
+func (app *App) Observe(entity AnyEntity, onNotify func(cx *App) bool) Subscription {
 	app.checkUI()
 	return app.observe(entity, onNotify)
 }
 
 // subscribe is the unexported inner of Subscribe.
-func (app *App) subscribe(entity anyEntity, eventType reflect.Type, onEvent func(cx *App, event any) bool) Subscription {
+func (app *App) subscribe(entity AnyEntity, eventType reflect.Type, onEvent func(cx *App, event any) bool) Subscription {
 	sub, activate := app.subscribers.insert(entity.id, subscriberEntry{eventType: eventType, handler: onEvent})
 	app.deferFn(func(*App) { activate() })
 	return sub
@@ -304,7 +304,7 @@ func (app *App) subscribe(entity anyEntity, eventType reflect.Type, onEvent func
 
 // Subscribe registers a callback for typed events emitted by entity. The
 // registration is activated at the end of the current flush.
-func (app *App) Subscribe(entity anyEntity, eventType reflect.Type, onEvent func(cx *App, event any) bool) Subscription {
+func (app *App) Subscribe(entity AnyEntity, eventType reflect.Type, onEvent func(cx *App, event any) bool) Subscription {
 	app.checkUI()
 	return app.subscribe(entity, eventType, onEvent)
 }
@@ -336,7 +336,7 @@ func (app *App) Defer(f func(*App)) {
 }
 
 // onRelease is the unexported inner of OnRelease.
-func (app *App) onRelease(entity anyEntity, onRelease func(value any, app *App)) Subscription {
+func (app *App) onRelease(entity AnyEntity, onRelease func(value any, app *App)) Subscription {
 	sub, activate := app.releases.insert(entity.id, releaseHandler(onRelease))
 	app.deferFn(func(*App) { activate() })
 	return sub
@@ -346,16 +346,16 @@ func (app *App) onRelease(entity anyEntity, onRelease func(value any, app *App))
 // callback receives the entity's value and the App, and is the place to
 // Release handles the entity owns and to Close subscriptions it holds. The
 // registration is activated at the end of the current flush.
-func (app *App) OnRelease(entity anyEntity, onRelease func(value any, app *App)) Subscription {
+func (app *App) OnRelease(entity AnyEntity, onRelease func(value any, app *App)) Subscription {
 	app.checkUI()
 	return app.onRelease(entity, onRelease)
 }
 
-// anyEntity is the type-erased view of a handle that the App needs to register
+// AnyEntity is the type-erased view of a handle that the App needs to register
 // observers, subscribers and release callbacks: just an id into the map. It is
-// constructed from a typed Entity through the entityAny helper.
-type anyEntity struct {
+// constructed from a typed Entity through the AnyEntity method.
+type AnyEntity struct {
 	id entityID
 }
 
-func entityAny[T any](e Entity[T]) anyEntity { return anyEntity{id: e.id} }
+func entityAny[T any](e Entity[T]) AnyEntity { return AnyEntity{id: e.id} }
