@@ -249,6 +249,31 @@ func TestFluentBuilderToLayout(t *testing.T) {
 	}
 }
 
+func TestHiddenVsInvisible(t *testing.T) {
+	frame := newFakeFrame()
+
+	hiddenDiv := NewDiv().Hidden()
+	frame.phase = phaseLayoutRequested
+	hiddenID := hiddenDiv.RequestLayout(frame)
+	hiddenStyle := frame.styles[hiddenID]
+	if hiddenStyle.Display != layout.DisplayNone {
+		t.Errorf("Hidden() Display = %v, want DisplayNone", hiddenStyle.Display)
+	}
+
+	invisibleDiv := NewDiv().Invisible()
+	invisibleID := invisibleDiv.RequestLayout(frame)
+	invisibleStyle := frame.styles[invisibleID]
+	if invisibleStyle.Display != layout.DisplayFlex {
+		t.Errorf("Invisible() Display = %v, want DisplayFlex (default)", invisibleStyle.Display)
+	}
+	// Invisible preserves layout but sets visibility: hidden on refinement
+	st := style.Default()
+	st.Refine(invisibleDiv.refinement)
+	if st.Visibility != style.VisibilityHidden {
+		t.Errorf("Invisible() Visibility = %v, want VisibilityHidden", st.Visibility)
+	}
+}
+
 type testView struct {
 	label string
 }
