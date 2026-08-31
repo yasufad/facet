@@ -150,6 +150,12 @@ files, or code and the doc comment describing it. Splitting those leaves a commi
 that contradicts itself, which is worse than a slightly larger diff. The rule exists
 for reviewable diffs and fewer collisions, not for its own sake.
 
+A rename is the clearest case. Every use of the old name moves in the commit that
+renames it, however many files that is. Renaming `TopCenter` in `anchor.go` and
+leaving `bounds.go` and `corners.go` calling it produced five consecutive commits
+where `geometry` did not compile — a correct end state reached through a history that
+cannot be bisected or checked out. Each commit should build.
+
     feat(layout): solve flex basis before main-axis distribution
     fix(text): handle zero-width joiner in cluster breaking
     docs: record the rendering decision
