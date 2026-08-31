@@ -159,6 +159,27 @@
 //     methods adds zero additional allocations and roughly 3% to 5% CPU overhead
 //     over unstyled construction (~4.1 µs for a fully styled 11-node tree).
 //
+// # Text Property Inheritance
+//
+// In GUI frameworks, inheritance across element boundaries is explicitly confined
+// to typographic text properties (colour, font family, font size, weight, style,
+// line height, and text alignment).
+//
+// Two transport mechanisms were evaluated:
+//   - Passing inherited text styles down the Element interface phase signatures
+//     (RequestLayout and Paint). This forces every Element implementer in the ecosystem
+//     to accept and thread text style parameters, polluting the interface for non-text
+//     elements.
+//   - Carrying an ambient text style stack on Frame, manipulated via PushTextStyle,
+//     PopTextStyle, and queried via TextStyle.
+//
+// Facet adopts the Frame text style stack (mirroring GPUI's text_style_stack).
+// Container elements (such as Div) push their resolved style refinement before
+// laying out or painting children and pop it afterwards. In Paint, active pseudo-state
+// overrides (hover, active, focus) are merged into the pushed refinement so child
+// Text elements instantly reflect parent hover states with zero changes to the
+// Element interface.
+//
 // At a baseline of 1,000 elements per frame, unmanaged heap allocation produces
 // ~640 KB of garbage per frame (~38 MB/s at 60 fps). While the CPU time fits within
 // the 16 ms frame budget, eliminating allocation churn via window's per-frame arena
