@@ -870,17 +870,19 @@ func (d *Div) LineClamp(lines int) *Div {
 
 // RequestLayout requests layout for all children, converts the resolved style
 // to layout inputs, and adds this element to the layout tree.
-func (d *Div) RequestLayout(f Frame) layout.NodeID {
+func (d *Div) RequestLayout(f Frame) NodeID {
 	if d.phase != phaseInitial {
 		panic("element: RequestLayout called out of order or multiple times")
 	}
 	d.phase = phaseLayoutRequested
 
+	f.PushTextStyle(d.refinement)
 	d.childLayoutIDs = d.childLayoutIDs[:0]
 	for _, child := range d.children {
 		childID := child.RequestLayout(f)
 		d.childLayoutIDs = append(d.childLayoutIDs, childID)
 	}
+	f.PopTextStyle()
 
 	st := style.Default()
 	st.Refine(d.refinement)
@@ -934,14 +936,18 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 
 	st := style.Default()
 	st.Refine(d.refinement)
+	activeRefinement := d.refinement
 	if d.interactivity.hoverStyle != nil && d.interactivity.hitRegionID != 0 && f.IsHovered(d.interactivity.hitRegionID) {
 		st.Refine(*d.interactivity.hoverStyle)
+		activeRefinement.MergeFrom(d.interactivity.hoverStyle)
 	}
 	if d.interactivity.activeStyle != nil && d.interactivity.hitRegionID != 0 && f.IsActive(d.interactivity.hitRegionID) {
 		st.Refine(*d.interactivity.activeStyle)
+		activeRefinement.MergeFrom(d.interactivity.activeStyle)
 	}
 	if d.interactivity.focusStyle != nil && d.interactivity.focusID != 0 && f.IsFocused(d.interactivity.focusID) {
 		st.Refine(*d.interactivity.focusStyle)
+		activeRefinement.MergeFrom(d.interactivity.focusStyle)
 	}
 
 	if st.Display == style.DisplayNone {
@@ -981,9 +987,11 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		f.InsertQuad(q)
 	}
 
+	f.PushTextStyle(activeRefinement)
 	for i, child := range d.children {
 		childLayoutID := d.childLayoutIDs[i]
 		childBounds := f.LayoutBounds(childLayoutID)
 		child.Paint(f, childBounds)
 	}
+	f.PopTextStyle()
 }
