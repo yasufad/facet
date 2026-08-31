@@ -57,6 +57,40 @@ text at the window's scale factor, so expose that. And a scene assertion is the
 verification here — running `examples/quad` and looking at it is not evidence, for
 the reason `docs/packages.md` gives about the render backend.
 
+## The hit test is a frame step, not a query
+
+Correcting something I told `element`'s agent and had wrong. `docs/architecture.md`
+now lists seven frame steps, not six, and the new one is yours:
+
+    4. prepaint     hit-test regions, scroll offsets, focus geometry
+    5. hit test     resolve the pointer against the regions just registered
+    6. paint        emit primitives into the scene
+
+After prepaint has registered every region for this frame, and before paint runs,
+resolve the pointer position against those regions and keep the result. GPUI does
+exactly this in one line between the two phases (`window.rs:3157`).
+
+That is what makes hover work without giving elements an identity that survives the
+frame. `element` calls `RegisterHitRegion` during its prepaint, gets an ID good for
+this frame, and asks `IsHovered(id)` during paint — by which time step 5 has run and
+the answer concerns the regions this frame registered. Nothing is remembered between
+frames, no element-keyed map appears, and the entities decision you and `element`
+both took independently survives intact.
+
+So `Frame` gains three queries, answered from the step 5 result:
+
+    IsHovered(HitRegionID) bool
+    IsActive(HitRegionID) bool
+    IsFocused(input.FocusID) bool
+
+They are valid during paint only. Panic if called earlier, the way the other phase
+rules do.
+
+Note this is separate from routing an arriving event. A pointer event that lands
+between frames still resolves against the **rendered** frame, because that is what is
+on screen. Step 5 is about the frame being built; event routing is about the frame
+already shown. Both exist and they are not the same hit test.
+
 ## The element arena is yours
 
 `element` landed, and its construction cost was measured:
