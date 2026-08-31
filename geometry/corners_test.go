@@ -13,10 +13,10 @@ func TestCornersCornerCentresAverage(t *testing.T) {
 		{TopRight, 20},
 		{BottomLeft, 30},
 		{BottomRight, 40},
-		{TopCenter, 15},    // (topLeft + topRight) / 2
-		{BottomCenter, 35}, // (bottomLeft + bottomRight) / 2
-		{LeftCenter, 20},   // (topLeft + bottomLeft) / 2
-		{RightCenter, 30},  // (topRight + bottomRight) / 2
+		{TopCentre, 15},    // (topLeft + topRight) / 2
+		{BottomCentre, 35}, // (bottomLeft + bottomRight) / 2
+		{LeftCentre, 20},   // (topLeft + bottomLeft) / 2
+		{RightCentre, 30},  // (topRight + bottomRight) / 2
 	}
 	for _, tc := range cases {
 		if got := c.Corner(tc.anchor); got != tc.want {
