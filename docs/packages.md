@@ -129,6 +129,14 @@ Invariants: Taffy's test suite is generated from browser behaviour and comes acr
 with the code. A behavioural difference from Taffy is a bug in the port, not a
 local improvement. Every file carries its attribution header.
 
+Every consumer of this package is outside it, so its tests are too: `layout_test`
+builds a flex row, solves it and asserts the children's positions. It sees exactly
+what a caller sees, which is the only way this package's real API gets exercised.
+Internal tests hid a boundary that could not be driven at all — `ComputeLayout` named
+an unexported type, and nine `Style` fields had unexported enums, so the flexbox
+engine could not be told to do flexbox. `TestStyleAllNonDefaultFields` sets all
+twenty-eight fields from outside; a field it cannot set is a dead field.
+
 The fixtures in `layout/testdata/flex/` come from Taffy at the commit pinned in
 `upstream.pins`. Their README records what is excluded and why. A drift test fails
 when that directory and the upstream checkout disagree on anything not on the
