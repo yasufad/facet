@@ -56,7 +56,7 @@ func (c *Context[T]) Notify() {
 func (c *Context[T]) OnRelease(onRelease func(v *T, app *App)) Subscription {
 	c.checkGeneration()
 	id := c.self.id
-	return c.app.onRelease(anyEntity{id: id}, func(value any, app *App) {
+	return c.app.onRelease(AnyEntity{id: id}, func(value any, app *App) {
 		t, ok := value.(T)
 		if !ok {
 			return
@@ -110,7 +110,7 @@ func Observe[T any, W any](cx *Context[T], entity Entity[W], onNotify func(v *T,
 	observer := cx.self
 	observedWeak := entity.Downgrade()
 	observedID := entity.id
-	return cx.app.observe(anyEntity{id: observedID}, func(app *App) bool {
+	return cx.app.observe(AnyEntity{id: observedID}, func(app *App) bool {
 		obs, ok := observedWeak.Upgrade()
 		if !ok {
 			return false
@@ -145,7 +145,7 @@ func Subscribe[T any, E any, Evt any](cx *Context[T], entity Entity[E], onEvent 
 	observer := cx.self
 	emitterWeak := entity.Downgrade()
 	emitterID := entity.id
-	return cx.app.subscribe(anyEntity{id: emitterID}, reflect.TypeOf((*Evt)(nil)), func(app *App, event any) bool {
+	return cx.app.subscribe(AnyEntity{id: emitterID}, reflect.TypeOf((*Evt)(nil)), func(app *App, event any) bool {
 		em, ok := emitterWeak.Upgrade()
 		if !ok {
 			return false
