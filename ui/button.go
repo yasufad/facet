@@ -116,6 +116,7 @@ func (b *Button) buildTree() {
 		Rounded(geometry.Pixels(4)).
 		Border(geometry.Pixels(1)).
 		BorderColour(defaultButtonBorder).
+		TextColour(defaultButtonText).
 		Bg(defaultButtonBg).
 		Cursor(style.CursorPointer)
 
@@ -165,8 +166,7 @@ func (b *Button) buildTree() {
 	}
 
 	if b.label != "" {
-		b.text = element.NewText(b.label).
-			TextColour(defaultButtonText)
+		b.text = element.NewText(b.label)
 		b.div.Child(b.text)
 	}
 }
