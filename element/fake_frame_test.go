@@ -136,15 +136,36 @@ func (f *fakeFrame) RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], n
 }
 
 func (f *fakeFrame) IsHovered(id HitRegionID) bool {
+	if f.phase != phasePainted {
+		panic("fakeFrame: IsHovered called outside paint phase")
+	}
 	return f.hoveredHitRegions[id]
 }
 
 func (f *fakeFrame) IsActive(id HitRegionID) bool {
+	if f.phase != phasePainted {
+		panic("fakeFrame: IsActive called outside paint phase")
+	}
 	return f.activeHitRegions[id]
 }
 
 func (f *fakeFrame) IsFocused(id input.FocusID) bool {
+	if f.phase != phasePainted {
+		panic("fakeFrame: IsFocused called outside paint phase")
+	}
 	return f.focusedIDs[id]
+}
+
+func (f *fakeFrame) setHovered(id HitRegionID, hovered bool) {
+	f.hoveredHitRegions[id] = hovered
+}
+
+func (f *fakeFrame) setActive(id HitRegionID, active bool) {
+	f.activeHitRegions[id] = active
+}
+
+func (f *fakeFrame) setFocused(id input.FocusID, focused bool) {
+	f.focusedIDs[id] = focused
 }
 
 func (f *fakeFrame) InsertQuad(q scene.Quad) {
