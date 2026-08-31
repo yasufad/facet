@@ -400,10 +400,11 @@ in order:
   - `PushDispatchNode`, `PopDispatchNode`, and `RegisterHitRegion` are valid in prepaint only.
   - `IsHovered`, `IsActive`, `IsFocused`, `RasteriseGlyph`, and `Insert*` primitive insertions are valid in paint only.
   - `ShapeLine` is valid in layout solve and paint.
-  - `phaseLayoutSolve` restriction: only `ShapeLine` is legal during layout solve. Calling any other `Frame` method from a measure callback panics immediately.
+  - `RequestFocus` is on `Frame` and is valid during event handlers, prepaint, and paint.
+  - `phaseLayoutSolve` restriction: only `ShapeLine` is legal during layout solve. Calling any other `Frame` method (including `RequestLayout`, `RegisterHitRegion`, `Insert*`, `RasteriseGlyph`, or `RequestFocus`) from a measure callback panics immediately.
 - Measure seam: `RequestMeasuredLayout` registers a measurement callback against a Taffy leaf node, solved through `layout.ComputeLayoutWithMeasure` and `layout.ComputeLeafLayout`.
 - Glyph rasterisation & texture atlas caching: `RasteriseGlyph` queries `text.Atlas` for coverage masks, uploads them to the GPU via `render.Renderer.Upload`, and caches the resulting `scene.AtlasTile`.
-- Focus lifecycle and unmount behaviour: Pointer down on a focusable hit region moves focus to that element. Elements can request focus programmatically via `Frame.RequestFocus(id)`. When an element with active focus is not rendered in the subsequent frame (unmounted, conditionally removed, or scrolled out), focus drops to nothing (`Blur()`) at Step 7 presentation. Stale focus IDs never survive after leaving the tree.
+- Focus lifecycle and unmount behaviour: Pointer down on a focusable hit region moves keyboard focus to that element's focus ID; clicking empty background blurs focus. Elements can request focus programmatically via `Frame.RequestFocus(id)`. When an element with active focus is not rendered in the subsequent frame (unmounted, conditionally removed, or scrolled out), focus drops to nothing (`Blur()`) at Step 7 presentation. Stale focus IDs never survive after leaving the tree.
 - Pointer cursor resolution: Cursor shape is resolved in Step 5 (intra-frame hit test) from the hovered hit region's cursor property. The window calls `platform.Platform.SetCursor` once per frame only when the cursor shape changes, avoiding redundant OS syscalls and mouse flicker during continuous motion within the same element.
 - Frame scheduling: `frameScheduled` collapses an event or notification burst into
   exactly one frame turn. Idle cost is 0 GPU draw calls and 0 present calls per second;
