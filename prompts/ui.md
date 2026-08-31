@@ -74,3 +74,20 @@ the eyeballing for the interactive half, and say in the report which half was wh
 
 The lifecycle, the default styling, the click dispatch and pseudo-state tests, and the
 empty-options probe are all right. So is stopping after one widget.
+
+## Next round: prove the label changes colour
+
+`element` now inherits text properties from a parent's resolved style, including
+pseudo-state refinements, because a button could not change its label colour on hover.
+
+I broke that inheritance to check the tests catch it. `element`'s test failed; every
+`ui` test passed. The button suite covers hover background, active background and
+focus border, and not the one thing the round was for.
+
+Add it: a button whose `Hover` refinement sets a text colour, and an assertion that
+the glyph sprites emitted during paint carry that colour. `elementtest.Frame` has
+`SetHovered` and exposes the sprites, so this is a short test.
+
+Worth carrying: a capability added for a named consumer, verified only in the package
+that provides it, is half tested. The provider's test proves the mechanism; the
+consumer's test proves the feature.

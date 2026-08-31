@@ -1,93 +1,55 @@
-# element: four findings from the first widget, decisions taken
+# element: the four findings landed, two things to close
 
-`ui` built a button and reported six gaps. Four are yours. The report was the point of
-that milestone and it delivered — leaving the layering test failing rather than
-patching it around was the right call, and it is how a design change is supposed to
-arrive.
+All four are in and I verified the one that mattered. Disabling the inherited style in
+`Text.Paint` fails `TestTextInheritsParentStyleAndHover`, so the inheritance is real
+rather than incidentally satisfied.
 
-## 1 — `element.NodeID`, and this one is urgent
+`element/elementtest` is the best outcome of the round. `ui/button_test.go` now
+imports `colour`, `element`, `elementtest`, `geometry`, `input` and `style` and
+nothing else — 180 lines of duplicate double gone, and the packages `ui` may never
+name in production are gone with it. Anyone writing a Facet widget outside this
+repository can now test it.
 
-`internal/layering` is red on `main`. `ui/button.go` imports `layout` for exactly one
-reason: `Element.RequestLayout` returns `layout.NodeID`, so every implementer must
-name it merely to satisfy the interface.
+Two things.
 
-That is a tax on implementing `Element`, not a use of the layout engine. `ui`'s whole
-invariant is that a widget is built from `element` and `style`; forcing it to name
-Taffy's vocabulary to declare a method contradicts that, and `docs/packages.md`
-already says the two vocabularies should meet at one boundary rather than throughout.
+## 1 — Five commits did not compile
 
-Declare an alias and use it in the interface:
+The rule added to `AGENTS.md` two days ago says an interface method is implemented
+before it is declared, because declaring it first stops the implementing package
+compiling. `8359612` added `PushTextStyle`, `PopTextStyle` and `TextStyle` to `Frame`;
+`09793db` implemented them on `*Window` five commits later. At `8359612`:
 
-    type NodeID = layout.NodeID
+    window\frame.go:51:23: *Window does not implement element.Frame
+                           (missing method PopTextStyle)
 
-An alias, not a defined type: `window` and `element` pass these to `layout` constantly
-and a conversion at every call site would be churn for nothing. The types stay
-identical; only the name an implementer has to write changes.
+`main` was unbuildable through four intervening commits. The end state is correct and
+I am not asking you to rewrite history, but this is the third time this class of break
+has happened and the first since the rule was written down, so read that entry in
+`AGENTS.md` before the next interface change: implement on `*Window` first, where the
+methods satisfy nothing and break nothing, then declare.
 
-`Frame.RequestLayout(style layout.Style, children []NodeID)` keeps `layout.Style` for
-now. A widget that builds its own element rather than delegating to `Div` would have
-to name it, and no widget does yet. When one does, that is the moment to decide
-whether to alias `Style` too or admit `layout` into `ui` — do not pre-empt it.
+The same applies to the next round, which adds `RequestFocus` to `Frame`.
 
-Land this first. The tree is red until it does.
+## 2 — The button still cannot prove it changes its label colour
 
-## 2 — Text does not inherit its parent's text properties
+The whole feature exists because a button could not change its text colour on hover.
+I broke the inheritance and `element`'s test failed while `ui`'s entire suite passed.
 
-`Div` resolves `hoverStyle`, `activeStyle` and `focusStyle` in paint and applies them
-to its own quad. A child `Text` sees only its own refinement, so a button cannot
-change its label colour on hover, which is the most ordinary thing a button does.
+`ui` tests hover background, active background and focus border, and not the thing
+this round was for. Add it: a button with a hover refinement that sets a text colour,
+and an assertion that the emitted glyph sprites carry it.
 
-`docs/packages.md` has said since before any of this existed that inheritance is
-explicit and confined to text properties. That is the design; it is simply not
-implemented. Text colour, family, size, weight, style, line height and alignment
-should reach a `Text` child from the resolved style of its ancestors.
-
-Work out where the inherited style travels. Passing it down the phase calls changes
-the `Element` interface for everyone; carrying it on `Frame` as a stack pushed and
-popped around children is what GPUI does with `text_style_stack`, and costs
-implementers nothing. I expect the second, but say which and why in `doc.go`.
-
-Pseudo-states follow from it: a `Hover` refinement on the parent that sets a text
-property has to be in force while the child paints.
-
-## 3 — `ClickEvent` should carry element-local coordinates
-
-Window-relative only, so every widget that cares subtracts its own bounds origin.
-Add the local position. The element knows its bounds when it synthesises the click,
-so nothing else has to change.
-
-## 4 — An exported test double, last
-
-`element`, `window` and `ui` each hand-wrote a fake `Frame`, now twenty-one methods.
-The report undersells the problem: `ui/button_test.go` has to import `platform`,
-`scene` and `text` to implement one, and `ui` is forbidden all three in production. It
-only works because the layering test reads non-test imports. So a package above
-`element` cannot test an element without naming packages it is not allowed to depend
-on, and an external widget author is worse off still.
-
-Export one: `element/elementtest`, with a `Frame` implementation that records what
-reached it — layout requests, hit regions, dispatch nodes, primitives — and lets a
-test set hover, active and focus. A subpackage inherits `element`'s import permissions,
-so it may name `scene` and `text` freely.
-
-This is last because nothing is broken without it. It is also the thing that decides
-whether writing a Facet widget outside this repository is pleasant or miserable, so it
-is not optional.
+That belongs to `ui`, and I have put it in its prompt. Worth knowing here because it
+is the shape to watch for: a capability added for a named consumer, verified only by
+the package that provides it. The provider's test proves the mechanism works; only the
+consumer's test proves the thing anybody asked for works.
 
 ## Done when
 
-`element.NodeID` exists, `Element` uses it, and `ui` no longer imports `layout`. The
-layering test is green.
+`docs/packages.md` says the text style stack is on `Frame`, pushed and popped around
+children, and that pseudo-state refinements are merged into it before children paint.
+That is a `Frame` contract change and outlives this prompt.
 
-A test shows a parent's hover refinement changing a child `Text`'s colour.
-
-`ClickEvent` carries local coordinates.
-
-`element/elementtest` exists and `ui`'s button tests use it instead of a local double.
-
-## Worth carrying
-
-The button was assigned to test one claim — that a widget needs nothing the framework
-does not expose — and it disproved it in six places, four of them here. A milestone
-whose deliverable is a list of what went wrong is worth more than one that reports
-success, and this is the second time that has been true in this project.
+Then retire this. The next round of `element` work is tab order, which
+`docs/packages.md` already says belongs here because it needs tree order, and which
+`window` will raise when pointer focus lands.
