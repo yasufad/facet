@@ -81,6 +81,12 @@ invariants it holds. Read your package's entry before you start.
 
 - Stay inside the package you were given. If your change requires touching another
   package's exported API, stop and say so rather than editing it.
+- Stop *before* committing, not after. Renaming an exported name that another package
+  reads is not true in pieces: landing your half and raising the rest leaves `main`
+  unbuildable for everyone else in the tree. Either the rename crosses the boundary in
+  one commit — the stated exception below — or it waits until both sides can land
+  together. `scene` renamed `Grayscale` correctly, raised `render` correctly, and
+  still broke the build, because the raising happened after the commit.
 - Import only what your entry in `docs/packages.md` permits. A layering test
   enforces it; a failure means the design changed and needs deciding, not patching.
 - Interfaces at layer boundaries are contracts. `render.Renderer`,
