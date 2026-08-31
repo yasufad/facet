@@ -28,6 +28,13 @@ tree on screen. Windows is the only platform with a backend.
 
 `examples/quad` draws through Direct3D 11, wiring `platform` and `render` by hand.
 
+## How this is built
+
+Most of the code is written by AI agents, one package at a time, working to the
+assignments in `prompts/` and the conventions in [AGENTS.md](AGENTS.md). A human sets
+the architecture, decides anything that crosses a layer boundary, and reviews what
+lands.
+
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md), the layer stack and the open decisions
