@@ -12,6 +12,7 @@ import (
 	"github.com/yasufad/facet/platform"
 	"github.com/yasufad/facet/scene"
 	"github.com/yasufad/facet/style"
+	"github.com/yasufad/facet/text"
 )
 
 type stubRenderer struct {
@@ -392,6 +393,11 @@ func TestPhaseOrderingInvariants(t *testing.T) {
 		w.RequestLayout(layout.Style{}, nil)
 	})
 
+	// Calling RequestMeasuredLayout outside phaseLayout must panic.
+	assertPanic(t, "RequestMeasuredLayout outside phaseLayout", func() {
+		w.RequestMeasuredLayout(layout.Style{}, nil)
+	})
+
 	// Calling RegisterHitRegion outside phasePrepaint must panic.
 	assertPanic(t, "RegisterHitRegion outside phasePrepaint", func() {
 		w.RegisterHitRegion(geometry.Bounds[geometry.Pixels]{}, 0)
@@ -410,6 +416,102 @@ func TestPhaseOrderingInvariants(t *testing.T) {
 	// Calling LayoutBounds outside prepaint/paint must panic.
 	assertPanic(t, "LayoutBounds outside prepaint/paint", func() {
 		w.LayoutBounds(layout.NodeID{})
+	})
+
+	// Calling RasteriseGlyph outside phasePaint must panic.
+	assertPanic(t, "RasteriseGlyph outside phasePaint", func() {
+		w.RasteriseGlyph(text.Face{}, 0, 16, text.SubpixelZero)
+	})
+}
+
+type testMeasureElement struct {
+	onMeasure func(f element.Frame)
+}
+
+func (m *testMeasureElement) RequestLayout(f element.Frame) layout.NodeID {
+	return f.RequestMeasuredLayout(layout.Style{}, func(known layout.Size[layout.OptF32], avail layout.Size[layout.AvailableSpace]) geometry.Size[geometry.Pixels] {
+		if m.onMeasure != nil {
+			m.onMeasure(f)
+		}
+		return geometry.NewSize[geometry.Pixels](100, 20)
+	})
+}
+
+func (m *testMeasureElement) Prepaint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {}
+func (m *testMeasureElement) Paint(f element.Frame, bounds geometry.Bounds[geometry.Pixels])    {}
+
+func TestMeasureCallbackPhaseEnforcement(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	// 1. ShapeLine inside measure callback (phaseLayoutSolve) must succeed without panic.
+	var shapeSucceeded bool
+	w.SetRootFn(func() element.Element {
+		return &testMeasureElement{
+			onMeasure: func(f element.Frame) {
+				_, err := f.ShapeLine("measure test", []text.StyleRun{{ByteLen: len("measure test"), Size: 16}})
+				if err == nil {
+					shapeSucceeded = true
+				}
+			},
+		}
+	})
+	w.Draw()
+	if !shapeSucceeded {
+		t.Fatal("expected ShapeLine to succeed inside measure callback (phaseLayoutSolve)")
+	}
+
+	// 2. RequestLayout called inside measure callback must panic.
+	assertPanic(t, "RequestLayout inside measure callback", func() {
+		w.SetRootFn(func() element.Element {
+			return &testMeasureElement{
+				onMeasure: func(f element.Frame) {
+					f.RequestLayout(layout.Style{}, nil)
+				},
+			}
+		})
+		w.Draw()
+	})
+
+	// 3. RegisterHitRegion called inside measure callback must panic.
+	assertPanic(t, "RegisterHitRegion inside measure callback", func() {
+		w.SetRootFn(func() element.Element {
+			return &testMeasureElement{
+				onMeasure: func(f element.Frame) {
+					f.RegisterHitRegion(geometry.Bounds[geometry.Pixels]{}, 0)
+				},
+			}
+		})
+		w.Draw()
+	})
+
+	// 4. InsertQuad called inside measure callback must panic.
+	assertPanic(t, "InsertQuad inside measure callback", func() {
+		w.SetRootFn(func() element.Element {
+			return &testMeasureElement{
+				onMeasure: func(f element.Frame) {
+					f.InsertQuad(scene.Quad{})
+				},
+			}
+		})
+		w.Draw()
+	})
+
+	// 5. RasteriseGlyph called inside measure callback must panic.
+	assertPanic(t, "RasteriseGlyph inside measure callback", func() {
+		w.SetRootFn(func() element.Element {
+			return &testMeasureElement{
+				onMeasure: func(f element.Frame) {
+					f.RasteriseGlyph(text.Face{}, 0, 16, text.SubpixelZero)
+				},
+			}
+		})
+		w.Draw()
 	})
 }
 
@@ -469,5 +571,41 @@ func TestScaleFactorChangeAndResize(t *testing.T) {
 	wantDevSize := geometry.SizeToDevicePixels(newSize, 2.0) // 1600x1200
 	if r.Size() != wantDevSize {
 		t.Fatalf("expected renderer device size %v after resize draw, got %v", wantDevSize, r.Size())
+	}
+}
+
+func TestTextElementMeasuresFromShaping(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	txt := element.NewText("Hello Facet").FontSize(16).LineHeight(24)
+	root := element.NewDiv().Child(txt)
+
+	w.SetRoot(root)
+	w.Draw()
+
+	if len(w.nodeBounds) < 2 {
+		t.Fatalf("expected at least 2 node bounds, got %d", len(w.nodeBounds))
+	}
+
+	var foundChild bool
+	for _, b := range w.nodeBounds {
+		if b.Size.Width != 400 || b.Size.Height != 300 {
+			if b.Size.Width <= 0 {
+				t.Errorf("expected text node width > 0, got %v", b.Size.Width)
+			}
+			if b.Size.Height != 24 {
+				t.Errorf("expected text node height 24, got %v", b.Size.Height)
+			}
+			foundChild = true
+		}
+	}
+	if !foundChild {
+		t.Fatal("child text node not found in nodeBounds")
 	}
 }
