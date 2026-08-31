@@ -15,9 +15,12 @@ things nobody has thought about yet.
 Facet is a GUI framework for Go. You write Go, you get a native desktop application.
 
 The design follows GPUI, the framework behind the Zed editor: application state lives
-in an entity map rather than a pointer graph, invalidation is precise rather than
-diff-based, and the element tree is rebuilt every frame from retained state. Those
-ideas are the port. The Rust is not.
+in an entity map rather than a pointer graph, repaints are driven by notification
+rather than by diffing, and the element tree is rebuilt every frame from retained
+state. Those ideas are the port. The Rust is not.
+
+Invalidation is not yet precise — the root view re-renders every frame. See "What is
+deferred".
 
 GPUI supplies the model; Wails v3 supplies the per-OS shell. `docs/sources.md` sets
 out which layer draws on which.
@@ -127,7 +130,7 @@ native event stream. It hands out a handle and touches no graphics API.
 
     Windows   HWND          message loop, raw input
     macOS     NSWindow      layer-backed view, event monitors
-    Linux     GTK window    cgo bridge
+    Linux     GTK window    purego bindings, event loop
 
 `render/` takes that handle and owns everything API-specific — the device, the
 swapchain, the shaders:
