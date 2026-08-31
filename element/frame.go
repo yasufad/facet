@@ -23,6 +23,8 @@ type ActionBinding struct {
 type DispatchNode struct {
 	KeyContext       *input.KeyContext
 	FocusID          input.FocusID
+	TabStop          bool
+	TabIndex         int
 	Cursor           style.CursorStyle
 	ActionBindings   []ActionBinding
 	KeyListeners     []input.KeyEventHandler
