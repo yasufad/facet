@@ -1,86 +1,103 @@
-# element: a text element, and the Frame gap it exposes
+# element: the measure seam is right, two things block it
 
-Facet draws boxes. It cannot display a word. `text` shapes and rasterises, `scene`
-has `MonochromeSprite`, `render` has pixel tests proving glyphs reach the screen, and
-`Frame` declares `ShapeLine` — and nothing calls any of it, because no element
-renders text.
+The design is sound and better researched than I expected. `RequestMeasuredLayout`
+with Taffy's own vocabulary is the honest signature — GPUI passes the same
+`Size<Option<Pixels>>` and `Size<AvailableSpace>` through `request_measured_layout`,
+because flattening them loses what the solver needs to know. `RasteriseGlyph` keeps
+`element` clear of `render` while letting `window` do the wiring. Per-glyph sprites,
+the pixel test and the caching benchmark are all the right calls.
 
-That is the gap between "the frame loop works" and "you can write an application".
-Every widget in `ui` needs a label, so this comes first.
+Two things stop it working as written, and two more to settle.
 
-## Read first
+## 1 — ShapeLine panics in the phase your measure callback runs in
 
-1. `docs/packages.md` — the `element`, `text`, `layout` and `window` entries
-2. `_upstream/gpui/crates/gpui/src/elements/text.rs` — `Text` and `StyledText`
-3. `text`'s own API: `ShapedLine`, `ShapedRun`, `Glyph`, `RasterMask`, `StyleRun`
+    window/frame.go:211
+    if w.phase != phasePaint {
+        panic("window: ShapeLine called in phase %v (expected phasePaint)")
+    }
 
-## The problem to solve first: text has to measure itself
+The measure callback runs inside the solver, during `phaseLayoutSolve`. Your
+`RequestLayout` closure calls `f.ShapeLine`. It will panic on the first frame.
 
-A `div` gets its size from flexbox. A run of text gets its size from shaping, which
-means layout has to ask the element how big it is, at a width the solver proposes.
-That is what Taffy's measure function is for, and the seam does not exist yet:
+This is the seam I warned about from the wrong side: I said the callback must not
+call back into `Frame`, and in fact it *has* to, because shaping is how text
+measures itself. So the rule needs deciding rather than obeying.
 
-- `layout` has `MeasureFunction` and `TaffyTree.ComputeLayoutWithMeasure`. Both are
-  exported and callable.
-- `window` calls plain `ComputeLayout` (`window/window.go:314`), so no measure
-  function is ever supplied.
-- `Frame` has `RequestLayout(style, children)` and no way to register a leaf whose
-  size is computed by a callback.
+Decide it this way and say so in `doc.go`: `ShapeLine` is legal during
+`phaseLayoutSolve` and `phasePaint`, and nothing else on `Frame` is legal during
+`phaseLayoutSolve`. That keeps the phase discipline meaningful — the callback may
+measure and may do nothing else, so it cannot request layout re-entrantly, register a
+hit region, or paint from inside the solver.
 
-So a text element cannot be sized by the layout engine as things stand. Work out the
-seam before writing the element, and expect it to change `Frame`.
+`window` owns that check, so agree the exact rule with its agent before either of you
+writes it.
 
-The shape I would start from, and argue with if it is wrong:
+## 2 — The text/atlas.go change is a separate matter and needs proving
 
-    RequestMeasuredLayout(style layout.Style, measure func(known, available geometry.Size[...]) geometry.Size[...]) layout.NodeID
+    Fix Atlas.rasterise logical origin Y ... so that Bounds.Origin.Y represents
+    the negative offset from baseline to top of glyph mask.
 
-`window` collects those callbacks against their node IDs and passes one
-`layout.MeasureFunction` into `ComputeLayoutWithMeasure` that dispatches by node.
+`text` is retired, this is a behaviour change to it, and it is described as a fix
+inside a plan about something else. Two problems with that shape: the sign of a glyph
+origin is exactly the sort of thing that looks obviously wrong in both directions, and
+nothing today exercises it, so "the tests still pass" will not be evidence either way.
 
-`Frame` is a layer boundary and `window` is retired, so this is a change to agree
-before either of you writes it, not one to land and mention. Say what you need and
-why, and I will settle it.
+Raise it on its own. Write a test in `text` that fails against the current sign and
+states what the correct value is and why — a known glyph, a known face, a number you
+can derive from the font metrics rather than from our output. If it is a real bug, it
+gets its own prompt and its own commit, and the text element is built on the corrected
+behaviour rather than around it.
 
-Two things to get right in the design, because they are what makes text layout hard:
+If it turns out you only need a different convention at the call site, that is not a
+`text` change at all.
 
-**Measurement runs inside the solver**, possibly several times for one node as
-flexbox tries widths. Shaping is expensive, so the result has to be cached by the
-text and the width it was measured at. `text` already caches shaped output by run.
+## 3 — The measure cache has to be keyed by width
 
-**The measure callback runs during step 3**, when the element is mid-layout. Whatever
-it captures must still be valid, and it must not call back into `Frame` — that would
-be a phase violation from inside the layout engine.
+"Caches the result" is not enough. Flexbox may measure the same node several times
+with different available widths, and it will call you again on a later frame with the
+same string. Key the cache by the text, the resolved text style and the available
+width, and let the benchmark show the second call at the same width is cheap while a
+different width is not. A cache that returns a stale width is a layout bug that only
+appears when a window is resized.
 
-## Then the element
+## 4 — layout's exports, and one note for the future
 
-A `Text` element that takes a string, resolves the text properties already on
-`style.Refinement` — colour, family, size, weight, style, line height, alignment,
-white space, overflow — shapes through `Frame.ShapeLine`, and paints
-`MonochromeSprite` per glyph.
+`OptF32` is fine. `ComputeLeafLayout` is the awkward one: the boundary pass on
+`layout` deliberately unexported the solver internals, and this asks for one back.
 
-Glyph masks come from `text` and the atlas tile from `render.Upload`, wired through
-`window`. Check what `Frame` exposes for that today; if the sprite cannot be built
-without something `Frame` does not offer, that is the same conversation as above.
+It is justified — `layout.MeasureFunction` returns a `LayoutOutput`, so any caller
+supplying one has to do the leaf sizing arithmetic, and that arithmetic is padding,
+border, box-sizing and min/max clamping which nobody should reimplement. Export it,
+and record in `docs/packages.md` that it is exported deliberately and why, so the next
+boundary audit does not quietly remove it.
 
-Start with one line, left-aligned, single style run. Not wrapping, not bidi, not
-selection. Stop there and say so.
+Worth noting for later, not now: the reason this is awkward is that
+`MeasureFunction` returns a `LayoutOutput` rather than a size. Taffy's shape, faithfully
+ported. If it keeps costing us, changing it is a decision we are allowed to take.
+
+## Phase rules for the new methods
+
+`RequestMeasuredLayout` in `phaseLayout` only, like `RequestLayout`.
+
+`RasteriseGlyph` in `phasePaint` only. It can upload to the GPU, so it mutates
+renderer state; that is fine during paint and nowhere else.
 
 ## Done when
 
-A `facet_debug` test in `window` renders a `Text` element and reads back pixels that
-prove glyphs landed: coverage inside a glyph, background outside it. The stack has a
-pixel test now and text is the thing most worth adding to it, because "text renders"
-is not observable any other way.
+The measure callback shapes without panicking, and a test proves a `Text` element
+gets its width from shaping rather than from a style.
 
-A benchmark shows what measuring costs when the solver asks twice for the same
-string at the same width, so the cache is visible.
+A `facet_debug` pixel test in `window` reads back glyph coverage and background.
 
-`docs/packages.md` records the measure seam, since it is a `Frame` change and
-outlives this prompt.
+The benchmark shows the cache working, keyed by width.
+
+`docs/packages.md` records the two new `Frame` methods, the `phaseLayoutSolve` rule,
+and why `ComputeLeafLayout` is exported.
 
 ## Worth carrying
 
-`Frame` gained `ShapeLine` in the interactivity round on the assumption text would
-need it. It turned out to be necessary but not sufficient, and nobody noticed for two
-milestones because nothing exercised it. An interface method with no caller is a
-guess; this one was half right.
+You found that `Frame` needed two methods rather than the one I proposed, and you
+found the second by following the glyph all the way to the GPU rather than stopping at
+the shaping. That is the right depth. The `ShapeLine` phase rule is the same kind of
+thing one step further on, and it is checkable in advance: a call in a plan is worth
+grepping for the constraint it will meet.
