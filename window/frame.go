@@ -1,0 +1,228 @@
+package window
+
+import (
+	"fmt"
+
+	"github.com/yasufad/facet/element"
+	"github.com/yasufad/facet/geometry"
+	"github.com/yasufad/facet/input"
+	"github.com/yasufad/facet/layout"
+	"github.com/yasufad/facet/scene"
+	"github.com/yasufad/facet/text"
+)
+
+type drawPhase uint8
+
+const (
+	phaseNone drawPhase = iota
+	phaseLayout
+	phaseLayoutSolve
+	phasePrepaint
+	phaseHitTest
+	phasePaint
+)
+
+// frame holds the complete scene, hit regions, and input dispatch hierarchy for
+// a single frame.
+type frame struct {
+	scene          *scene.Scene
+	hitRegions     []hitRegion
+	dispatchTree   *input.DispatchTree
+	clickListeners map[input.DispatchNodeID][]func(element.ClickEvent) bool
+}
+
+func newFrame(keymap *input.Keymap, focusTree *input.FocusTree) *frame {
+	return &frame{
+		scene:          scene.New(),
+		dispatchTree:   input.NewDispatchTree(keymap, focusTree),
+		clickListeners: make(map[input.DispatchNodeID][]func(element.ClickEvent) bool),
+	}
+}
+
+func (f *frame) clear() {
+	f.scene.Clear()
+	f.hitRegions = f.hitRegions[:0]
+	f.dispatchTree.Clear()
+	clear(f.clickListeners)
+}
+
+// Ensure *Window implements element.Frame.
+var _ element.Frame = (*Window)(nil)
+
+// RequestLayout requests a layout node in the layout engine for the current frame.
+func (w *Window) RequestLayout(s layout.Style, children []layout.NodeID) layout.NodeID {
+	if w.phase != phaseLayout {
+		panic(fmt.Sprintf("window: RequestLayout called in phase %v (expected phaseLayout)", w.phase))
+	}
+	var id layout.NodeID
+	if len(children) == 0 {
+		id = w.layoutTree.NewLeaf(s)
+	} else {
+		id = w.layoutTree.NewWithChildren(s, children)
+	}
+	return id
+}
+
+// LayoutBounds returns the solved absolute bounds in logical pixels for node id.
+func (w *Window) LayoutBounds(id layout.NodeID) geometry.Bounds[geometry.Pixels] {
+	if w.phase != phasePrepaint && w.phase != phasePaint {
+		panic(fmt.Sprintf("window: LayoutBounds called in phase %v (expected phasePrepaint or phasePaint)", w.phase))
+	}
+	return w.nodeBounds[id]
+}
+
+// PushDispatchNode registers an input dispatch node during prepaint.
+func (w *Window) PushDispatchNode(node element.DispatchNode) input.DispatchNodeID {
+	if w.phase != phasePrepaint {
+		panic(fmt.Sprintf("window: PushDispatchNode called in phase %v (expected phasePrepaint)", w.phase))
+	}
+	nodeID := w.next.dispatchTree.PushNode()
+	if node.KeyContext != nil {
+		w.next.dispatchTree.SetContext(*node.KeyContext)
+	}
+	if node.FocusID != 0 {
+		w.next.dispatchTree.SetFocusID(node.FocusID)
+	}
+	for _, ab := range node.ActionBindings {
+		w.next.dispatchTree.OnAction(ab.ActionName, ab.Handler)
+	}
+	for _, kl := range node.KeyListeners {
+		w.next.dispatchTree.OnKeyEvent(kl)
+	}
+	for _, pl := range node.PointerListeners {
+		w.next.dispatchTree.OnPointerEvent(pl)
+	}
+	for _, wl := range node.WheelListeners {
+		w.next.dispatchTree.OnWheelEvent(wl)
+	}
+	for _, tl := range node.TextListeners {
+		w.next.dispatchTree.OnTextEvent(tl)
+	}
+	if len(node.ClickListeners) > 0 {
+		w.next.clickListeners[nodeID] = append([]func(element.ClickEvent) bool(nil), node.ClickListeners...)
+	}
+	return nodeID
+}
+
+// PopDispatchNode closes the active dispatch node on the stack.
+func (w *Window) PopDispatchNode() {
+	if w.phase != phasePrepaint {
+		panic(fmt.Sprintf("window: PopDispatchNode called in phase %v (expected phasePrepaint)", w.phase))
+	}
+	w.next.dispatchTree.PopNode()
+}
+
+// RegisterHitRegion commits a hit region into the in-flight frame.
+func (w *Window) RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], nodeID input.DispatchNodeID) element.HitRegionID {
+	if w.phase != phasePrepaint {
+		panic(fmt.Sprintf("window: RegisterHitRegion called in phase %v (expected phasePrepaint)", w.phase))
+	}
+	w.nextHitRegionID++
+	id := w.nextHitRegionID
+	w.next.hitRegions = append(w.next.hitRegions, hitRegion{
+		id:     id,
+		bounds: bounds,
+		nodeID: nodeID,
+	})
+	return id
+}
+
+// IsHovered reports whether id is hovered by the pointer in the current frame.
+func (w *Window) IsHovered(id element.HitRegionID) bool {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: IsHovered called in phase %v (expected phasePaint)", w.phase))
+	}
+	return id != 0 && id == w.hoveredHitRegion
+}
+
+// IsActive reports whether id is currently pressed by the pointer.
+func (w *Window) IsActive(id element.HitRegionID) bool {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: IsActive called in phase %v (expected phasePaint)", w.phase))
+	}
+	return id != 0 && id == w.activeHitRegion
+}
+
+// IsFocused reports whether focusID currently holds focus.
+func (w *Window) IsFocused(id input.FocusID) bool {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: IsFocused called in phase %v (expected phasePaint)", w.phase))
+	}
+	if id == 0 {
+		return false
+	}
+	focused, ok := w.focusTree.Focused()
+	if !ok {
+		return false
+	}
+	return focused == id || w.focusTree.Contains(id, focused)
+}
+
+// InsertQuad adds a quad primitive to the in-flight frame scene.
+func (w *Window) InsertQuad(q scene.Quad) {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: InsertQuad called in phase %v (expected phasePaint)", w.phase))
+	}
+	w.next.scene.InsertQuad(q)
+}
+
+// InsertShadow adds a shadow primitive to the in-flight frame scene.
+func (w *Window) InsertShadow(sh scene.Shadow) {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: InsertShadow called in phase %v (expected phasePaint)", w.phase))
+	}
+	w.next.scene.InsertShadow(sh)
+}
+
+// InsertPath adds a vector path primitive to the in-flight frame scene.
+func (w *Window) InsertPath(p scene.Path[geometry.ScaledPixels]) {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: InsertPath called in phase %v (expected phasePaint)", w.phase))
+	}
+	w.next.scene.InsertPath(p)
+}
+
+// InsertUnderline adds an underline primitive to the in-flight frame scene.
+func (w *Window) InsertUnderline(u scene.Underline) {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: InsertUnderline called in phase %v (expected phasePaint)", w.phase))
+	}
+	w.next.scene.InsertUnderline(u)
+}
+
+// InsertMonochromeSprite adds a monochrome sprite primitive to the in-flight frame scene.
+func (w *Window) InsertMonochromeSprite(sp scene.MonochromeSprite) {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: InsertMonochromeSprite called in phase %v (expected phasePaint)", w.phase))
+	}
+	w.next.scene.InsertMonochromeSprite(sp)
+}
+
+// InsertPolychromeSprite adds a polychrome sprite primitive to the in-flight frame scene.
+func (w *Window) InsertPolychromeSprite(sp scene.PolychromeSprite) {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: InsertPolychromeSprite called in phase %v (expected phasePaint)", w.phase))
+	}
+	w.next.scene.InsertPolychromeSprite(sp)
+}
+
+// ShapeLine shapes a single line of text with the window's text system.
+func (w *Window) ShapeLine(str string, runs []text.StyleRun) (text.ShapedLine, error) {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: ShapeLine called in phase %v (expected phasePaint)", w.phase))
+	}
+	if w.textSystem == nil {
+		return text.ShapedLine{}, nil
+	}
+	return w.textSystem.ShapeLine(str, runs)
+}
+
+// ScaleFactor returns the display scale factor for physical device pixel snapping.
+func (w *Window) ScaleFactor() float32 {
+	return w.scaleFactor
+}
+
+// RemSize returns the root font size in logical pixels.
+func (w *Window) RemSize() geometry.Pixels {
+	return w.remSize
+}
