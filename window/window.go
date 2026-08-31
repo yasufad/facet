@@ -42,6 +42,19 @@ func (f fnView) Observe(_ *app.App, _ func(*app.App) bool) app.Subscription {
 	return app.Subscription{}
 }
 
+type glyphCacheKey struct {
+	face     text.Face
+	gid      text.GlyphID
+	sizeBits uint32
+	subpixel text.SubpixelOffset
+}
+
+type cachedGlyph struct {
+	tile   scene.AtlasTile
+	bounds geometry.Bounds[geometry.DevicePixels]
+	ok     bool
+}
+
 // Window owns a platform window, layout engine, and graphics renderer, and
 // coordinates the seven-step frame loop from layout through paint and presentation.
 type Window struct {
@@ -75,10 +88,12 @@ type Window struct {
 	hoveredNodeID    input.DispatchNodeID
 	activeHitRegion  element.HitRegionID
 
-	focusTree       *input.FocusTree
-	keymap          *input.Keymap
-	nextHitRegionID element.HitRegionID
-	nodeBounds      map[layout.NodeID]geometry.Bounds[geometry.Pixels]
+	focusTree        *input.FocusTree
+	keymap           *input.Keymap
+	nextHitRegionID  element.HitRegionID
+	nodeBounds       map[layout.NodeID]geometry.Bounds[geometry.Pixels]
+	measureCallbacks map[layout.NodeID]element.MeasureFunc
+	glyphTileCache   map[glyphCacheKey]cachedGlyph
 
 	mu             sync.Mutex
 	frameScheduled bool
@@ -160,21 +175,23 @@ func NewWithRenderer(pw platform.Window, r render.Renderer, a *app.App, opts Win
 	focusTree := input.NewFocusTree()
 
 	w := &Window{
-		platformWindow: pw,
-		renderer:       r,
-		app:            a,
-		layoutTree:     layout.NewTaffyTree(),
-		textSystem:     txtSys,
-		textAtlas:      atlas,
-		keymap:         keymap,
-		focusTree:      focusTree,
-		rendered:       newFrame(keymap, focusTree),
-		next:           newFrame(keymap, focusTree),
-		scaleFactor:    sf,
-		size:           opts.Size,
-		remSize:        opts.RemSize,
-		dirty:          true,
-		nodeBounds:     make(map[layout.NodeID]geometry.Bounds[geometry.Pixels]),
+		platformWindow:   pw,
+		renderer:         r,
+		app:              a,
+		layoutTree:       layout.NewTaffyTree(),
+		textSystem:       txtSys,
+		textAtlas:        atlas,
+		keymap:           keymap,
+		focusTree:        focusTree,
+		rendered:         newFrame(keymap, focusTree),
+		next:             newFrame(keymap, focusTree),
+		scaleFactor:      sf,
+		size:             opts.Size,
+		remSize:          opts.RemSize,
+		dirty:            true,
+		nodeBounds:       make(map[layout.NodeID]geometry.Bounds[geometry.Pixels]),
+		measureCallbacks: make(map[layout.NodeID]element.MeasureFunc),
+		glyphTileCache:   make(map[glyphCacheKey]cachedGlyph),
 	}
 
 	if pw != nil {
@@ -311,7 +328,25 @@ func (w *Window) computeLayout(rootID layout.NodeID) {
 		Width:  layout.Definite(float32(w.size.Width)),
 		Height: layout.Definite(float32(w.size.Height)),
 	}
-	w.layoutTree.ComputeLayout(rootID, avail)
+
+	w.phase = phaseLayoutSolve
+	measureFn := func(inputs layout.LayoutInput, id layout.NodeID, ctx any, style *layout.Style) layout.LayoutOutput {
+		cb, ok := w.measureCallbacks[id]
+		if !ok || cb == nil {
+			return layout.ComputeLeafLayout(inputs, style, nil)
+		}
+		leafMeasure := func(known layout.Size[layout.OptF32], avail layout.Size[layout.AvailableSpace]) layout.Size[float32] {
+			contentSize := cb(known, avail)
+			return layout.Size[float32]{
+				Width:  float32(contentSize.Width),
+				Height: float32(contentSize.Height),
+			}
+		}
+		return layout.ComputeLeafLayout(inputs, style, leafMeasure)
+	}
+
+	w.layoutTree.ComputeLayoutWithMeasure(rootID, avail, measureFn)
+	clear(w.measureCallbacks)
 
 	rootLayout := w.layoutTree.Layout(rootID)
 	rootSize := geometry.Size[geometry.Pixels]{
@@ -377,10 +412,15 @@ func (w *Window) DispatchEvent(event platform.Event) {
 	case platform.ScaleChangedEvent:
 		w.scaleFactor = e.ScaleFactor
 		if w.textAtlas != nil {
+			w.textAtlas.ScaleFactor = e.ScaleFactor
 			w.textAtlas.Clear()
+		}
+		if w.glyphTileCache != nil {
+			clear(w.glyphTileCache)
 		}
 		if w.renderer != nil {
 			w.renderer.ClearAtlas(scene.TextureMonochrome)
+			w.renderer.ClearAtlas(scene.TexturePolychrome)
 		}
 		w.dirty = true
 		w.ScheduleFrame()
