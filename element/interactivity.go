@@ -24,6 +24,9 @@ type Interactivity struct {
 
 	occlude     bool
 	hitRegionID HitRegionID
+	tabStop     bool
+	tabStopSet  bool
+	tabIndex    int
 }
 
 // hasDispatchNode reports whether this interactivity configuration requires
@@ -47,9 +50,15 @@ func (it *Interactivity) hasDispatchNode() bool {
 // toDispatchNode creates a DispatchNode containing all listeners and bindings
 // registered on this Interactivity instance.
 func (it *Interactivity) toDispatchNode() DispatchNode {
+	tabStop := it.tabStop
+	if !it.tabStopSet && it.focusID != 0 {
+		tabStop = true
+	}
 	return DispatchNode{
 		KeyContext:       it.keyContext,
 		FocusID:          it.focusID,
+		TabStop:          tabStop,
+		TabIndex:         it.tabIndex,
 		ActionBindings:   it.actionBindings,
 		KeyListeners:     it.keyListeners,
 		PointerListeners: it.pointerListeners,
