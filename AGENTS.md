@@ -87,6 +87,11 @@ invariants it holds. Read your package's entry before you start.
   one commit — the stated exception below — or it waits until both sides can land
   together. `scene` renamed `Grayscale` correctly, raised `render` correctly, and
   still broke the build, because the raising happened after the commit.
+- Adding a method to an interface one package declares and another implements goes
+  backwards: the implementer adds the method first, where it satisfies nothing and
+  breaks nothing, and the declaration follows once it is already satisfied. Declaring
+  first stops the implementing package compiling until it catches up. If the method
+  signature names a new type, that type is its own commit before either.
 - Import only what your entry in `docs/packages.md` permits. A layering test
   enforces it; a failure means the design changed and needs deciding, not patching.
 - Interfaces at layer boundaries are contracts. `render.Renderer`,
