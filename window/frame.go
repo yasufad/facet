@@ -2,6 +2,7 @@ package window
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
@@ -59,6 +60,18 @@ func (w *Window) RequestLayout(s layout.Style, children []layout.NodeID) layout.
 		id = w.layoutTree.NewLeaf(s)
 	} else {
 		id = w.layoutTree.NewWithChildren(s, children)
+	}
+	return id
+}
+
+// RequestMeasuredLayout requests a leaf layout node with a content measurement callback.
+func (w *Window) RequestMeasuredLayout(s layout.Style, measure element.MeasureFunc) layout.NodeID {
+	if w.phase != phaseLayout {
+		panic(fmt.Sprintf("window: RequestMeasuredLayout called in phase %v (expected phaseLayout)", w.phase))
+	}
+	id := w.layoutTree.NewLeaf(s)
+	if measure != nil {
+		w.measureCallbacks[id] = measure
 	}
 	return id
 }
@@ -208,13 +221,58 @@ func (w *Window) InsertPolychromeSprite(sp scene.PolychromeSprite) {
 
 // ShapeLine shapes a single line of text with the window's text system.
 func (w *Window) ShapeLine(str string, runs []text.StyleRun) (text.ShapedLine, error) {
-	if w.phase != phasePaint {
-		panic(fmt.Sprintf("window: ShapeLine called in phase %v (expected phasePaint)", w.phase))
+	if w.phase != phaseLayoutSolve && w.phase != phasePaint {
+		panic(fmt.Sprintf("window: ShapeLine called in phase %v (expected phaseLayoutSolve or phasePaint)", w.phase))
 	}
 	if w.textSystem == nil {
 		return text.ShapedLine{}, nil
 	}
 	return w.textSystem.ShapeLine(str, runs)
+}
+
+// RasteriseGlyph returns the atlas tile and device-pixel bounding box relative to
+// the pen position for the specified glyph, rasterising and uploading on miss.
+func (w *Window) RasteriseGlyph(face text.Face, gid text.GlyphID, size geometry.Pixels, subpixel text.SubpixelOffset) (scene.AtlasTile, geometry.Bounds[geometry.DevicePixels], bool) {
+	if w.phase != phasePaint {
+		panic(fmt.Sprintf("window: RasteriseGlyph called in phase %v (expected phasePaint)", w.phase))
+	}
+	if w.textAtlas == nil || w.renderer == nil {
+		return scene.AtlasTile{}, geometry.Bounds[geometry.DevicePixels]{}, false
+	}
+
+	key := glyphCacheKey{
+		face:     face,
+		gid:      gid,
+		sizeBits: math.Float32bits(float32(size)),
+		subpixel: subpixel,
+	}
+	if cached, ok := w.glyphTileCache[key]; ok {
+		return cached.tile, cached.bounds, cached.ok
+	}
+
+	entry := w.textAtlas.Entry(face, gid, size, subpixel)
+	if entry.Mask.Width <= 0 || entry.Mask.Height <= 0 || len(entry.Mask.Coverage) == 0 {
+		w.glyphTileCache[key] = cachedGlyph{bounds: entry.Bounds, ok: false}
+		return scene.AtlasTile{}, entry.Bounds, false
+	}
+
+	tileSize := geometry.NewSize[geometry.DevicePixels](
+		geometry.DevicePixels(entry.Mask.Width),
+		geometry.DevicePixels(entry.Mask.Height),
+	)
+	tile, err := w.renderer.Upload(scene.TextureMonochrome, tileSize, entry.Mask.Coverage)
+	if err != nil {
+		w.glyphTileCache[key] = cachedGlyph{bounds: entry.Bounds, ok: false}
+		return scene.AtlasTile{}, entry.Bounds, false
+	}
+
+	res := cachedGlyph{
+		tile:   tile,
+		bounds: entry.Bounds,
+		ok:     true,
+	}
+	w.glyphTileCache[key] = res
+	return res.tile, res.bounds, true
 }
 
 // ScaleFactor returns the display scale factor for physical device pixel snapping.
