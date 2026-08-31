@@ -16,9 +16,8 @@ const (
 	SubpixelTwoThirds SubpixelOffset = 2
 )
 
-// subpixelFor returns the bucket for a fractional pixel position.
-func subpixelFor(frac float32) SubpixelOffset {
-	// frac in [0, 1)
+// SubpixelFor returns the bucket for a fractional pixel position in [0, 1).
+func SubpixelFor(frac float32) SubpixelOffset {
 	if frac < 1.0/3.0 {
 		return SubpixelZero
 	}
@@ -26,6 +25,10 @@ func subpixelFor(frac float32) SubpixelOffset {
 		return SubpixelThird
 	}
 	return SubpixelTwoThirds
+}
+
+func subpixelFor(frac float32) SubpixelOffset {
+	return SubpixelFor(frac)
 }
 
 // AtlasEntry is one rasterised glyph in the atlas: its mask, its device-pixel
