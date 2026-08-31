@@ -142,6 +142,11 @@ The fixtures in `layout/testdata/flex/` come from Taffy at the commit pinned in
 when that directory and the upstream checkout disagree on anything not on the
 exclusion list, so bumping the pin surfaces new fixtures instead of ignoring them.
 
+`ComputeLeafLayout` and `OptF32` are exported deliberately so that higher layers
+supplying custom leaf measurement functions (`MeasureFunction`) can perform standard
+box-sizing, padding, border and min/max clamping arithmetic without duplicating the
+solver's internal logic.
+
 ## platform
 
 The operating system: windows, the native event loop, main-thread dispatch,
@@ -314,9 +319,18 @@ paint run strictly in that order and no phase may reach backwards. Out-of-order
 calls panic.
 
 The `Frame` contract: It is a layer boundary and changes by explicit decision.
+`RequestMeasuredLayout` accepts a `MeasureFunc` allowing leaf nodes (such as `Text`)
+to shape and measure content dynamically within flexbox constraints.
+`RasteriseGlyph` resolves and uploads glyph masks to the GPU atlas texture during paint.
 `PushDispatchNode(DispatchNode)` and `PopDispatchNode()` hand a node over whole,
-so there is no implied "active node" to get wrong. `IsHovered`, `IsActive` and
-`IsFocused` are valid during paint only.
+so there is no implied "active node" to get wrong. `IsHovered`, `IsActive`, `IsFocused`
+and `RasteriseGlyph` are valid during paint only. `ShapeLine` is legal during layout solve
+and paint.
+
+Text rendering: `Text` is a single-line, left-aligned text element that measures
+via `Frame.RequestMeasuredLayout`, caches the shaped output across flexbox passes
+keyed by text, style and available width, and emits `scene.MonochromeSprite`
+primitives for each glyph in paint with subpixel offsets.
 
 Hit regions are per-frame: Monotonic, per-frame identifiers. A region registered
 during prepaint is resolved by `window` at step 5 (the intra-frame hit test) and
@@ -359,7 +373,7 @@ in order:
 6. `paint` — elements query `IsHovered`/`IsActive`/`IsFocused` and emit scene primitives
 7. `present` — swaps `rendered` and `next`, resets `next` and layout tree, resizes swapchain if needed, submits scene to GPU
 
-Invariants and guarantees:
+- Invariants and guarantees:
 - Implements `element.Frame`. The only package that sees both a `platform.Window` and
   a `render.Renderer`.
 - Two-frame isolation: `rendered` holds the on-screen scene, hit regions and dispatch
@@ -369,10 +383,14 @@ Invariants and guarantees:
   persistent identity. Event routing resolves arriving `platform.Event` instances against
   `rendered`, because that is what the user sees and interacts with. Conflating the two
   breaks click handling or hover state.
-- Phase ordering is enforced strictly: `RequestLayout` is valid in layout only;
-  `PushDispatchNode`, `PopDispatchNode`, and `RegisterHitRegion` are valid in prepaint only;
-  `IsHovered`, `IsActive`, `IsFocused`, and `Insert*` primitive insertions are valid in paint only.
-  Any out-of-order invocation panics immediately.
+- Phase ordering is enforced strictly:
+  - `RequestLayout` and `RequestMeasuredLayout` are valid in layout only.
+  - `PushDispatchNode`, `PopDispatchNode`, and `RegisterHitRegion` are valid in prepaint only.
+  - `IsHovered`, `IsActive`, `IsFocused`, `RasteriseGlyph`, and `Insert*` primitive insertions are valid in paint only.
+  - `ShapeLine` is valid in layout solve and paint.
+  - `phaseLayoutSolve` restriction: only `ShapeLine` is legal during layout solve. Calling any other `Frame` method from a measure callback panics immediately.
+- Measure seam: `RequestMeasuredLayout` registers a measurement callback against a Taffy leaf node, solved through `layout.ComputeLayoutWithMeasure` and `layout.ComputeLeafLayout`.
+- Glyph rasterisation & texture atlas caching: `RasteriseGlyph` queries `text.Atlas` for coverage masks, uploads them to the GPU via `render.Renderer.Upload`, and caches the resulting `scene.AtlasTile`.
 - Frame scheduling: `frameScheduled` collapses an event or notification burst into
   exactly one frame turn. Idle cost is 0 GPU draw calls and 0 present calls per second;
   the event loop sleeps.
@@ -384,14 +402,15 @@ Invariants and guarantees:
   per-view dirty tracking and subtree caching are deferred to a future milestone.
 - Resize order: `ResizeEvent` records logical dimensions; swapchain resize and atomic
   presentation happen during the frame loop without flashing blank or stretched buffers.
-- Scale factor invalidation: `ScaleChangedEvent` clears the CPU glyph cache (`text.Atlas`)
-  and GPU texture atlas (`render.Renderer.ClearAtlas`), resizing the swapchain and relayouting.
+- Scale factor invalidation: `ScaleChangedEvent` clears the CPU glyph cache (`text.Atlas`),
+  GPU glyph tile cache, and GPU texture atlas (`render.Renderer.ClearAtlas`), resizing the swapchain and relayouting.
 - Threading: all frame loop operations run on the single UI goroutine. Background operations
   marshal back via `app.ForegroundExecutor` wired to `platform.Dispatch`. `ScheduleFrame`
   is thread-safe via an internal mutex so background tasks can request redraws safely.
 - Verification by pixel readback: correctness across the integrated stack (`platform` ->
   `window` -> `element` -> `style` -> `layout` -> `scene` -> `render`) is established by
-  reading swapchain backbuffer pixels back in `window_debug_test.go` under `facet_debug`.
+  reading swapchain backbuffer pixels back in `window_debug_test.go` under `facet_debug`,
+  including both quad layouts and rasterised text glyphs.
 
 ## ui
 
