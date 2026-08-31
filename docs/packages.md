@@ -348,9 +348,34 @@ everything else.
 The frame loop. Owns a platform window, drives layout through paint, presents the
 scene, and routes input into the dispatch tree.
 
-Invariants: implements `element.Frame`. This is where the six frame steps in
-`docs/architecture.md` are actually executed, and the only package that sees both a
-`platform.Window` and a `render.Renderer`.
+Implements `element.Frame` in full. This is where the seven frame steps are executed
+in order:
+
+1. `flush effects` — drains reactive notifications in `app`, runs observers, marks dirty views
+2. `request layout` — walks root view, constructs `layout.TaffyTree` nodes
+3. `layout` — solves flexbox layout, computes window-relative node bounds
+4. `prepaint` — elements commit bounds, push dispatch nodes, register hit regions in `next`
+5. `hit test` — resolves intra-frame pointer against `next.hitRegions` for zero-lag hover
+6. `paint` — elements query `IsHovered`/`IsActive`/`IsFocused` and emit scene primitives
+7. `present` — swaps `rendered` and `next`, resets `next` and layout tree, resizes swapchain if needed, submits scene to GPU
+
+Invariants and guarantees:
+- Implements `element.Frame`. The only package that sees both a `platform.Window` and
+  a `render.Renderer`.
+- Two-frame isolation: `rendered` holds the on-screen scene, hit regions and dispatch
+  tree for user event routing. `next` holds in-construction state. They swap on presentation.
+- Step 5 intra-frame hit testing resolves the pointer against `next` before paint runs,
+  so hover queries answer in the same frame without element persistent identity.
+- Phase ordering is enforced strictly: calling `RequestLayout` outside step 2,
+  `RegisterHitRegion` outside step 4, or `IsHovered`/`Insert*` outside step 6 panics.
+- Idle cost: an unchanged, clean window executes 0 GPU draw calls and 0 present calls
+  per second; the event loop sleeps.
+- Resize order: `ResizeEvent` records logical dimensions; swapchain resize and atomic
+  presentation happen in the frame turn without flashing blank or stretched buffers.
+- Scale factor invalidation: `ScaleChangedEvent` clears the CPU glyph cache (`text.Atlas`)
+  and GPU texture atlas (`render.Renderer.ClearAtlas`), resizing the swapchain and relayouting.
+- Threading: all frame loop operations run on the UI goroutine. Background operations
+  marshal back via `app.ForegroundExecutor` wired to `platform.Dispatch`.
 
 ## ui
 
