@@ -103,6 +103,33 @@ and queries it during event handling, where there is no `Frame`. Add exactly the
 if the text field turns out to need a fourth, that is a finding worth reporting, not a
 method to guess at.
 
+**`Text` re-shapes for a width that changes nothing.** The measure callback invalidates
+on available width:
+
+```go
+if t.shapedLine == nil || t.lastAvailWidth != avail.Width {
+    line, err := f.ShapeLine(t.content, runs)
+```
+
+`ShapeLine` does not take a width. It shapes one line with no wrapping, so the output for
+the same content and style is identical at every available width, and the second call
+throws away a correct answer to compute the same one again. Flexbox calls a leaf measure
+several times per solve with different constraints, so this fires on most frames.
+
+    BenchmarkTextMeasureSameWidth      6.13 ns      0 B/op    0 allocs/op
+    BenchmarkTextMeasureVaryingWidth  37.52 µs  32075 B/op   92 allocs/op
+
+Drop the width from the invalidation and keep it in `lastAvailWidth` only if something
+else needs it. Invalidate on content and resolved text style, which are the inputs
+`ShapeLine` actually reads.
+
+`text` is separately making `ShapeLine` cheap on a repeat call, which is the other half of
+the same number. Do both — a cheap call made too often and an expensive call that should
+be cheap are different bugs, and fixing one hides the other.
+
+Add the benchmark that would have caught it: measure with the width varying and assert
+the shaped line is not rebuilt, not just that the answer is right.
+
 **Style is resolved three times per frame.** `RequestLayout`, `Prepaint` and `Paint` each
 build a 488-byte `style.Style` from the refinement. Resolve once in `RequestLayout`, keep
 it on the element, and layer the hover, active and focus refinements onto a copy in
