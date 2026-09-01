@@ -1,96 +1,96 @@
-# ui: the text field, with the forecast answered
+# ui: blocked on two, and one thing of yours to fix first
 
-The clamping is right and `TestScrollViewClampingAgainstContent` knows its answer —
-250px from a 400px column in a 150px viewport, not "some positive number". `FlexShrink(0)`
-on the content is the kind of detail that would have been a mystery bug later.
+Your capture report worked. It is assigned to `window` this round on exactly the argument
+you made — one gap holding up four widgets, named with the slider and the scrollbar thumb
+alongside it, rather than half of one. Drag selection comes back into scope for the text
+field once it lands.
 
-The forecast is the most useful thing you have produced. Answers below, in your
-lettering. Two of your six are not gaps, one is a gap you did not forecast, and three
-are out of scope for this milestone by my decision rather than yours.
+Two of your dependencies are still in flight. What follows is the order.
 
-## A — Event vocabulary: in flight
+## Blocked, and on what
 
-`input` is adding the aliases now and has not landed yet; its signatures still name
-`platform`. You are blocked on it for text and key handling. Do not start those parts
-until it is in.
+**`input`** has not landed. Its prompt is written and it is the reason the tree is red:
+`ui` imports `platform` because `OnScrollWheel` cannot name a wheel event otherwise. Do
+not work around it. When the aliases land, `scroll_view.go` drops its `platform` import
+and `go test ./internal/layering` goes green.
 
-## B — Caret mapping: `element` exposes it, `ui` does not learn `text`
+**`element`** is adding `Listener`, `PhasedListener` and `TextLayout`. All three are yours
+to consume and none exists yet. `TextLayout` is the caret mapping you asked for, decided
+your way; the listeners are new since your last round and they change how every widget in
+this package registers a handler.
 
-You were right that `text.ShapedLine` already has what is needed. I checked:
-`XForIndex`, `IndexForX`, `ClosestIndexForX`, `Ascent`, `Descent` are all there.
+The listeners matter more than the text field does. `docs/audit.md` has the reproduction:
+a view cannot mutate its own state from a click, because `Render` runs inside an update
+and every handler signature forces the caller to capture what that update leased. Your
+`Button` has that signature. Its test passes because it sets a test-local `clicked` and
+never touches an entity, which is the exact pattern `AGENTS.md` warns about.
 
-The decision is your option 2, not option 1. `ui` does not gain `text`. `element.Text`
-stops being a black box and returns an opaque handle that `element` owns:
+So when `element` lands, `Button` migrates first and gets a test that mutates real entity
+state through a real dispatch. Then the text field.
 
-    type TextLayout struct{ ... }          // wraps the shaped line, element's type
-    func (t *Text) Layout() TextLayout
-    func (l TextLayout) XForIndex(byteIndex int) geometry.Pixels
-    func (l TextLayout) IndexForX(x geometry.Pixels) (int, bool)
-    func (l TextLayout) ClosestIndexForX(x geometry.Pixels) int
+## One thing that is yours now
 
-`ui` stores a `element.TextLayout` in its state entity and queries it during event
-handling, when there is no `Frame` — the same shape as the scroll metrics you just
-implemented, and for the same reason.
+`ScrollView.Paint` writes entity state during the paint phase:
 
-That is a change to `element`, so raise it there rather than doing it here. Say
-exactly which methods you need and no more; an interface method with no caller is a
-guess, and we have had two.
+```go
+s.state.Update(s.app, func(st *ScrollState, cx *app.Context[ScrollState]) {
+    st.UpdateMetrics(bounds.Size.Height, contentBounds.Size.Height)
+})
+```
 
-## C — Caret and selection quads: not a gap
+It works, and it works only because it does not notify. One `cx.Notify()` in there and
+every frame schedules the next one for ever.
 
-Both are `Div`s. A caret is an absolutely positioned `Div` two pixels wide at
-`XForIndex`, the height of the line. A selection is another one behind it spanning
-`XForIndex(start)` to `XForIndex(end)`. `style` has `Position` and `Inset`, and paint
-order is child order, so "selection behind, glyphs, caret in front" is the order you
-add the children.
+The rule I am setting: writing entity state during paint is allowed for recording what the
+frame measured, and notifying from paint is not. Put that in your package doc rather than
+leaving it as a property nobody wrote down, and add a test that would fail if someone
+added the notify — assert the frame count after a paint, not just the recorded metrics.
 
-Nothing new is needed below you for this. If that turns out to be wrong, that is a
-finding worth having.
+If you would rather have a mechanism than a rule, say so and propose one. A `Frame` method
+that records post-layout metrics without going through an entity is a reasonable shape and
+I would consider it. I am not inventing it speculatively.
 
-## D, E — Clipboard and caret blink: out of scope, deliberately
+## Then the text field
 
-Both are real gaps and neither is in this milestone.
+Same milestone as before: typing, a caret, arrow keys, backspace and delete, click to place
+the caret. Selection is now in scope rather than excluded, because capture is being fixed
+in the same round — but only reach for it once `window` reports that capture lands, and
+say plainly if it does not behave the way the widget needs.
 
-**Clipboard.** Nothing above `platform` can reach `platform.Clipboard`, and the access
-happens during event handling where there is no `Frame`. The shape I expect is a small
-interface declared in `app` — which imports nothing, so it can declare one — installed
-by `window` at construction, reached as `cx.Clipboard()`. I am not deciding that until
-something needs it, because a service locator added speculatively grows.
+The caret and the selection quad are both `Div`s, as decided last round. Nothing new is
+needed below you for them.
 
-**Blink.** A static caret is fine for a first text field. Note for when it comes up:
-until precise invalidation exists, a 500ms blink rebuilds the entire element tree
-twice a second, which is a reason to want per-view invalidation rather than a reason
-to skip blinking.
+Clipboard and caret blink stay out, unchanged from last round and for the same reasons.
 
-## F — Two corrections, and the gap you missed
+## While you are blocked, forecast
 
-`style.CursorText` is the I-beam. There is no `CursorIBeam`; use the one that exists.
+You forecast six gaps before writing the scroll view, four of them accurately, and three
+were decided rather than negotiated mid-implementation because of it. That was worth more
+than the same six found one at a time.
 
-**There is no pointer capture anywhere in the framework.** I checked `element`,
-`window` and `input`: the only "capture" is the dispatch phase, which is a different
-thing. Press inside your field, drag outside it, and the move events go to whatever is
-under the pointer instead of to you. GPUI keeps a `captured_hitbox` on the window for
-exactly this.
+Do it again, now, for the text field, and add a second one for a virtualised list.
 
-So drag selection cannot work today, and neither can a slider, a resize handle, or a
-scrollbar thumb. That is the most valuable thing in this round and you did not forecast
-it, which is fair — it is invisible until you drag.
+The list is the widget that decides whether an editor is possible with this framework, and
+I want your reading of what it needs before I take the decision behind it. `ScrollView`
+lays out and paints its entire content every frame and clips the result, so a hundred
+thousand lines is a hundred thousand elements. Building only what is visible needs an
+element that learns its viewport before it builds its children, and `RequestLayout` has
+already built the whole subtree by the time `Prepaint` hands you bounds.
 
-## The milestone
+I do not think that is solvable inside `ui`. Tell me what shape you would need from
+`element` for it — what an element would have to be able to ask, and when. That is a
+finding I want in your words before I write the contract, because you are the one who will
+have to build against it.
 
-Typing, a caret, arrow keys, backspace and delete, and click to place the caret. No
-selection, no clipboard, no blink, no multi-line.
+## Done when
 
-Selection is excluded because it needs pointer capture, not because it is hard. Report
-that as the blocker so capture gets assigned on its own merits, with the slider and the
-scrollbar thumb named alongside it — one gap holding up four widgets is a different
-priority from one holding up half of one.
+`go test ./internal/layering` is green with `ui` off `platform`.
 
-Then stop and report as usual.
+`Button` uses the listener seam, with a test that changes entity state through a dispatch
+and reads it back. Break the listener and confirm the test fails.
 
-## Worth carrying
+The text field meets the milestone above, with `elementtest.Frame` driving it.
 
-You forecast six gaps, four of them accurately, before writing a line. That is worth
-more than the same six discovered one at a time over a week, and it let three of them
-be decided rather than negotiated mid-implementation. Do this again for the widget
-after.
+The paint-phase rule is written down and tested.
+
+Both forecasts are reported before you start the widget they describe.
