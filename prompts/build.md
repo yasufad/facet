@@ -1,8 +1,8 @@
 # build: nothing has ever been compiled by anything but a person
 
 This one is not a package, which breaks the shape of every other file here. It gets a
-prompt anyway because it is the highest-leverage item in `docs/audit.md` and the reason
-most of the rest of that document exists: every package passes its own tests, and the
+prompt anyway because it is the one change in `docs/audit.md` that would have prevented
+most of the rest of that document: every package passes its own tests, and the
 application does not run.
 
 There is no `.github/`. Nothing has ever built this repository except whoever happened to
