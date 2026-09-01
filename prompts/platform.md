@@ -1,7 +1,7 @@
 # platform: a declared event with no producer, and a cursor on the wrong type
 
-Two items, both small, both blocking something above you. Then a note on what comes next,
-so it is not a surprise.
+Three items, all small, each blocking something above you. Then a note on what comes
+next, so it is not a surprise.
 
 ## 1. Produce IMECompositionEvent
 
@@ -50,6 +50,24 @@ splitting them leaves `main` unbuildable.
 Update `Platform`'s doc comment in the same commit. It currently promises a cursor over
 the active window, and that sentence stops being true when the method moves.
 
+## 3. New exists on one platform, so the examples compile on one platform
+
+`platform.New` is declared only in `platform_windows.go`, so `examples/button` and
+`examples/quad` fail to build on Linux and macOS, and with them `go build ./...`,
+`go vet ./...` and `go test ./...` — the three commands `AGENTS.md` names.
+
+Add the other side. A `//go:build !windows` file declaring `New` with the same signature,
+returning a clear error naming the operating system it was asked for. Then every example
+and every tool that uses it is under the compiler on all three platforms, and a change
+that breaks them is caught where it is made rather than on a Windows machine weeks later.
+
+This is not a stub for a backend and should not read as one. `Run`, `NewWindow` and the
+rest stay absent; only the constructor exists, and only to fail honestly. Say that in its
+comment, so nobody grows it into a fake platform.
+
+When the Cocoa backend arrives it takes `darwin` out of that file's constraint. That is
+the whole migration.
+
 ## What comes next, and why macOS rather than Linux
 
 The next assignment for this package is the Cocoa backend, and it is worth knowing now
@@ -72,11 +90,13 @@ Nothing to do about it this round. Do not start it inside this one.
 
 ## Done when
 
+    go build ./...
+    go vet -unsafeptr=false ./...
     go test ./platform
     GOOS=windows go build ./...
 
-pass, with a test that drives a composition through the phases and asserts the rune
-offsets, and one that covers a character outside the basic plane.
+all pass on a Linux checkout, with a test that drives a composition through the phases and
+asserts the rune offsets, and one that covers a character outside the basic plane.
 
 `go doc ./platform` shows `SetCursor` on `Window` and not on `Platform`, and
 `docs/packages.md` records why the split falls where it does.
