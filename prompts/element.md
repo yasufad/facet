@@ -140,15 +140,22 @@ is 51 ns and an element build is about 4 µs, so the three resolutions are rough
 element cost, not a wall. It is a tidy-up that happens to be free. The allocation is the
 expensive part and the arena will deal with that separately.
 
-## Not yet
+## Coming under you, and one thing to leave alone
 
-Do not add `PushLayer`, `PopLayer` or a deferred-paint method to `Frame` this round, even
-though `docs/audit.md` says popups and menus need them and it is true.
+`window` is relaxing `PushClip` and `PopClip` to be legal in prepaint as well as paint,
+so that hit regions can be intersected with the clip in force when they are registered.
+Today a button scrolled out of a `ScrollView` is invisible and still clickable.
 
-`element` declares `Frame` and `window` implements it. Declaring a method before the
-implementer has it stops `window` compiling until it catches up, which is the ordering
-rule in `AGENTS.md` and the one that has broken `main` before. `window` adds the methods
-first, on its own prompt, and then you declare them. That round is next, not this one.
+When that lands, `Div.Prepaint` pushes and pops around its children exactly as
+`Div.Paint` already does, and the phase rules in the `Frame` doc comment change with it.
+Wait for `window` to report; the relaxation has to be under you before you use it.
+
+Do not add `PushLayer`, `PopLayer` or a deferred-paint method to `Frame`, even though
+`docs/audit.md` says popups, menus and tooltips need them and it is true. Two things stop
+it. `element` declares `Frame` and `window` implements it, so the implementer goes first —
+that is the ordering rule in `AGENTS.md` and the one that has broken `main` before. And
+neither of us should add it before there is a caller: `ui` gets a popup, and the method
+arrives with it. An interface method with no caller is a guess, and we have had two.
 
 ## Done when
 
