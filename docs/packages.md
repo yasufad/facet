@@ -465,6 +465,29 @@ messages, and it carries the issue link to prove it. Its same-thread requirement
 restructured away once, and the deadlock it prevented came straight back in another
 form. Read the scars before cutting.
 
+## internal
+
+Repository-level test packages, belonging to no layer. They sit outside the
+dependency table and may import anything; the layering test names them unconstrained
+alongside `tools` and `examples`. Nothing here is part of the framework and nothing
+here is imported by it.
+
+`internal/layering` enforces the table above under three `GOOS` values, because a
+build constraint hides a violation on the platform nobody happens to be compiling
+for.
+
+A test that spans the stack goes here too, and has nowhere else it could go. `window`
+may not import `ui` and `ui` may not import `window`, so the path a user actually
+writes — a widget, in a window, clicked — is reachable from no package's own tests.
+That path is what `examples/button` demonstrates, and it had never once been executed
+when `docs/audit.md` was written. `window`'s own tests reach far enough for the three
+defects the audit names, which is why the assignment sits there; they do not reach the
+widget library.
+
+Keep these test-only. A package here that exports something for other packages to use
+is the cross-package fixture `AGENTS.md` rules out, and it drifts from every package it
+serves.
+
 ## Order of work
 
 The dependency table above is also the order packages can be built in.
