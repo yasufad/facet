@@ -103,6 +103,21 @@ that same pointer. Leasing is unchanged and is what makes it safe — the value 
 the map for the duration of an update, so a re-entrant update or a concurrent read
 panics rather than racing.
 
+Entity lifetime is reference counted by hand, and stays that way. Go 1.24's
+`weak.Pointer[T]` with `runtime.AddCleanup` was spiked against this design and rejected
+on evidence, so it does not need spiking again. A cleanup runs on its own goroutine at an
+unspecified time, with no deadline and no guarantee of running before process exit, and
+every exported entry point here asserts the UI goroutine — so `OnRelease` could not touch
+state directly and would have to marshal through `AsyncApp`, which silently fails once
+the foreground executor has stopped. An entity dying by collection after `App.Close`
+would then never release at all. The lease does not survive either: it deletes the map
+entry so a re-entrant access panics, and under a weak-keyed map that same deletion makes
+a concurrent lookup by id report the entity dropped when it is merely being mutated.
+Notification measured about twice as fast, which is real and does not pay for losing
+deterministic release of GPU and platform handles. The decisive point is that `OnRelease`
+would need an async-tolerant contract — a different contract, not a different storage
+mechanism under the same one.
+
 Every assertion on a value taken out of the map panics on failure, naming the entity
 and the type. One of them returned silently instead, and when the map changed from `T`
 to `*T` that assertion stopped matching: `OnRelease` simply never fired, on every
