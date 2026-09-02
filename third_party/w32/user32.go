@@ -41,6 +41,7 @@ var (
 	procGetDesktopWindow              = moduser32.NewProc("GetDesktopWindow")
 	procShowWindowAsync               = moduser32.NewProc("ShowWindowAsync")
 	procIsZoomed                      = moduser32.NewProc("IsZoomed")
+	procIsIconic                      = moduser32.NewProc("IsIconic")
 	procUpdateWindow                  = moduser32.NewProc("UpdateWindow")
 	procCreateWindowEx                = moduser32.NewProc("CreateWindowExW")
 	procAdjustWindowRect              = moduser32.NewProc("AdjustWindowRect")
@@ -312,6 +313,11 @@ func ShowWindow(hwnd HWND, cmdshow int) bool {
 
 func IsZoomed(hwnd HWND) bool {
 	ret, _, _ := procIsZoomed.Call(uintptr(hwnd))
+	return ret != 0
+}
+
+func IsIconic(hwnd HWND) bool {
+	ret, _, _ := procIsIconic.Call(uintptr(hwnd))
 	return ret != 0
 }
 
