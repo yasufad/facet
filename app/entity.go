@@ -50,13 +50,8 @@ func (r *refCounts) release(id entityID) {
 	}
 	c--
 	r.counts[id] = c
-	if c == 0 {
-		r.mu.Lock()
-		shutdown := r.shutdown
-		r.mu.Unlock()
-		if !shutdown {
-			r.dropped = append(r.dropped, id)
-		}
+	if c == 0 && !r.isShutdown() {
+		r.dropped = append(r.dropped, id)
 	}
 }
 
@@ -78,6 +73,18 @@ func (r *refCounts) markShutdown() {
 	r.mu.Lock()
 	r.shutdown = true
 	r.mu.Unlock()
+}
+
+// isShutdown reports whether the App has been closed. Unlike every other
+// field on refCounts, shutdown is set from a background goroutine (a
+// finaliser-dispatched release can run after Close) and read from one too
+// (AsyncApp.run and AsyncApp.Update, checking whether to touch state at all)
+// — the one field on this type actually reached from off the UI goroutine, so
+// it is the one that needs the mutex on every access rather than none.
+func (r *refCounts) isShutdown() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.shutdown
 }
 
 // Entity is a strong, typed handle to state owned by an App.
