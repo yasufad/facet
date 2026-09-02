@@ -20,7 +20,7 @@ decisions come in; the packages below marked reopened each have an assignment in
 |------------|-------------------------|
 | `geometry` | done                    |
 | `colour`   | done                    |
-| `app`      | reopened                |
+| `app`      | done                    |
 | `layout`   | done                    |
 | `scene`    | done                    |
 | `text`     | reopened                |
