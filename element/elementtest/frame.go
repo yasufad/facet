@@ -82,10 +82,11 @@ type Frame struct {
 	downHitRegion element.HitRegionID
 	downNodeID    input.DispatchNodeID
 
-	scene          *scene.Scene
-	clipDepth      int
-	textSys        *text.System
-	textStyleStack []style.TextStyle
+	scene             *scene.Scene
+	clipDepth         int
+	prepaintClipStack []geometry.Bounds[geometry.Pixels]
+	textSys           *text.System
+	textStyleStack    []style.TextStyle
 }
 
 // Ensure Frame implements element.Frame.
@@ -499,10 +500,14 @@ func (f *Frame) PopDispatchNode() {
 	}
 }
 
-// RegisterHitRegion registers a hit region during prepaint.
+// RegisterHitRegion registers a hit region during prepaint, clipped to the
+// prepaint clip mask in force at the call site.
 func (f *Frame) RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], nodeID input.DispatchNodeID) element.HitRegionID {
 	if f.phase != PhasePrepaint {
 		panic("elementtest: RegisterHitRegion called outside prepaint phase")
+	}
+	if len(f.prepaintClipStack) > 0 {
+		bounds = bounds.Intersect(f.prepaintClipStack[len(f.prepaintClipStack)-1])
 	}
 	f.nextHitRegionID++
 	id := f.nextHitRegionID
@@ -553,37 +558,56 @@ func (f *Frame) RequestFocus(id input.FocusID) {
 	}
 }
 
-// PushClip pushes a content clip mask onto the scene clip stack.
+// PushClip pushes a content clip mask for the current phase. Valid during
+// prepaint, where it confines the bounds RegisterHitRegion intersects
+// against, and during paint, where it also confines painted primitives via
+// the scene clip stack. The two stacks are independent, so a prepaint push
+// does not touch the scene — matching window's real Frame implementation,
+// which this double exists to stand in for.
 func (f *Frame) PushClip(bounds geometry.Bounds[geometry.Pixels]) {
-	if f.phase != PhasePaint {
-		panic("elementtest: PushClip called outside paint phase")
+	switch f.phase {
+	case PhasePrepaint:
+		if len(f.prepaintClipStack) > 0 {
+			bounds = bounds.Intersect(f.prepaintClipStack[len(f.prepaintClipStack)-1])
+		}
+		f.prepaintClipStack = append(f.prepaintClipStack, bounds)
+	case PhasePaint:
+		scale := f.scaleFactor
+		scaledBounds := geometry.Bounds[geometry.ScaledPixels]{
+			Origin: geometry.Point[geometry.ScaledPixels]{
+				X: bounds.Origin.X.Scale(scale),
+				Y: bounds.Origin.Y.Scale(scale),
+			},
+			Size: geometry.Size[geometry.ScaledPixels]{
+				Width:  bounds.Size.Width.Scale(scale),
+				Height: bounds.Size.Height.Scale(scale),
+			},
+		}
+		f.clipDepth++
+		f.scene.PushClip(scene.ContentMask[geometry.ScaledPixels]{
+			Bounds: scaledBounds,
+		})
+	default:
+		panic("elementtest: PushClip called outside prepaint or paint phase")
 	}
-	scale := f.scaleFactor
-	scaledBounds := geometry.Bounds[geometry.ScaledPixels]{
-		Origin: geometry.Point[geometry.ScaledPixels]{
-			X: bounds.Origin.X.Scale(scale),
-			Y: bounds.Origin.Y.Scale(scale),
-		},
-		Size: geometry.Size[geometry.ScaledPixels]{
-			Width:  bounds.Size.Width.Scale(scale),
-			Height: bounds.Size.Height.Scale(scale),
-		},
-	}
-	f.clipDepth++
-	f.scene.PushClip(scene.ContentMask[geometry.ScaledPixels]{
-		Bounds: scaledBounds,
-	})
 }
 
-// PopClip pops the top content clip mask from the scene clip stack.
+// PopClip removes the top content clip mask for the current phase. See
+// PushClip.
 func (f *Frame) PopClip() {
-	if f.phase != PhasePaint {
-		panic("elementtest: PopClip called outside paint phase")
+	switch f.phase {
+	case PhasePrepaint:
+		if len(f.prepaintClipStack) > 0 {
+			f.prepaintClipStack = f.prepaintClipStack[:len(f.prepaintClipStack)-1]
+		}
+	case PhasePaint:
+		if f.clipDepth > 0 {
+			f.clipDepth--
+		}
+		f.scene.PopClip()
+	default:
+		panic("elementtest: PopClip called outside prepaint or paint phase")
 	}
-	if f.clipDepth > 0 {
-		f.clipDepth--
-	}
-	f.scene.PopClip()
 }
 
 // InsertQuad adds a quad to the scene.
