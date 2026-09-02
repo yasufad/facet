@@ -18,3 +18,19 @@ func postMouseMove(hwnd uintptr, lParam uintptr) {
 func postClose(hwnd uintptr) {
 	w32.PostMessage(w32.HWND(hwnd), w32.WM_CLOSE, 0, 0)
 }
+
+// postChar posts a WM_CHAR message carrying r. It is used by tests to
+// synthesise a committed character without a real keyboard — the same
+// message a dead-key sequence (e.g. a French or German layout composing an
+// accented letter) or an IME's finalised composition delivers.
+func postChar(hwnd uintptr, r rune) {
+	w32.PostMessage(w32.HWND(hwnd), w32.WM_CHAR, uintptr(r), 0)
+}
+
+// postIMEComposition posts a WM_IME_STARTCOMPOSITION, WM_IME_COMPOSITION or
+// WM_IME_ENDCOMPOSITION message. gcsFlags is the lParam for
+// WM_IME_COMPOSITION (ignored for the other two) and reports which part of
+// the composition changed — GCS_COMPSTR for the composition string itself.
+func postIMEComposition(hwnd uintptr, msg uint32, gcsFlags uintptr) {
+	w32.PostMessage(w32.HWND(hwnd), msg, 0, gcsFlags)
+}
