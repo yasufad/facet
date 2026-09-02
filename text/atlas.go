@@ -89,7 +89,8 @@ func sizeOfAtlasEntry(e AtlasEntry) int64 {
 }
 
 // SetMaxBytes sets the atlas's byte ceiling, evicting immediately if the
-// atlas is already over it. The default is defaultAtlasBytes.
+// atlas is already over it. Zero means the atlas holds nothing, not that it
+// is unbounded. The default is defaultAtlasBytes.
 func (a *Atlas) SetMaxBytes(n int64) { a.lru.SetMaxBytes(n) }
 
 // Entry returns the atlas entry for a glyph, rasterising on miss. The glyph's
