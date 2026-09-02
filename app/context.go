@@ -1,6 +1,9 @@
 package app
 
-import "reflect"
+import (
+	"fmt"
+	"reflect"
+)
 
 // Context is the context for working on one entity. It dereferences to the
 // App (every App method is reachable through it) and adds the operations
@@ -59,7 +62,10 @@ func (c *Context[T]) OnRelease(onRelease func(v *T, app *App)) Subscription {
 	return c.app.onRelease(AnyEntity{id: id}, func(value any, app *App) {
 		t, ok := value.(*T)
 		if !ok {
-			return
+			// The entity map holds something other than what this entity's
+			// type says it holds: a programmer error with no recovery, the
+			// same case ReadEntity and UpdateEntity panic on.
+			panic(fmt.Sprintf("app: entity %d is not of type %T", id, *new(T)))
 		}
 		onRelease(t, app)
 	})
