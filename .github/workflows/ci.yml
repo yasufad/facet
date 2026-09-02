@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: go build
+        run: go build -o bin/ ./...
+
+      # Cross-compilation is a stated invariant (AGENTS.md), not a convenience: build
+      # the other two targets from this host too, with cgo off, so a break shows up on
+      # the machine that made it rather than on whoever next checks out on that OS.
+      - name: go build (cross-compile other targets)
+        shell: bash
+        env:
+          CGO_ENABLED: 0
+        run: |
+          case "${{ matrix.os }}" in
+            windows-latest) targets="linux/amd64 darwin/amd64" ;;
+            ubuntu-latest)  targets="windows/amd64 darwin/amd64" ;;
+            macos-latest)   targets="windows/amd64 linux/amd64" ;;
+          esac
+          for t in $targets; do
+            echo "::group::GOOS=${t%/*} GOARCH=${t#*/}"
+            GOOS=${t%/*} GOARCH=${t#*/} go build ./...
+            echo "::endgroup::"
+          done
+
+      - name: go vet
+        run: go vet -unsafeptr=false ./...
+
+      # gofmt -l exits 0 whether or not it prints anything, so the check has to fail
+      # the job on non-empty output itself. Scoped through `go list` rather than
+      # `gofmt -l .`, which would walk into the gitignored _upstream/ checkouts and
+      # report every upstream file as unformatted.
+      - name: gofmt
+        shell: bash
+        run: |
+          unformatted=$(gofmt -l $(go list -f '{{.Dir}}' ./...))
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needs to be run on:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go test
+        run: go test ./...
+
+      # render/d3d11's facet_debug tests, and window's under the same tag, create a
+      # real D3D11 device (D3D_DRIVER_TYPE_HARDWARE) and read pixels back from it —
+      # they need an actual GPU adapter. A GitHub-hosted runner has none, so these
+      # fail rather than skip; that is left visible on purpose instead of building
+      # around it, the same way the ui and internal/layering failures are below.
+      - name: go test (facet_debug)
+        run: go test -tags facet_debug ./...
