@@ -342,6 +342,65 @@ func TestDivOverflowClipping(t *testing.T) {
 	}
 }
 
+// TestDivPrepaintClipExcludesHitRegion reproduces the bug docs/audit.md names
+// under "Hit testing ignores clipping": a button scrolled out of an
+// overflow-hidden container was invisible and still clickable, because hit
+// regions were registered against unclipped bounds. Div.Prepaint now pushes
+// its clip around its children's Prepaint the same way Paint already does, so
+// a hit region registered outside the visible area is intersected down to
+// nothing at registration time, not merely painted over later.
+func TestDivPrepaintClipExcludesHitRegion(t *testing.T) {
+	frame := newFakeFrame()
+
+	// A button positioned entirely outside the 100x100 viewport its
+	// overflow-hidden parent clips to, the way a scrolled-out list row sits
+	// outside a ScrollView's viewport.
+	child := NewDiv().
+		Width(style.Px(200)).
+		Height(style.Px(200)).
+		OnClick(func(event ClickEvent) bool { return true })
+
+	parent := NewDiv().
+		Width(style.Px(100)).
+		Height(style.Px(100)).
+		OverflowHidden().
+		Child(child)
+
+	frame.phase = phaseLayoutRequested
+	rootID := parent.RequestLayout(frame)
+
+	// Bypass fakeFrame's simplified flex solve so the child's bounds can be
+	// placed independently of its parent's, the way absolute positioning or a
+	// scroll offset would.
+	parentBounds := geometry.NewBounds(
+		geometry.NewPoint[geometry.Pixels](0, 0),
+		geometry.NewSize[geometry.Pixels](100, 100),
+	)
+	childBounds := geometry.NewBounds(
+		geometry.NewPoint[geometry.Pixels](150, 150),
+		geometry.NewSize[geometry.Pixels](200, 200),
+	)
+	frame.bounds[rootID] = parentBounds
+	frame.bounds[child.layoutID] = childBounds
+
+	frame.phase = phasePrepainted
+	parent.Prepaint(frame, parentBounds)
+
+	if len(frame.hitRegions) != 1 {
+		t.Fatalf("expected 1 hit region, got %d", len(frame.hitRegions))
+	}
+	got := frame.hitRegions[0].bounds
+	if got.Size.Width > 0 || got.Size.Height > 0 {
+		t.Fatalf("expected the hit region clipped out of the overflow-hidden parent to be empty, got %v", got)
+	}
+
+	// The point where the child visually sits must not register as a hit.
+	pt := geometry.NewPoint[geometry.Pixels](200, 200)
+	if got.Contains(pt) {
+		t.Fatalf("expected a pointer at %v, inside the clipped-out child, to miss hit region %v", pt, got)
+	}
+}
+
 func TestDivTabStopAndTabIndex(t *testing.T) {
 	frame := newFakeFrame()
 	focusID1 := input.NewFocusID()
