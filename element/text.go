@@ -286,6 +286,18 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	scale := f.ScaleFactor()
 	lineOrigin := bounds.Origin
 
+	// A glyph's Position.Y is the baseline's offset from the top of the
+	// line's own tight box (ascent plus descent). When the box painted into
+	// is taller than that — LineHeight set higher than the font's own
+	// metrics, as an editor's 1.5 line height does — CSS's rule is half the
+	// extra space above and half below, not all of it below. Skipping this
+	// pins every line's glyphs to the top of its box instead of centring
+	// them, and the caret has to use the same offset or it stops lining up
+	// with the text it sits next to.
+	if extra := bounds.Size.Height - t.shapedLine.Height(); extra > 0 {
+		lineOrigin.Y += extra / 2
+	}
+
 	for _, run := range t.shapedLine.Runs() {
 		for _, g := range run.Glyphs {
 			penPos := lineOrigin.Add(g.Position)

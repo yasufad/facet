@@ -117,6 +117,59 @@ func TestTextEmptyString(t *testing.T) {
 	}
 }
 
+// TestTextPaintCentresGlyphsOnTallerLineHeight pins the half-leading fix: a
+// LineHeight taller than the font's own ascent+descent must split the extra
+// space evenly above and below the glyphs (CSS's rule), not leave it all
+// below.
+//
+// It compares the painted sprite position for the same glyph at two line
+// heights rather than asserting an absolute pixel, since the absolute
+// position depends on font metrics this test does not control. Holding
+// content, font and fakeFrame's fixed mock glyph bounds constant between the
+// two paints isolates the shift to exactly the half-leading term: the
+// sprite's Y must move down by scale * extra/2, where extra is how much
+// taller the second line height is than the shaped line's own height.
+func TestTextPaintCentresGlyphsOnTallerLineHeight(t *testing.T) {
+	topSpriteY := func(lineHeight geometry.Pixels) (y geometry.ScaledPixels, shapedHeight geometry.Pixels) {
+		frame := newFakeFrame()
+		txt := NewText("A").FontSize(16).LineHeight(lineHeight)
+
+		frame.phase = phaseLayoutRequested
+		nodeID := txt.RequestLayout(frame)
+		measured := frame.measureCallbacks[nodeID](layout.Size[layout.OptF32]{}, layout.Size[layout.AvailableSpace]{
+			Width:  layout.MaxContent(),
+			Height: layout.MaxContent(),
+		})
+		if txt.shapedLine == nil {
+			t.Fatal("expected the measure pass to shape the line")
+		}
+
+		bounds := geometry.NewBounds(geometry.NewPoint[geometry.Pixels](0, 0), measured)
+		frame.phase = phasePrepainted
+		txt.Prepaint(frame, bounds)
+		frame.phase = phasePainted
+		txt.Paint(frame, bounds)
+
+		if len(frame.monoSprites) == 0 {
+			t.Fatal("expected at least one glyph sprite")
+		}
+		return frame.monoSprites[0].Bounds.Origin.Y, txt.shapedLine.Height()
+	}
+
+	naturalY, shapedHeight := topSpriteY(0) // LineHeight(0) falls back to the shaped line's own height.
+	const extra = geometry.Pixels(40)
+	tallY, _ := topSpriteY(shapedHeight + extra)
+
+	const scale = float32(2.0) // fakeFrame's default ScaleFactor.
+	want := geometry.ScaledPixels(float32(extra) / 2 * scale)
+	got := tallY - naturalY
+
+	const epsilon = geometry.ScaledPixels(0.01)
+	if diff := got - want; diff < -epsilon || diff > epsilon {
+		t.Fatalf("sprite shifted by %v when line height grew by %v, want %v: glyphs are not centred in the taller box", got, extra, want)
+	}
+}
+
 func TestTextSetContent(t *testing.T) {
 	txt := NewText("Initial")
 	txt.SetContent("Updated")
