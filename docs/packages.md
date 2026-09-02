@@ -408,9 +408,26 @@ focus along this sequence, wrapping at both ends and skipping unrendered element
 implementing `Element.RequestLayout` do not need to import `layout`.
 
 Text rendering: `Text` is a single-line, left-aligned text element that measures
-via `Frame.RequestMeasuredLayout`, caches the shaped output across flexbox passes
-keyed by text, style and available width, inherits typographic styling from `f.TextStyle()`,
-and emits `scene.MonochromeSprite` primitives for each glyph in paint with subpixel offsets.
+via `Frame.RequestMeasuredLayout`, inherits typographic styling from `f.TextStyle()`,
+and emits `scene.MonochromeSprite` primitives for each glyph in paint with subpixel
+offsets. The baseline sits half the difference above the ascent when the line box is
+taller than the font's own metrics, as CSS does — caret height comes out of the same
+arithmetic, so getting the leading wrong once gets the caret wrong twice.
+
+Pseudo-state may change font metrics, not only colour. A container's `Hover` setting a
+heavier weight is a supported case, so `Text` cannot shape once during layout and assume
+it: `f.TextStyle()` in paint carries refinements merged in after prepaint, and hover is
+resolved between prepaint and paint. `Text` therefore re-shapes when the resolved
+`[]text.StyleRun` differs from the one it was shaped from. Comparing the runs rather than
+a chosen list of style fields is what makes this stay correct — the runs *are*
+`ShapeLine`'s input, so a new shaping input is covered the day it is added, and a colour
+change never reaches them and never re-shapes. The alternative considered and rejected was
+restricting pseudo-state to colour, which would have been a silent behavioural cut to
+something `Div.Hover` already supports.
+
+Available width is not part of that comparison. `ShapeLine` wraps nothing, so its output
+is identical at every width, and the solver calls a leaf measure several times per solve
+with different constraints.
 
 Hit regions are per-frame: Monotonic, per-frame identifiers. A region registered
 during prepaint is resolved by `window` at step 5 (the intra-frame hit test) and
