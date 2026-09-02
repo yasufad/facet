@@ -36,6 +36,20 @@ type windowsWindow struct {
 	// updated when the window moves between displays or the DPI setting
 	// changes.
 	scaleFactor float32
+
+	// fullscreen and the fields below it track Facet's own borderless-window
+	// implementation of [WindowFullscreen], which Windows has no native
+	// concept of (unlike minimized and maximized, which IsIconic and IsZoomed
+	// answer directly). fullscreen is Facet's record of intent; fullscreenRect
+	// and fullscreenStyle are the geometry and style it applied to enter that
+	// state, checked against the window's current geometry before State
+	// trusts the flag — see stillFullscreen. preFullscreenRect and
+	// preFullscreenStyle are what SetState restores on the way back out.
+	fullscreen         bool
+	fullscreenRect     w32.RECT
+	fullscreenStyle    uint32
+	preFullscreenRect  w32.RECT
+	preFullscreenStyle uint32
 }
 
 // windowClassName is the registered window class name for Facet windows.
@@ -560,6 +574,115 @@ func (w *windowsWindow) SetAlwaysOnTop(onTop bool) {
 	}
 	w32.SetWindowPos(w.hwnd, hwndInsertAfter, 0, 0, 0, 0,
 		w32.SWP_NOMOVE|w32.SWP_NOSIZE|w32.SWP_NOACTIVATE)
+}
+
+// State reports which of WindowState's four states the window is currently
+// in. Minimized and Maximized are read directly from the OS via IsIconic and
+// IsZoomed and cannot drift from what the user or window manager did.
+// Fullscreen is Facet's own construction — Windows has no style bit for it —
+// so it is trusted only while stillFullscreen confirms the window still
+// carries the geometry SetState(WindowFullscreen) applied; if something
+// changed the window's style or bounds through a route that did not go
+// through SetState, the flag is cleared here rather than left to lie.
+func (w *windowsWindow) State() WindowState {
+	if w32.IsIconic(w.hwnd) {
+		return WindowMinimized
+	}
+	if w.fullscreen {
+		if w.stillFullscreen() {
+			return WindowFullscreen
+		}
+		w.fullscreen = false
+	}
+	if w32.IsZoomed(w.hwnd) {
+		return WindowMaximized
+	}
+	return WindowNormal
+}
+
+// stillFullscreen reports whether the window's current style and bounds
+// still match what SetState(WindowFullscreen) applied.
+func (w *windowsWindow) stillFullscreen() bool {
+	style := uint32(w32.GetWindowLong(w.hwnd, w32.GWL_STYLE))
+	rect := w32.GetWindowRect(w.hwnd)
+	return style == w.fullscreenStyle && *rect == w.fullscreenRect
+}
+
+// SetState transitions the window to state. Minimizing never touches the
+// fullscreen bookkeeping below, which is what lets a fullscreen window
+// minimize and come back fullscreen: Windows already keeps a maximized
+// window's geometry untouched across a minimize/restore cycle (that is
+// baseline ShowWindow behaviour, not something SetWindowPlacement's
+// WPF_RESTORETOMAXIMIZED needs to force — that flag overrides the default
+// restore target, it is not the mechanism producing it), and a fullscreen
+// window's bounds are preserved the same way because minimizing changes
+// only the SW_SHOWMINIMIZED overlay, never rcNormalPosition.
+func (w *windowsWindow) SetState(state WindowState) {
+	switch state {
+	case WindowNormal:
+		w.exitFullscreen()
+		w32.ShowWindow(w.hwnd, w32.SW_RESTORE)
+	case WindowMinimized:
+		w32.ShowWindow(w.hwnd, w32.SW_MINIMIZE)
+	case WindowMaximized:
+		w.exitFullscreen()
+		w32.ShowWindow(w.hwnd, w32.SW_MAXIMIZE)
+	case WindowFullscreen:
+		w.enterFullscreen()
+	}
+}
+
+// enterFullscreen saves the window's current style, extended style and
+// bounds — what exitFullscreen restores — then resizes it to the bounds of
+// the display it is on with its caption, borders and system menu removed.
+// It is a no-op if the window is already fullscreen: entering twice would
+// save the fullscreen geometry itself as the thing to restore to.
+func (w *windowsWindow) enterFullscreen() {
+	if w.fullscreen {
+		return
+	}
+
+	style := uint32(w32.GetWindowLong(w.hwnd, w32.GWL_STYLE))
+	rect := w32.GetWindowRect(w.hwnd)
+
+	monitor := w32.MonitorFromWindow(w.hwnd, w32.MONITOR_DEFAULTTONEAREST)
+	var mi w32.MONITORINFO
+	mi.CbSize = uint32(unsafe.Sizeof(mi))
+	if !w32.GetMonitorInfo(monitor, &mi) {
+		// Can't read the monitor's bounds. Leaving the window as it is beats
+		// resizing it to a guess.
+		return
+	}
+
+	w.preFullscreenStyle = style
+	w.preFullscreenRect = *rect
+
+	newStyle := style &^ (w32.WS_CAPTION | w32.WS_THICKFRAME | w32.WS_MINIMIZEBOX | w32.WS_MAXIMIZEBOX | w32.WS_SYSMENU)
+	w32.SetWindowLong(w.hwnd, w32.GWL_STYLE, newStyle)
+	w32.SetWindowPos(w.hwnd, 0,
+		int(mi.RcMonitor.Left), int(mi.RcMonitor.Top),
+		int(mi.RcMonitor.Right-mi.RcMonitor.Left), int(mi.RcMonitor.Bottom-mi.RcMonitor.Top),
+		w32.SWP_NOZORDER|w32.SWP_NOACTIVATE|w32.SWP_FRAMECHANGED)
+
+	w.fullscreenStyle = newStyle
+	w.fullscreenRect = mi.RcMonitor
+	w.fullscreen = true
+}
+
+// exitFullscreen restores the style and bounds enterFullscreen saved. A
+// no-op if the window is not fullscreen, so SetState(WindowNormal) and
+// SetState(WindowMaximized) can call it unconditionally.
+func (w *windowsWindow) exitFullscreen() {
+	if !w.fullscreen {
+		return
+	}
+	w32.SetWindowLong(w.hwnd, w32.GWL_STYLE, w.preFullscreenStyle)
+	r := w.preFullscreenRect
+	w32.SetWindowPos(w.hwnd, 0,
+		int(r.Left), int(r.Top),
+		int(r.Right-r.Left), int(r.Bottom-r.Top),
+		w32.SWP_NOZORDER|w32.SWP_NOACTIVATE|w32.SWP_FRAMECHANGED)
+	w.fullscreen = false
 }
 
 // SetBackground sets the colour the client area is cleared to.
