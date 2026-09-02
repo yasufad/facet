@@ -39,6 +39,26 @@ truth.
 Write the probe as a test and keep it. Then break the fix and confirm the test fails — a
 test that cannot fail is not a test, and this is a defect that survived five test files.
 
+### What this does to the defect `element` is fixing
+
+Worth knowing, because the two are in flight together and I only noticed by probing it.
+
+Today a click handler that captures the leased `v` and writes to it after the update has
+ended writes into a stack local that `endLease` has already superseded, so the write is
+lost. Once the map stores `*T`, the captured pointer is the stored value, and that same
+wrong code starts landing its write. I ran both leases side by side to be sure: value
+lease loses it, pointer lease applies it.
+
+The mutation half of the broken pattern therefore goes quiet under you. What still makes
+it loud is `cx.Notify()` tripping the generation check — and a handler that mutates
+without notifying was already silent and stays silent, so nothing gets worse than it is.
+
+This does not change what you build. It changes why part 2 is bounded the way it is:
+keeping the generation compare in release builds is now holding up correctness as well as
+paying for itself on performance. Do not let it follow `checkUI` behind the tag, and say
+in the doc comment that it is the check that survives, so the next person to look at the
+two of them together knows they are not the same kind of guard.
+
 ## 2. Take the goroutine check out of release builds
 
 `app`'s doc says the 6 µs check is affordable because it runs "at update boundaries" and
