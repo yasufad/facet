@@ -37,3 +37,36 @@ func TestLineCacheHitDoesNotAliasCallerMutation(t *testing.T) {
 		t.Fatalf("cache hit aliased a caller's mutation: got %v, want %v", got, want)
 	}
 }
+
+// TestHashRunsDistinguishesFields checks that hashRuns does not collapse
+// distinct runs onto the same digest for the fields it is supposed to be
+// sensitive to. This is not a guarantee against collision — a 64-bit hash
+// can always collide — but it pins that a naive implementation (one that,
+// say, forgot to feed Size into the hash) does not pass by accident.
+func TestHashRunsDistinguishesFields(t *testing.T) {
+	base := StyleRun{
+		ByteLen:   5,
+		Font:      FontRequest{Family: "Arial"},
+		Size:      geometry.Pixels(16),
+		Direction: LTR,
+		Language:  "en",
+	}
+	variants := []StyleRun{
+		base,
+		{ByteLen: 6, Font: base.Font, Size: base.Size, Direction: base.Direction, Language: base.Language},
+		{ByteLen: base.ByteLen, Font: FontRequest{Family: "Georgia"}, Size: base.Size, Direction: base.Direction, Language: base.Language},
+		{ByteLen: base.ByteLen, Font: base.Font, Size: geometry.Pixels(20), Direction: base.Direction, Language: base.Language},
+		{ByteLen: base.ByteLen, Font: base.Font, Size: base.Size, Direction: RTL, Language: base.Language},
+		{ByteLen: base.ByteLen, Font: base.Font, Size: base.Size, Direction: base.Direction, Language: "fr"},
+	}
+
+	c := newLineCache()
+	seen := map[uint64]int{}
+	for i, v := range variants {
+		h := c.hashRuns([]StyleRun{v})
+		if prior, ok := seen[h]; ok {
+			t.Fatalf("variant %d hashed the same as variant %d: both produced %d", i, prior, h)
+		}
+		seen[h] = i
+	}
+}

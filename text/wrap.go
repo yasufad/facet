@@ -53,7 +53,7 @@ func (s *System) WrapText(text string, runs []StyleRun, maxWidth geometry.Pixels
 // it unmodified would let this call's caller mutate the very entry the next
 // call reads.
 func (s *System) wrap(text string, runs []StyleRun, maxWidth fixed.Int26_6) ([]ShapedLine, error) {
-	key := lineCacheKey{text: text, runs: styleRunsKey(runs), maxWidth: maxWidth}
+	key := lineCacheKey{text: text, runsHash: s.lineCache.hashRuns(runs), maxWidth: maxWidth}
 	if lines, ok := s.lineCache.lru.Get(key); ok {
 		return cloneShapedLines(lines), nil
 	}

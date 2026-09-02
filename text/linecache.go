@@ -1,6 +1,7 @@
 package text
 
 import (
+	"hash/maphash"
 	"unsafe"
 
 	"golang.org/x/image/math/fixed"
@@ -16,14 +17,25 @@ import (
 // rather than just the HarfBuzz call.
 const defaultLineCacheBytes = 4 << 20
 
-// lineCacheKey identifies a wrapped result: the text, its style runs and the
-// width it was wrapped to. ShapeLine always wraps at noWrapWidth, so its
-// entries are independent of any caller-chosen width; WrapText entries are
-// keyed per width, since a different width can produce a different set of
-// lines for the same text and runs.
+// lineCacheKey identifies a wrapped result: the text, a fingerprint of its
+// style runs, and the width it was wrapped to. ShapeLine always wraps at
+// noWrapWidth, so its entries are independent of any caller-chosen width;
+// WrapText entries are keyed per width, since a different width can produce a
+// different set of lines for the same text and runs.
+//
+// runsHash is a 64-bit digest, not the runs' serialised bytes: ShapeLine is
+// called per text element per frame, so building and converting a []byte
+// into a string on every lookup — a hit included — is exactly the allocation
+// the shape cache's own key was fixed to stop paying, one level up. Two
+// distinct run sets that hash to the same 64-bit digest would silently share
+// a cache entry and return the wrong shaped lines for one of them; at 64
+// bits with a random per-process seed that risk is on the order of a
+// hardware bit-flip, which is judged an acceptable trade for a cache, not
+// swept under a refactor — flagged here because it changes the key's
+// guarantee from exact equality to overwhelmingly-likely equality.
 type lineCacheKey struct {
 	text     string
-	runs     string
+	runsHash uint64
 	maxWidth fixed.Int26_6
 }
 
@@ -32,8 +44,13 @@ type lineCacheKey struct {
 // lookup and a slice copy rather than a re-segmentation and re-wrap. It sits
 // above shapeCache: a hit here skips shapeCache entirely, a miss still uses
 // it for any sub-run shaping.
+//
+// hash is reused across hashRuns calls rather than constructed fresh each
+// time, and is why lineCache is embedded in System by value rather than
+// held behind a pointer to a fresh cache per call.
 type lineCache struct {
-	lru *byteLRU[lineCacheKey, []ShapedLine]
+	lru  *byteLRU[lineCacheKey, []ShapedLine]
+	hash maphash.Hash
 }
 
 func newLineCache() lineCache {
@@ -58,41 +75,52 @@ func sizeOfShapedLines(lines []ShapedLine) int64 {
 	return n + 32 // +32 for an empty line's own header
 }
 
-// styleRunsKey renders a style run slice into a string that changes exactly
-// when wrap's result would: every field that reaches shaping or wrapping for
-// each run, in order. It is not a general-purpose serialisation — separators
-// are chosen to make accidental collisions unlikely, not impossible, which
-// matches featuresKey's existing standard for a cache key.
-func styleRunsKey(runs []StyleRun) string {
-	if len(runs) == 0 {
-		return ""
-	}
-	var b []byte
+// hashRuns computes runsHash: every field that reaches shaping or wrapping
+// for each run, in order, fed a byte or a string at a time into the reused
+// hash. WriteByte and WriteString copy straight into the hash's internal
+// state, so this builds no intermediate []byte and converts no string —
+// unlike the equivalent string key it replaces, this allocates nothing on a
+// hit. Field boundaries are marked the same way featuresKey marks them: not
+// a general-purpose serialisation, just enough to make two different run
+// sets land on different byte sequences before they are hashed.
+func (c *lineCache) hashRuns(runs []StyleRun) uint64 {
+	h := &c.hash
+	h.Reset()
 	for _, r := range runs {
-		b = appendUint32(b, uint32(r.ByteLen))
-		b = append(b, 0)
-		b = append(b, r.Font.Family...)
-		b = append(b, 0)
+		writeUint32(h, uint32(r.ByteLen))
+		h.WriteByte(0)
+		h.WriteString(r.Font.Family)
+		h.WriteByte(0)
 		for _, f := range r.Font.Families {
-			b = append(b, f...)
-			b = append(b, ',')
+			h.WriteString(f)
+			h.WriteByte(',')
 		}
-		b = append(b, 0)
-		b = appendUint32(b, bitsOfFloat32(float32(r.Font.Weight)))
-		b = append(b, byte(r.Font.Style))
-		b = appendUint32(b, bitsOfFloat32(float32(r.Font.Stretch)))
-		b = appendUint32(b, bitsOfFloat32(float32(r.Size)))
-		b = append(b, byte(r.Direction))
-		b = append(b, r.Language...)
-		b = append(b, 0)
+		h.WriteByte(0)
+		writeUint32(h, bitsOfFloat32(float32(r.Font.Weight)))
+		h.WriteByte(byte(r.Font.Style))
+		writeUint32(h, bitsOfFloat32(float32(r.Font.Stretch)))
+		writeUint32(h, bitsOfFloat32(float32(r.Size)))
+		h.WriteByte(byte(r.Direction))
+		h.WriteString(r.Language)
+		h.WriteByte(0)
 		for _, f := range r.Features {
-			b = append(b, f.Tag...)
-			b = appendUint32(b, f.Value)
-			b = append(b, ';')
+			h.WriteString(f.Tag)
+			writeUint32(h, f.Value)
+			h.WriteByte(';')
 		}
-		b = append(b, '|')
+		h.WriteByte('|')
 	}
-	return string(b)
+	return h.Sum64()
+}
+
+// writeUint32 feeds v's bytes into h one at a time, so encoding a numeric
+// field never needs a []byte the way appendUint32 does for the string-keyed
+// caches elsewhere in this package.
+func writeUint32(h *maphash.Hash, v uint32) {
+	h.WriteByte(byte(v >> 24))
+	h.WriteByte(byte(v >> 16))
+	h.WriteByte(byte(v >> 8))
+	h.WriteByte(byte(v))
 }
 
 // cloneShapedLines returns a copy of lines whose glyph slices do not alias
