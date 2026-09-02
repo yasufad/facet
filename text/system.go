@@ -35,6 +35,12 @@ type System struct {
 	// same face at the same size is shaped once.
 	shapeCache shapeCache
 
+	// lineCache holds fully wrapped ShapedLines keyed by text, style runs and
+	// wrap width, so a repeated ShapeLine or WrapText call for the same
+	// arguments skips segmentation and wrapping entirely, not just the
+	// HarfBuzz call shapeCache saves.
+	lineCache lineCache
+
 	// faceCache memoises resolved primary faces by request, so repeated
 	// Resolve calls do not re-run the matcher.
 	faceCache map[fontRequestKey]Face
@@ -83,6 +89,7 @@ func NewSystem() (*System, error) {
 		fm:         fm,
 		faceCache:  make(map[fontRequestKey]Face),
 		shapeCache: newShapeCache(),
+		lineCache:  newLineCache(),
 	}
 	s.families = distinctFamilies(footprints)
 	return s, nil
