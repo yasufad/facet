@@ -8,10 +8,29 @@ gap between those two had nowhere to live: a finding with no assignment was eith
 written into a prompt someone was already working from, or lost. When a package reports
 and its prompt retires, its section here becomes its next prompt.
 
-Two decisions are taken below rather than left open, because both cross a layer boundary
-and neither should be settled by whoever happens to pick the work up.
+Three decisions are taken below rather than left open, because each crosses a layer
+boundary and none should be settled by whoever happens to pick the work up.
 
 ---
+
+## Decided: the test for a widget in a window goes in internal/integration
+
+`prompts/build.md` asks for one test that dispatches a click and asserts the state
+changed, and puts it in `window`. That is right for what it describes: `window`'s fakes
+reach the handler seam, the `ReadEntity` copy and the clip-blind hit testing, which are
+three of the four blocking defects.
+
+They do not reach a widget. `window` may not import `ui` and `ui` may not import
+`window`, so nothing in the tree can test a `ui.Button` clicked in a real window — the
+path `examples/button` demonstrates and the one that had never been run. `internal` is
+already outside the layer stack, so `internal/integration` costs no change to the table
+or the layering test; `docs/packages.md` records why it exists.
+
+Unassigned deliberately: it cannot be written until `element` lands the listener seam and
+`ui` migrates `Button` onto it. It goes to whoever has `ui` at that point, not to a
+fourth party, because it is the same test they will already be writing one layer down.
+
+Keep it to one test. The value is that the path executes at all.
 
 ## Decided: the content mask gets a real base rectangle
 
