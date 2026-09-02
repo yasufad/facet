@@ -85,21 +85,29 @@ type Window struct {
 
 	pointerPos       geometry.Point[geometry.Pixels]
 	pointerDown      bool
-	downHitRegion    element.HitRegionID
-	downNodeID       input.DispatchNodeID
 	hoveredHitRegion element.HitRegionID
 	hoveredNodeID    input.DispatchNodeID
 	activeHitRegion  element.HitRegionID
 
-	focusTree        *input.FocusTree
-	keymap           *input.Keymap
-	nextHitRegionID  element.HitRegionID
-	nodeBounds       map[layout.NodeID]geometry.Bounds[geometry.Pixels]
-	measureCallbacks map[layout.NodeID]element.MeasureFunc
-	glyphTileCache   map[glyphCacheKey]cachedGlyph
-	textStyleStack   []style.TextStyle
-	currentCursor    platform.Cursor
-	clipDepth        int
+	focusTree         *input.FocusTree
+	keymap            *input.Keymap
+	nextHitRegionID   element.HitRegionID
+	nodeBounds        map[layout.NodeID]geometry.Bounds[geometry.Pixels]
+	measureCallbacks  map[layout.NodeID]element.MeasureFunc
+	glyphTileCache    map[glyphCacheKey]cachedGlyph
+	textStyleStack    []style.TextStyle
+	currentCursor     platform.Cursor
+	clipDepth         int
+	prepaintClipStack []geometry.Bounds[geometry.Pixels]
+
+	// captureActive routes PointerMove and PointerUp to captureNodeID
+	// regardless of what is now under the pointer, from pointer-down against
+	// a hit region until the matching pointer-up. captureBounds is refreshed
+	// every frame (see resolveCapturedHitTest) so IsActive tracks the
+	// captured element even if it moves or resizes mid-drag.
+	captureActive bool
+	captureNodeID input.DispatchNodeID
+	captureBounds geometry.Bounds[geometry.Pixels]
 
 	mu             sync.Mutex
 	frameScheduled bool
@@ -270,9 +278,18 @@ func (w *Window) Size() geometry.Size[geometry.Pixels] {
 }
 
 // Draw executes the seven frame steps in strict order from layout through paint and presentation.
+//
+// A root that renders nil still runs the full cycle with an empty frame,
+// rather than aborting midway: the scene, tab order, clip depth and
+// needsPresent all end the call in the state a completed frame leaves them in,
+// and the empty frame is swapped in and presented so the window actually
+// shows nothing rather than the previous frame's stale content.
 func (w *Window) Draw() {
 	if w.closed || w.rootView == nil {
 		return
+	}
+	if w.phase != phaseNone {
+		panic(fmt.Sprintf("window: re-entrant Draw call (already in phase %v)", w.phase))
 	}
 
 	w.dirty = false
@@ -286,32 +303,38 @@ func (w *Window) Draw() {
 	w.textStyleStack = w.textStyleStack[:1]
 	w.textStyleStack[0] = style.DefaultTextStyle()
 	w.clipDepth = 0
+	w.prepaintClipStack = w.prepaintClipStack[:0]
 	w.phase = phaseLayout
 	el := w.rootView.Render(w.app)
-	if el == nil {
-		w.phase = phaseNone
-		return
+
+	if el != nil {
+		rootLayoutID := el.RequestLayout(w)
+
+		// 3. Layout: solve flexbox layout and derive window-relative node bounds.
+		w.phase = phaseLayoutSolve
+		w.computeLayout(rootLayoutID)
+
+		// 4. Prepaint: elements commit bounds, push dispatch nodes, and register hit regions.
+		w.phase = phasePrepaint
+		rootBounds := w.LayoutBounds(rootLayoutID)
+		el.Prepaint(w, rootBounds)
+		w.checkPrepaintClipStackEmpty()
+		w.next.tabOrder = sortTabStops(w.next.tabStops)
+
+		// 5. Hit test (intra-frame): resolve pointer against regions registered in next.
+		w.phase = phaseHitTest
+		w.resolveNextHitTest()
+
+		// 6. Paint: elements evaluate hover/active/focus styles and emit primitives into next.scene.
+		w.phase = phasePaint
+		el.Paint(w, rootBounds)
+		w.checkClipStackEmpty()
+	} else {
+		clear(w.nodeBounds)
+		w.phase = phaseHitTest
+		w.resolveNextHitTest()
+		w.phase = phasePaint
 	}
-	rootLayoutID := el.RequestLayout(w)
-
-	// 3. Layout: solve flexbox layout and derive window-relative node bounds.
-	w.phase = phaseLayoutSolve
-	w.computeLayout(rootLayoutID)
-
-	// 4. Prepaint: elements commit bounds, push dispatch nodes, and register hit regions.
-	w.phase = phasePrepaint
-	rootBounds := w.LayoutBounds(rootLayoutID)
-	el.Prepaint(w, rootBounds)
-	w.next.tabOrder = sortTabStops(w.next.tabStops)
-
-	// 5. Hit test (intra-frame): resolve pointer against regions registered in next.
-	w.phase = phaseHitTest
-	w.resolveNextHitTest()
-
-	// 6. Paint: elements evaluate hover/active/focus styles and emit primitives into next.scene.
-	w.phase = phasePaint
-	el.Paint(w, rootBounds)
-	w.checkClipStackEmpty()
 
 	// 7. Present: finish scene, swap frames, reset next, and submit to GPU.
 	// Clean up focus if the focused element is no longer rendered in the tree.
@@ -402,23 +425,31 @@ func (w *Window) populateNodeBounds(parentID layout.NodeID, parentOrigin geometr
 }
 
 // resolveNextHitTest executes Step 5 by resolving the pointer against next.hitRegions.
+//
+// While a pointer capture is active, the pointer is not free to hover or
+// activate whatever now sits under it: only the captured node is eligible,
+// found by nodeID rather than by point since hit region ids are minted fresh
+// every frame and the id from the frame the capture began in never appears in
+// next.hitRegions again. Dispatch node ids are stable across frames for an
+// unchanged tree shape (see DispatchTree.PushNode), which is what makes the
+// lookup meaningful.
 func (w *Window) resolveNextHitTest() {
-	hitID, nodeID, ok := hitTest(w.next.hitRegions, w.pointerPos)
+	if w.captureActive {
+		w.resolveCapturedHitTest()
+		return
+	}
+
+	hr, ok := hitTest(w.next.hitRegions, w.pointerPos)
 	var cursor style.CursorStyle
 	if ok {
-		w.hoveredHitRegion = hitID
-		w.hoveredNodeID = nodeID
+		w.hoveredHitRegion = hr.id
+		w.hoveredNodeID = hr.nodeID
 		if w.pointerDown {
-			w.activeHitRegion = hitID
+			w.activeHitRegion = hr.id
 		} else {
 			w.activeHitRegion = 0
 		}
-		for _, hr := range w.next.hitRegions {
-			if hr.id == hitID {
-				cursor = hr.cursor
-				break
-			}
-		}
+		cursor = hr.cursor
 	} else {
 		w.hoveredHitRegion = 0
 		w.hoveredNodeID = 0
@@ -426,6 +457,37 @@ func (w *Window) resolveNextHitTest() {
 		cursor = style.CursorDefault
 	}
 
+	w.setCursor(cursor)
+}
+
+// resolveCapturedHitTest resolves hover, active and cursor state for a
+// captured drag: the captured node's hit region for this frame (found by
+// dispatch node id, not by point), with active and hover true only while the
+// pointer remains inside that region's bounds.
+func (w *Window) resolveCapturedHitTest() {
+	w.hoveredHitRegion = 0
+	w.hoveredNodeID = 0
+	w.activeHitRegion = 0
+
+	var cursor style.CursorStyle
+	for _, hr := range w.next.hitRegions {
+		if hr.nodeID != w.captureNodeID {
+			continue
+		}
+		w.captureBounds = hr.bounds
+		if hr.bounds.Contains(w.pointerPos) {
+			w.hoveredHitRegion = hr.id
+			w.hoveredNodeID = hr.nodeID
+			w.activeHitRegion = hr.id
+			cursor = hr.cursor
+		}
+		break
+	}
+
+	w.setCursor(cursor)
+}
+
+func (w *Window) setCursor(cursor style.CursorStyle) {
 	platCursor := cursorStyleToPlatform(cursor)
 	if platCursor != w.currentCursor {
 		w.currentCursor = platCursor
@@ -466,59 +528,72 @@ func (w *Window) DispatchEvent(event platform.Event) {
 			Y: e.Position.Y.ToPixels(w.scaleFactor),
 		}
 
-		hitID, nodeID, _ := hitTest(w.rendered.hitRegions, w.pointerPos)
+		var nodeID input.DispatchNodeID = -1
 
-		if e.Phase == platform.PointerDown {
+		switch {
+		case e.Phase == platform.PointerDown:
+			// A fresh press always re-hit-tests against where the pointer
+			// actually is, even if a stale capture from an unmatched up
+			// somehow survived.
+			hr, ok := hitTest(w.rendered.hitRegions, w.pointerPos)
 			w.pointerDown = true
-			w.downHitRegion = hitID
-			w.downNodeID = nodeID
 
-			if hitID != 0 {
-				var targetFocusID input.FocusID
-				for _, hr := range w.rendered.hitRegions {
-					if hr.id == hitID {
-						targetFocusID = hr.focusID
-						break
-					}
+			if ok {
+				nodeID = hr.nodeID
+
+				// Pointer-down on a focusable element moves focus to it;
+				// pointer-down on anything else leaves focus alone. Only the
+				// empty background (no hit at all) blurs unconditionally.
+				if hr.focusID != 0 {
+					w.RequestFocus(hr.focusID)
 				}
-				if targetFocusID != 0 {
-					w.RequestFocus(targetFocusID)
-				} else {
-					w.focusTree.Blur()
-				}
+
+				w.captureActive = true
+				w.captureNodeID = hr.nodeID
+				w.captureBounds = hr.bounds
 			} else {
+				w.captureActive = false
 				w.focusTree.Blur()
 			}
-		} else if e.Phase == platform.PointerUp {
-			w.pointerDown = false
-			if hitID != 0 && hitID == w.downHitRegion {
-				var hitBounds geometry.Bounds[geometry.Pixels]
-				for _, hr := range w.rendered.hitRegions {
-					if hr.id == hitID {
-						hitBounds = hr.bounds
-						break
+
+		case w.captureActive:
+			// Route to the node that was pressed, regardless of what is now
+			// under the pointer, including outside the window entirely.
+			nodeID = w.captureNodeID
+			inBounds := w.captureBounds.Contains(w.pointerPos)
+
+			if e.Phase == platform.PointerUp {
+				w.pointerDown = false
+				if inBounds {
+					localPos := geometry.NewPoint[geometry.Pixels](
+						w.pointerPos.X-w.captureBounds.Origin.X,
+						w.pointerPos.Y-w.captureBounds.Origin.Y,
+					)
+					clickEvt := element.ClickEvent{
+						Position:      w.pointerPos,
+						LocalPosition: localPos,
+						Button:        element.MouseButton(e.Button),
+						Modifiers:     element.Modifiers(e.Modifiers),
 					}
-				}
-				localPos := geometry.NewPoint[geometry.Pixels](
-					w.pointerPos.X-hitBounds.Origin.X,
-					w.pointerPos.Y-hitBounds.Origin.Y,
-				)
-				clickEvt := element.ClickEvent{
-					Position:      w.pointerPos,
-					LocalPosition: localPos,
-					Button:        element.MouseButton(e.Button),
-					Modifiers:     element.Modifiers(e.Modifiers),
-				}
-				if listeners, ok := w.rendered.clickListeners[nodeID]; ok {
-					for _, l := range listeners {
-						if l(clickEvt) {
-							break
+					if listeners, ok := w.rendered.clickListeners[nodeID]; ok {
+						for _, l := range listeners {
+							if l(clickEvt) {
+								break
+							}
 						}
 					}
 				}
+				w.captureActive = false
 			}
-			w.downHitRegion = 0
-			w.downNodeID = 0
+
+		default:
+			hr, ok := hitTest(w.rendered.hitRegions, w.pointerPos)
+			if ok {
+				nodeID = hr.nodeID
+			}
+			if e.Phase == platform.PointerUp {
+				w.pointerDown = false
+			}
 		}
 
 		if nodeID >= 0 {
@@ -541,9 +616,8 @@ func (w *Window) DispatchEvent(event platform.Event) {
 		w.ScheduleFrame()
 
 	case platform.WheelEvent:
-		_, nodeID, _ := hitTest(w.rendered.hitRegions, w.pointerPos)
-		if nodeID >= 0 {
-			w.rendered.dispatchTree.DispatchWheel(e, nodeID)
+		if hr, ok := hitTest(w.rendered.hitRegions, w.pointerPos); ok {
+			w.rendered.dispatchTree.DispatchWheel(e, hr.nodeID)
 		}
 		w.dirty = true
 		w.ScheduleFrame()
