@@ -4,6 +4,7 @@ package d3d11_test
 
 import (
 	"math"
+	"runtime"
 	"testing"
 
 	"github.com/yasufad/facet/colour"
@@ -523,6 +524,181 @@ func TestRenderUnderlineStraightAndWavy(t *testing.T) {
 		wavyOff := pixelsWavy[int(48*scale)][int(44*scale)]
 		if !coloursMatch(wavyOff, clearBg, 0.1) {
 			t.Errorf("off wavy underline (44, 48): got %v, want %v (background)", wavyOff, clearBg)
+		}
+	})
+
+	if err := p.Run(); err != nil {
+		t.Fatalf("p.Run: %v", err)
+	}
+}
+
+// TestDrawAllocationsPerFrame reports the heap allocations a real Draw call
+// makes over a text-heavy-sized scene, so docs/audit.md item 1 — the
+// make([]quadInstance, ...) plus a second copy into the mapped buffer, once
+// per batch — has a measured before/after rather than an estimate. Before
+// this change, each of these batches allocated its own instance slice;
+// after, drawQuadBatch writes straight into the mapped GPU region and the
+// remaining allocations are the pre-existing COM call marshalling in
+// comObject.call, unrelated to the batching this task scoped.
+func TestDrawAllocationsPerFrame(t *testing.T) {
+	width, height := 400, 400
+	p, w, r, scale := setupTestWindow(t, "DrawAllocs", width, height)
+	defer w.Close()
+	defer r.Close()
+
+	p.Dispatch(func() {
+		defer p.Quit()
+
+		// Chain quad and underline bounds so each one overlaps the last:
+		// the scene's spatial tree then assigns strictly increasing draw
+		// order to every primitive, so none of them can merge into a
+		// neighbour's batch. batchPairs pairs of (quad, underline) forces
+		// 2*batchPairs distinct batches in one frame — the shape a
+		// text-heavy frame produces, where the old code allocated a fresh
+		// instance slice per batch.
+		const batchPairs = 250
+		white := colour.Rgba{R: 1, G: 1, B: 1, A: 1}
+		sc := scene.New()
+		for i := 0; i < batchPairs; i++ {
+			x := geometry.ScaledPixels(float32(i) * scale)
+			bounds := geometry.NewBounds(
+				geometry.NewPoint(x, geometry.ScaledPixels(0)),
+				geometry.NewSize(geometry.ScaledPixels(2*scale), geometry.ScaledPixels(2*scale)),
+			)
+			sc.InsertQuad(scene.Quad{Bounds: bounds, Background: white})
+			sc.InsertUnderline(scene.Underline{Bounds: bounds, Colour: white, Thickness: geometry.ScaledPixels(scale)})
+		}
+		sc.Finish()
+
+		batchCount := 0
+		for range sc.Batches() {
+			batchCount++
+		}
+		if batchCount != 2*batchPairs {
+			t.Fatalf("expected %d batches from non-mergeable chained bounds, got %d", 2*batchPairs, batchCount)
+		}
+
+		// Warm-up draw so one-time buffer creation doesn't pollute the count.
+		if err := r.Draw(sc); err != nil {
+			t.Fatalf("warm-up r.Draw: %v", err)
+		}
+
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		const iterations = 50
+		for i := 0; i < iterations; i++ {
+			if err := r.Draw(sc); err != nil {
+				t.Fatalf("r.Draw: %v", err)
+			}
+		}
+		runtime.ReadMemStats(&after)
+
+		total := after.Mallocs - before.Mallocs
+		t.Logf("%d Draw calls over a %d-batch scene: %d heap allocations total, %.2f per Draw, %.3f per batch", iterations, batchCount, total, float64(total)/iterations, float64(total)/float64(iterations*batchCount))
+	})
+
+	if err := p.Run(); err != nil {
+		t.Fatalf("p.Run: %v", err)
+	}
+}
+
+// 8b. Two quad batches with a path batch drawn between them, all sharing a
+// dynamic buffer written with a rolling NO_OVERWRITE offset (see
+// docs/audit.md item 2). Each primitive's bounds overlap its neighbour's so
+// the scene assigns them strictly increasing draw order and the batcher
+// cannot merge the two quad runs into one, forcing three separate calls to
+// dynamicBuffer.write in a single frame. A batch that reads the wrong
+// start-instance offset draws the wrong primitive's data at its own
+// location — a legal draw producing plausible-looking pixels rather than an
+// error — so this checks a point exclusive to each of the three batches
+// fails on its own if that batch's draw call used a stale or wrong offset.
+func TestRenderMultiBatchSameKindInterleaved(t *testing.T) {
+	width, height := 200, 200
+	p, w, r, scale := setupTestWindow(t, "MultiBatchInterleaved", width, height)
+	defer w.Close()
+	defer r.Close()
+
+	p.Dispatch(func() {
+		defer p.Quit()
+
+		red := colour.Rgba{R: 1.0, G: 0.0, B: 0.0, A: 1.0}
+		green := colour.Rgba{R: 0.0, G: 1.0, B: 0.0, A: 1.0}
+		blue := colour.Rgba{R: 0.0, G: 0.0, B: 1.0, A: 1.0}
+
+		sc := scene.New()
+		// Quad A: batch 1, x in [0, 70).
+		sc.InsertQuad(scene.Quad{
+			Bounds: geometry.NewBounds(
+				geometry.NewPoint[geometry.ScaledPixels](0, 0),
+				geometry.NewSize(geometry.ScaledPixels(70*scale), geometry.ScaledPixels(200*scale)),
+			),
+			Background: red,
+		})
+		// Triangle: batch 2, spans x in [50, 150), overlapping both quads so
+		// the scene orders it strictly between them.
+		sc.InsertPath(scene.Path[geometry.ScaledPixels]{
+			Bounds: geometry.NewBounds(
+				geometry.NewPoint[geometry.ScaledPixels](0, 0),
+				geometry.NewSize(geometry.ScaledPixels(float32(width)*scale), geometry.ScaledPixels(float32(height)*scale)),
+			),
+			Colour: green,
+			Vertices: []scene.PathVertex[geometry.ScaledPixels]{
+				{XYPosition: geometry.NewPoint(geometry.ScaledPixels(50*scale), geometry.ScaledPixels(0*scale))},
+				{XYPosition: geometry.NewPoint(geometry.ScaledPixels(150*scale), geometry.ScaledPixels(0*scale))},
+				{XYPosition: geometry.NewPoint(geometry.ScaledPixels(100*scale), geometry.ScaledPixels(200*scale))},
+			},
+		})
+		// Quad B: batch 3, x in [130, 200), overlapping the triangle so it
+		// sorts after it and cannot merge with quad A's batch.
+		sc.InsertQuad(scene.Quad{
+			Bounds: geometry.NewBounds(
+				geometry.NewPoint(geometry.ScaledPixels(130*scale), geometry.ScaledPixels(0)),
+				geometry.NewSize(geometry.ScaledPixels(70*scale), geometry.ScaledPixels(200*scale)),
+			),
+			Background: blue,
+		})
+		sc.Finish()
+
+		batchKinds := make([]scene.BatchKind, 0, 3)
+		for b := range sc.Batches() {
+			batchKinds = append(batchKinds, b.Kind)
+		}
+		want := []scene.BatchKind{scene.BatchQuads, scene.BatchPaths, scene.BatchQuads}
+		if len(batchKinds) != len(want) {
+			t.Fatalf("expected %d batches (quad, path, quad), got %d: %v", len(want), len(batchKinds), batchKinds)
+		}
+		for i := range want {
+			if batchKinds[i] != want[i] {
+				t.Fatalf("batch %d: got kind %v, want %v (full sequence %v)", i, batchKinds[i], want[i], batchKinds)
+			}
+		}
+
+		if err := r.Draw(sc); err != nil {
+			t.Fatalf("r.Draw: %v", err)
+		}
+
+		pixels, err := d3d11.ReadBackbuffer(r)
+		if err != nil {
+			t.Fatalf("ReadBackbuffer: %v", err)
+		}
+
+		// Batch 1 (quad A), exclusive of the triangle: x = 20.
+		gotA := pixels[int(100*scale)][int(20*scale)]
+		if !coloursMatch(gotA, red, 0.05) {
+			t.Errorf("quad A region (20, 100): got %v, want %v (batch 1 drew at the wrong offset)", gotA, red)
+		}
+
+		// Batch 2 (triangle), exclusive of both quads: x = 100, near the
+		// base where the triangle is widest.
+		gotPath := pixels[int(20*scale)][int(100*scale)]
+		if !coloursMatch(gotPath, green, 0.05) {
+			t.Errorf("triangle region (100, 20): got %v, want %v (batch 2 drew at the wrong offset)", gotPath, green)
+		}
+
+		// Batch 3 (quad B), exclusive of the triangle: x = 180.
+		gotB := pixels[int(100*scale)][int(180*scale)]
+		if !coloursMatch(gotB, blue, 0.05) {
+			t.Errorf("quad B region (180, 100): got %v, want %v (batch 3 drew at the wrong offset)", gotB, blue)
 		}
 	})
 
