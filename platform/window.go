@@ -151,6 +151,14 @@ type Window interface {
 	// The value is valid only while the window is open.
 	NativeSurface() uintptr
 
+	// SetCursor sets the pointer shape over this window. See [Cursor] for the
+	// available shapes.
+	//
+	// This is a property of the window the pointer is over, not of the
+	// application: with more than one window open, each answers for its own
+	// pointer shape independently.
+	SetCursor(shape Cursor)
+
 	// Focus makes this window the focused, foreground window.
 	Focus()
 
