@@ -55,6 +55,27 @@ func TestForegroundSpawnRunsOnUIGoroutine(t *testing.T) {
 	}
 }
 
+func TestForegroundExecutorStopClosesWakeAndIsIdempotent(t *testing.T) {
+	// window.New ranges over Pending() forever; that range must terminate
+	// when the executor stops, and a second stop (App.Close called twice)
+	// must not close an already-closed channel and panic.
+	fg := newForegroundExecutor()
+	fg.stop()
+
+	select {
+	case _, ok := <-fg.Pending():
+		if ok {
+			t.Fatal("Pending() should be closed, not deliver a value")
+		}
+	default:
+		t.Fatal("Pending() should be immediately closed after stop")
+	}
+
+	fg.stop() // must not panic
+
+	fg.enqueue(func() {}) // must not panic or block
+}
+
 func TestTaskThenRunsOnForeground(t *testing.T) {
 	app := NewApp()
 	defer app.Close()
