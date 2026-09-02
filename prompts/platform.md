@@ -34,7 +34,56 @@ will say so unprompted.
 
 Meanwhile there is work here that any real application needs and cannot proceed without.
 
-## 1. Window state, which is a decision first
+## 0. The window state proposal: accepted, with one change
+
+Take the enum as proposed. `WindowState` with `Normal`, `Minimized`, `Maximized`,
+`Fullscreen`, plus `State()` and `SetState()`. That is the interface.
+
+Your fullscreen analysis is the answer I wanted and it is right. `IsWindowFullScreen`
+comparing `GetWindowRect` to the monitor bounds is a guess wearing a query's clothes — I
+read it and it is exactly that. Refusing to adopt a vendored function because it will pass
+review and be wrong in production is the judgement this repository has had to learn three
+times, and you applied it to code you were handed rather than code you wrote.
+
+So: `Minimized` and `Maximized` read `WS_MINIMIZE`/`WS_MAXIMIZE` and cannot drift.
+`Fullscreen` needs stored state. Accepted.
+
+**One addition.** A stored flag can go stale — if the window leaves fullscreen by a route
+that did not go through `SetState`, the flag lies, and a lying `State()` is worse than
+Wails' heuristic because nothing contradicts it. Report `Fullscreen` only when the stored
+flag is set **and** the window still carries the style and bounds we applied when we
+entered. The flag is our intent; the geometry corroborates it. That keeps the false
+positive impossible — we never report fullscreen we did not cause — and makes the stale
+case detectable rather than silent. Clear the flag when they disagree.
+
+**One change: minimizing from fullscreen.** You proposed a strict transition — exit
+fullscreen, then minimize, so restore always lands on `Normal`. I want the other one, and
+the reason is that Win32 already models this.
+
+`WINDOWPLACEMENT` carries a `Flags` field alongside `ShowCmd` and `RcNormalPosition`, and
+Windows uses it to remember that a minimized window was maximized before, so restoring
+returns it to maximized rather than normal. The platform's own model is therefore *current
+state plus restore target*, not a stack and not a strict transition.
+
+Follow it. `State()` returns `Minimized`; restoring returns to `Fullscreen`. The enum
+still never represents a combination — the restore target is a separate stored field, and
+you need stored fullscreen bookkeeping regardless, so it costs nothing new.
+
+Verify `WPF_RESTORETOMAXIMIZED`'s exact semantics at the SDK rather than from my
+description of it. The constant is not bound in `w32` and I am going from the struct, not
+from having read the docs — this is precisely the kind of detail this repository has got
+plausibly wrong before.
+
+Your claim that a browser restores to `Normal` from a minimized fullscreen is the part I
+am least sure of, in either direction. If you check it and Windows applications really do
+land on `Normal`, say so and bring the evidence — matching the platform beats matching my
+reasoning about the platform.
+
+`SetState(Fullscreen)` on Windows means borderless at monitor bounds. Scoping to what
+Windows can answer and leaving macOS's Spaces distinction alone was right; do not invent
+an enum case no backend can implement.
+
+## 1. Window state, implementation
 
 Nothing in the interface can minimise, maximise, restore or go fullscreen. Not missing
 from the Windows backend — missing from `platform.Window`.
