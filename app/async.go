@@ -58,7 +58,7 @@ func (a *AsyncApp) run(f func() error) error {
 // before Update returns. It is the way a background task touches state.
 func (a *AsyncApp) Update(f func(app *App)) error {
 	return a.run(func() error {
-		if a.app.rc.shutdown {
+		if a.app.rc.isShutdown() {
 			return fmt.Errorf("app: application has been shut down")
 		}
 		a.app.update(f)
@@ -90,7 +90,7 @@ func (a *AsyncApp) Subscribe(entity AnyEntity, eventType reflect.Type, onEvent f
 func AsyncRead[R any](a *AsyncApp, f func(app *App) R) (R, error) {
 	var out R
 	err := a.run(func() error {
-		if a.app.rc.shutdown {
+		if a.app.rc.isShutdown() {
 			return fmt.Errorf("app: application has been shut down")
 		}
 		a.app.checkUI()
