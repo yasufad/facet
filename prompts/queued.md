@@ -239,9 +239,34 @@ contract is written; only the implementation is missing.
 Tray and notifications can wait. Menus wait for the window-state work, since a custom
 title bar changes what a menu bar even is.
 
-## render
+## render: the atlas free list, with a number behind it
 
-After `prompts/render.md` reports, and after `scene`'s base-mask change lands.
+`prompts/render.md` is retired; this is the one item it could not close, because the fix
+is not `render`'s alone. `render` cannot know when a tile stops being referenced — the
+reference lives in `window.glyphTileCache` — so eviction needs a way for the holder to say
+a tile is done, which is a `Renderer` interface change, and the policy belongs with
+whoever owns that cache.
+
+The measurement asked for came back: over 20,000 glyph-sized tiles, **2 pages at ~69%
+average occupancy, 58% on the final page.**
+
+That answers the question the prompt posed and the answer is the awkward one. A packer
+that filled its pages would make this purely an eviction problem. At 58% it is two
+problems: tiles are never freed, *and* the shelf packer leaves two fifths of a page on the
+floor before opening another. Sizing an eviction policy against pages that are half empty
+would tune the wrong number.
+
+So take them together, after `window` owns its caching policy: a free list keyed by the
+same tile handle, a way for the holder to release, and shelf packing measured again once
+tiles can be reclaimed — occupancy under reuse is a different number from occupancy under
+append-only growth, and it is the one the policy should be sized against.
+
+The generation tag landed this round and is what makes any of this detectable: a stale
+tile panics under `facet_debug` rather than sampling whatever overwrote it.
+
+## render: the rest
+
+After `scene`'s base-mask change lands.
 
 Four of six primitives have no producer above `scene`. That is `element`'s to fix, not
 yours, and it is above. What is yours is that the readback assertions for shadow, path
