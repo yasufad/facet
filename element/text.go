@@ -21,11 +21,10 @@ type Text struct {
 	refinement style.Refinement
 
 	// Cached layout & shaping state
-	shapedLine     *text.ShapedLine
-	lastAvailWidth layout.AvailableSpace
-	layoutID       layout.NodeID
-	bounds         geometry.Bounds[geometry.Pixels]
-	phase          drawPhase
+	shapedLine *text.ShapedLine
+	layoutID   layout.NodeID
+	bounds     geometry.Bounds[geometry.Pixels]
+	phase      drawPhase
 }
 
 // Ensure Text implements Element.
@@ -203,12 +202,17 @@ func (t *Text) RequestLayout(f Frame) NodeID {
 	}
 
 	measure := func(known layout.Size[layout.OptF32], avail layout.Size[layout.AvailableSpace]) geometry.Size[geometry.Pixels] {
-		// Only shape if we haven't shaped yet or if available width changed
-		if t.shapedLine == nil || t.lastAvailWidth != avail.Width {
+		// ShapeLine shapes one line with no wrapping, so its output for this
+		// content and style is the same at every available width. The solver
+		// calls measure several times per solve with different constraints;
+		// reshaping on each call would repeat the same work for no reason.
+		// Content and style are fixed for the lifetime of this element (they
+		// can only change before RequestLayout, which runs once), so shaping
+		// once and keeping it for every later call is the whole cache.
+		if t.shapedLine == nil {
 			line, err := f.ShapeLine(t.content, runs)
 			if err == nil {
 				t.shapedLine = &line
-				t.lastAvailWidth = avail.Width
 			}
 		}
 

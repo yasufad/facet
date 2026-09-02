@@ -117,6 +117,40 @@ func TestTextEmptyString(t *testing.T) {
 	}
 }
 
+// TestTextDoesNotReshapeOnWidthChange pins the fix for the redundant reshape
+// docs/audit.md names: ShapeLine shapes one line with no wrapping, so its
+// output for the same content and style is identical at every available
+// width, and the solver calls measure several times per solve with different
+// constraints. Reshaping keyed on width repeated the same work on most
+// frames; this asserts the shape happens exactly once regardless of how many
+// times measure is called with a different width.
+func TestTextDoesNotReshapeOnWidthChange(t *testing.T) {
+	frame := newFakeFrame()
+	frame.phase = phaseLayoutRequested
+
+	txt := NewText("The quick brown fox jumps over the lazy dog").
+		FontSize(16).
+		LineHeight(20)
+
+	nodeID := txt.RequestLayout(frame)
+	measureCb := frame.measureCallbacks[nodeID]
+	known := layout.Size[layout.OptF32]{}
+
+	for _, w := range []float32{100, 200, 300, 150, 400} {
+		avail := layout.Size[layout.AvailableSpace]{
+			Width:  layout.Definite(w),
+			Height: layout.MaxContent(),
+		}
+		if sz := measureCb(known, avail); sz.Width <= 0 {
+			t.Fatalf("invalid width at avail=%v", w)
+		}
+	}
+
+	if frame.shapeLineCalls != 1 {
+		t.Fatalf("ShapeLine called %d times across 5 different widths, want 1: reshaping on width change is back", frame.shapeLineCalls)
+	}
+}
+
 // TestTextPaintCentresGlyphsOnTallerLineHeight pins the half-leading fix: a
 // LineHeight taller than the font's own ascent+descent must split the extra
 // space evenly above and below the glyphs (CSS's rule), not leave it all

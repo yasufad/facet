@@ -49,6 +49,7 @@ type fakeFrame struct {
 	pushedClips       []geometry.Bounds[geometry.Pixels]
 	popClipCount      int
 	prepaintClipStack []geometry.Bounds[geometry.Pixels]
+	shapeLineCalls    int
 }
 
 func newFakeFrame() *fakeFrame {
@@ -277,6 +278,7 @@ func (f *fakeFrame) InsertPolychromeSprite(sp scene.PolychromeSprite) {
 }
 
 func (f *fakeFrame) ShapeLine(str string, runs []text.StyleRun) (text.ShapedLine, error) {
+	f.shapeLineCalls++
 	if f.textSys != nil {
 		return f.textSys.ShapeLine(str, runs)
 	}
