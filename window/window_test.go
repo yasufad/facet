@@ -93,6 +93,7 @@ func (w *stubPlatformWindow) NativeSurface() uintptr                          { 
 func (w *stubPlatformWindow) Focus()                                          {}
 func (w *stubPlatformWindow) IsFocused() bool                                 { return true }
 func (w *stubPlatformWindow) IsVisible() bool                                 { return true }
+func (w *stubPlatformWindow) SetCursor(shape platform.Cursor)                 {}
 func (w *stubPlatformWindow) SetEventHandler(h func(platform.Event)) {
 	w.eventHandler = h
 }
@@ -957,5 +958,299 @@ func TestWindowPushClipPrimitiveMask(t *testing.T) {
 	}
 	if childQuad.ContentMask.Bounds != expectedMask {
 		t.Fatalf("expected child quad content mask %v, got %v", expectedMask, childQuad.ContentMask.Bounds)
+	}
+}
+
+// clipTestElement registers one hit region under a prepaint clip narrower than
+// the region itself, so the region's effective (post-clip) bounds are smaller
+// than its nominal bounds — a shape no Div can produce yet, since Div does not
+// call PushClip during Prepaint. It exercises window's side of the relaxation
+// directly.
+type clipTestElement struct {
+	regionBounds geometry.Bounds[geometry.Pixels]
+	clipBounds   geometry.Bounds[geometry.Pixels]
+	clicked      bool
+}
+
+func (c *clipTestElement) RequestLayout(f element.Frame) element.NodeID {
+	return f.RequestMeasuredLayout(layout.Style{}, func(known layout.Size[layout.OptF32], avail layout.Size[layout.AvailableSpace]) geometry.Size[geometry.Pixels] {
+		return c.regionBounds.Size
+	})
+}
+
+func (c *clipTestElement) Prepaint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {
+	nodeID := f.PushDispatchNode(element.DispatchNode{
+		ClickListeners: []func(element.ClickEvent) bool{
+			func(element.ClickEvent) bool {
+				c.clicked = true
+				return true
+			},
+		},
+	})
+	f.PushClip(c.clipBounds)
+	f.RegisterHitRegion(c.regionBounds, nodeID)
+	f.PopClip()
+	f.PopDispatchNode()
+}
+
+func (c *clipTestElement) Paint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {}
+
+func TestHitRegionClippedDuringPrepaintMisses(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	el := &clipTestElement{
+		regionBounds: geometry.Bounds[geometry.Pixels]{
+			Origin: geometry.NewPoint[geometry.Pixels](0, 0),
+			Size:   geometry.NewSize[geometry.Pixels](300, 300),
+		},
+		clipBounds: geometry.Bounds[geometry.Pixels]{
+			Origin: geometry.NewPoint[geometry.Pixels](0, 0),
+			Size:   geometry.NewSize[geometry.Pixels](100, 100),
+		},
+	}
+	w.SetRoot(el)
+	w.Draw()
+
+	// (200, 200) lies within the region's nominal 300x300 bounds but outside
+	// the 100x100 clip it was registered under.
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerDown,
+		Position: geometry.NewPoint[geometry.DevicePixels](200, 200),
+		Button:   platform.PointerLeft,
+	})
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerUp,
+		Position: geometry.NewPoint[geometry.DevicePixels](200, 200),
+		Button:   platform.PointerLeft,
+	})
+	if el.clicked {
+		t.Fatal("expected click outside the prepaint clip mask to miss the hit region")
+	}
+
+	el.clicked = false
+
+	// (50, 50) lies within both the region and the clip.
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerDown,
+		Position: geometry.NewPoint[geometry.DevicePixels](50, 50),
+		Button:   platform.PointerLeft,
+	})
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerUp,
+		Position: geometry.NewPoint[geometry.DevicePixels](50, 50),
+		Button:   platform.PointerLeft,
+	})
+	if !el.clicked {
+		t.Fatal("expected click inside the prepaint clip mask to hit the region")
+	}
+}
+
+func TestPointerCaptureRoutesMoveOutsideRegionAndClearsActive(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	normalBg := colour.Rgba{R: 0.0, G: 0.0, B: 1.0, A: 1.0}
+	activeBg := colour.Rgba{R: 1.0, G: 0.0, B: 0.0, A: 1.0}
+
+	var moveEvents []geometry.Point[geometry.DevicePixels]
+
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().
+			Width(style.Px(100)).
+			Height(style.Px(100)).
+			Bg(normalBg).
+			Active(func(s *style.Refinement) {
+				s.SetBackground(activeBg)
+			}).
+			OnMouseMove(func(e input.PointerEvent, phase input.DispatchPhase) bool {
+				if e.Phase == platform.PointerMove {
+					moveEvents = append(moveEvents, e.Position)
+				}
+				return false
+			})
+	})
+	w.Draw()
+
+	// Press inside the region: begins capture, and the frame after paints active.
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerDown,
+		Position: geometry.NewPoint[geometry.DevicePixels](50, 50),
+		Button:   platform.PointerLeft,
+	})
+	w.Draw()
+	if len(r.quads) != 1 || r.quads[0].Background != activeBg {
+		t.Fatalf("expected active background %v while pressed inside region, got %v", activeBg, r.quads[0].Background)
+	}
+
+	// Move far outside the region (and the window). The capture must still
+	// route the move to the pressed node, and IsActive must go false because
+	// the pointer has left the captured region's bounds.
+	outside := geometry.NewPoint[geometry.DevicePixels](5000, 5000)
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerMove,
+		Position: outside,
+	})
+
+	// The listener fires once per dispatch phase (capture, then bubble).
+	if len(moveEvents) != 2 || moveEvents[0] != outside || moveEvents[1] != outside {
+		t.Fatalf("expected the captured node to receive the move event at %v, got %v", outside, moveEvents)
+	}
+
+	w.Draw()
+	if len(r.quads) != 1 || r.quads[0].Background != normalBg {
+		t.Fatalf("expected reverted background %v (IsActive false) once the pointer left the captured bounds, got %v", normalBg, r.quads[0].Background)
+	}
+}
+
+func TestPointerDownOnUnfocusableElementLeavesFocusAlone(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	focusID := input.NewFocusID()
+	buttonClicked := false
+
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().
+			Width(style.Px(400)).
+			Height(style.Px(300)).
+			Children(
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(50)).
+					TrackFocus(focusID),
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(50)).
+					MarginLeft(style.Px(50)).
+					OnClick(func(element.ClickEvent) bool {
+						buttonClicked = true
+						return true
+					}),
+			)
+	})
+	w.Draw()
+
+	// Focus the field.
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerDown,
+		Position: geometry.NewPoint[geometry.DevicePixels](50, 25),
+		Button:   platform.PointerLeft,
+	})
+	w.Draw()
+	if focused, ok := w.focusTree.Focused(); !ok || focused != focusID {
+		t.Fatalf("expected field %v to be focused, got (%v, %v)", focusID, focused, ok)
+	}
+
+	// Click the button, which registers no focus id (default row layout
+	// places it to the right of the field, at x >= 150).
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerDown,
+		Position: geometry.NewPoint[geometry.DevicePixels](200, 25),
+		Button:   platform.PointerLeft,
+	})
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerUp,
+		Position: geometry.NewPoint[geometry.DevicePixels](200, 25),
+		Button:   platform.PointerLeft,
+	})
+	w.Draw()
+
+	if !buttonClicked {
+		t.Fatal("expected the button's click handler to fire")
+	}
+	if focused, ok := w.focusTree.Focused(); !ok || focused != focusID {
+		t.Fatalf("expected focus to remain on field %v after clicking an unfocusable button, got (%v, %v)", focusID, focused, ok)
+	}
+}
+
+func TestReentrantDrawPanics(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	assertPanic(t, "Draw called re-entrantly from within measure", func() {
+		w.SetRootFn(func() element.Element {
+			return &testMeasureElement{
+				onMeasure: func(f element.Frame) {
+					w.Draw()
+				},
+			}
+		})
+		w.Draw()
+	})
+}
+
+func TestNilRootDrawLeavesFrameConsistent(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	// Frame 1: root renders content.
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().Width(style.Px(100)).Height(style.Px(100)).
+			Bg(colour.Rgba{R: 1, G: 0, B: 0, A: 1})
+	})
+	w.Draw()
+	if len(r.quads) != 1 {
+		t.Fatalf("expected 1 quad after first frame, got %d", len(r.quads))
+	}
+	if r.presents != 1 {
+		t.Fatalf("expected 1 present after first frame, got %d", r.presents)
+	}
+
+	// Frame 2: root renders nil. The window must still complete a full frame
+	// cycle — present an empty scene rather than leaving frame 1's stale
+	// content or half-updated state behind.
+	w.SetRootFn(func() element.Element { return nil })
+	w.dirty = true
+	w.Draw()
+
+	if w.phase != phaseNone {
+		t.Fatalf("expected phaseNone after a nil-root Draw, got %v", w.phase)
+	}
+	if w.dirty {
+		t.Fatal("expected dirty to be cleared after a nil-root Draw")
+	}
+	if r.presents != 2 {
+		t.Fatalf("expected a second present for the empty frame, got %d", r.presents)
+	}
+	if len(r.quads) != 0 {
+		t.Fatalf("expected the empty frame to present 0 quads, got %d", len(r.quads))
+	}
+
+	// A further Draw() must not panic or misbehave: the window is left in a
+	// state a completed frame would leave it in, not a half-drawn one.
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().Width(style.Px(50)).Height(style.Px(50)).
+			Bg(colour.Rgba{R: 0, G: 1, B: 0, A: 1})
+	})
+	w.dirty = true
+	w.Draw()
+	if len(r.quads) != 1 {
+		t.Fatalf("expected 1 quad after recovering from a nil-root frame, got %d", len(r.quads))
 	}
 }
