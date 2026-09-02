@@ -64,6 +64,19 @@ Both take `cx.WeakEntity()` and `cx.App()` at registration, and at dispatch time
 `app.UpdateEntity`, call `f`, release. A handler whose view has been dropped upgrades to
 nothing and reports the event unhandled; it must not panic.
 
+This is confirmed against GPUI now rather than inferred. `Context::listener` in
+`crates/gpui/src/app/context.rs` is the same body: downgrade at render time, upgrade and
+`update` at dispatch time, and a dropped view is a silent no-op. `docs/audit.md` quotes
+it. I also built the adapter against today's `app` and ran it — the increment persists
+across two dispatches and `cx.Notify()` from inside it reaches an observer, so the redraw
+path is intact. Nothing in `app` has to move first.
+
+One divergence, deliberate. GPUI's plain handler signature is
+`Fn(&E, &mut Window, &mut App)` — the App is threaded through the callback because the
+borrow checker gives the closure no other way to reach it. Go has no such constraint, so
+the adapter captures `cx.App()` and no signature gains a parameter. If someone later
+proposes matching upstream by passing the app to handlers, this is the reason not to.
+
 `PhasedListener`'s return type is assignable to `input.KeyEventHandler` and its three
 siblings, so no signature on `Div` changes and neither does `input` or `window`.
 
@@ -84,6 +97,27 @@ observes it and notifies itself, "explicit and one line". That line needs a `Con
 So `Render` still runs inside an update, and that remains the underlying hazard. These
 helpers are the mitigation at the one place it bites. Say so in the doc comment, so
 nobody reads them as sugar.
+
+## What the handler still cannot do
+
+GPUI hands its callbacks `&mut Window` alongside the view and the context. Ours get
+`*app.Context[T]` and nothing else, which covers state and `Notify` — I checked that a
+`Notify` from inside the adapter reaches an observer, so a handler can change state and
+get a frame. It does not cover the window. `Frame.RequestFocus` and `Frame.SetCursor` are
+paint-phase methods on an object that does not exist during dispatch, so a handler cannot
+move focus, and "clicking this text field focuses it" has no route.
+
+That is a gap and not a defect in what you are building; the fix is a window-side seam
+and `window` is not being asked for one this round. Do not invent a way round it —
+capturing a `Frame` would be the same class of mistake the listeners exist to fix, since
+a `Frame` is per-frame state and the closure outlives the frame. Build the listeners
+without it, and if the tests you write for them make the absence bite, report that.
+Naming the shape you would want is more useful to me than a workaround.
+
+Focus today moves on pointer-down through `window`'s hit-region path, which is also where
+the blur bug lives — clicking a button blurs the text field beside it, because a button
+registers a hit region and has no focus id. That belongs to `window`. Mentioning it so
+you do not chase it from this side.
 
 ## Also outstanding
 
