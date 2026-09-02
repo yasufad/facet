@@ -10,6 +10,11 @@
 // for WM_MOUSE* messages) and WHEEL_DELTA (the wheel delta for one notch).
 // Wails does not define these because its webview handles mouse input;
 // Facet's wndproc needs them to translate WM_MOUSEWHEEL and WM_XBUTTONDOWN.
+//
+// Also added WM_IME_STARTCOMPOSITION, WM_IME_COMPOSITION and
+// WM_IME_ENDCOMPOSITION. Wails' webview owns IME composition itself; Facet's
+// wndproc needs these to translate composition state into
+// platform.IMECompositionEvent.
 
 /*
  * Copyright (C) 2019 The Winc Authors. All Rights Reserved.
@@ -480,6 +485,9 @@ const (
 	WM_HSCROLL                = 276
 	WM_HSCROLLCLIPBOARD       = 782
 	WM_ICONERASEBKGND         = 39
+	WM_IME_STARTCOMPOSITION   = 0x010D
+	WM_IME_ENDCOMPOSITION     = 0x010E
+	WM_IME_COMPOSITION        = 0x010F
 	WM_INITDIALOG             = 272
 	WM_INITMENU               = 278
 	WM_INITMENUPOPUP          = 279
