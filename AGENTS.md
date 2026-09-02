@@ -232,6 +232,18 @@ package. Say plainly that it was yours.
 landing in the wrong order. The rules under "Working alongside other agents" are each
 an incident.
 
+**Verify at HEAD, not in the working tree.** Several agents share this checkout, so
+`go build ./...` here reports whatever half-finished files they have open. Reviewing
+`input`, I read a broken `element/listener.go`, an unformatted `render/d3d11/com.go` and
+a modified `app` as that round's failures; all three were uncommitted work belonging to
+someone else, and `main` was clean. Check out HEAD somewhere of its own and run the
+commands there:
+
+    git worktree add --detach <scratch>/head-check HEAD
+
+Then remove it. A verdict on a package is a verdict on what it committed, and this is the
+only way to see that alone.
+
 ## Documentation
 
 Prose lives in `docs/`, lower-case filenames. State what we do. Explain why only
