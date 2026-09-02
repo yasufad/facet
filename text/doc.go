@@ -40,6 +40,11 @@
 //     magnitude in weight. Nothing invalidates an entry early: a face, a
 //     resolved glyph and a wrap width are all immutable for as long as they
 //     are valid cache inputs, so an entry is correct until it is evicted.
+//   - A ShapedLine returned to a caller never aliases lineCache's own copy.
+//     ShapedRun.Glyphs is exported and its elements are mutable, so a caller
+//     free to mutate a glyph in what it was handed could otherwise corrupt
+//     every other caller sharing that cache entry. ShapeLine and WrapText pay
+//     a slice copy on every call, hit or miss, to keep that impossible.
 //   - A request is for text, not for a font. When a face lacks a glyph for a
 //     rune, a fallback face is selected per rune so that something always
 //     draws; the shaped run records which face each glyph came from.
