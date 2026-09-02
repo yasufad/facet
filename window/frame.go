@@ -157,10 +157,14 @@ func (w *Window) PopDispatchNode() {
 	w.next.dispatchTree.PopNode()
 }
 
-// RegisterHitRegion commits a hit region into the in-flight frame.
+// RegisterHitRegion commits a hit region into the in-flight frame, clipped to
+// the prepaint clip mask in force at the call site.
 func (w *Window) RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], nodeID input.DispatchNodeID) element.HitRegionID {
 	if w.phase != phasePrepaint {
 		panic(fmt.Sprintf("window: RegisterHitRegion called in phase %v (expected phasePrepaint)", w.phase))
+	}
+	if len(w.prepaintClipStack) > 0 {
+		bounds = bounds.Intersect(w.prepaintClipStack[len(w.prepaintClipStack)-1])
 	}
 	w.nextHitRegionID++
 	id := w.nextHitRegionID
@@ -221,37 +225,55 @@ func (w *Window) RequestFocus(id input.FocusID) {
 	w.ScheduleFrame()
 }
 
-// PushClip pushes a content clip mask onto the scene clip stack.
+// PushClip pushes a content clip mask onto the clip stack for the current
+// phase. Valid during prepaint, where it confines the bounds later intersected
+// into RegisterHitRegion, and during paint, where it also confines painted
+// primitives via the scene clip stack. The two stacks are independent: the
+// scene takes no primitives during prepaint, so a prepaint push does not touch
+// it.
 func (w *Window) PushClip(bounds geometry.Bounds[geometry.Pixels]) {
-	if w.phase != phasePaint {
-		panic(fmt.Sprintf("window: PushClip called in phase %v (expected phasePaint)", w.phase))
+	switch w.phase {
+	case phasePrepaint:
+		if len(w.prepaintClipStack) > 0 {
+			bounds = bounds.Intersect(w.prepaintClipStack[len(w.prepaintClipStack)-1])
+		}
+		w.prepaintClipStack = append(w.prepaintClipStack, bounds)
+	case phasePaint:
+		scale := w.scaleFactor
+		scaledBounds := geometry.Bounds[geometry.ScaledPixels]{
+			Origin: geometry.Point[geometry.ScaledPixels]{
+				X: bounds.Origin.X.Scale(scale),
+				Y: bounds.Origin.Y.Scale(scale),
+			},
+			Size: geometry.Size[geometry.ScaledPixels]{
+				Width:  bounds.Size.Width.Scale(scale),
+				Height: bounds.Size.Height.Scale(scale),
+			},
+		}
+		w.clipDepth++
+		w.next.scene.PushClip(scene.ContentMask[geometry.ScaledPixels]{
+			Bounds: scaledBounds,
+		})
+	default:
+		panic(fmt.Sprintf("window: PushClip called in phase %v (expected phasePrepaint or phasePaint)", w.phase))
 	}
-	scale := w.scaleFactor
-	scaledBounds := geometry.Bounds[geometry.ScaledPixels]{
-		Origin: geometry.Point[geometry.ScaledPixels]{
-			X: bounds.Origin.X.Scale(scale),
-			Y: bounds.Origin.Y.Scale(scale),
-		},
-		Size: geometry.Size[geometry.ScaledPixels]{
-			Width:  bounds.Size.Width.Scale(scale),
-			Height: bounds.Size.Height.Scale(scale),
-		},
-	}
-	w.clipDepth++
-	w.next.scene.PushClip(scene.ContentMask[geometry.ScaledPixels]{
-		Bounds: scaledBounds,
-	})
 }
 
-// PopClip pops the top content clip mask from the scene clip stack.
+// PopClip pops the top content clip mask from the clip stack for the current phase.
 func (w *Window) PopClip() {
-	if w.phase != phasePaint {
-		panic(fmt.Sprintf("window: PopClip called in phase %v (expected phasePaint)", w.phase))
+	switch w.phase {
+	case phasePrepaint:
+		if len(w.prepaintClipStack) > 0 {
+			w.prepaintClipStack = w.prepaintClipStack[:len(w.prepaintClipStack)-1]
+		}
+	case phasePaint:
+		if w.clipDepth > 0 {
+			w.clipDepth--
+		}
+		w.next.scene.PopClip()
+	default:
+		panic(fmt.Sprintf("window: PopClip called in phase %v (expected phasePrepaint or phasePaint)", w.phase))
 	}
-	if w.clipDepth > 0 {
-		w.clipDepth--
-	}
-	w.next.scene.PopClip()
 }
 
 // InsertQuad adds a quad primitive to the in-flight frame scene.
