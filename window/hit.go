@@ -8,6 +8,7 @@ import (
 )
 
 // hitRegion records a hit-testable bounding rectangle registered during prepaint.
+// bounds is already clipped to the prepaint clip mask in force at registration.
 type hitRegion struct {
 	id      element.HitRegionID
 	bounds  geometry.Bounds[geometry.Pixels]
@@ -17,13 +18,12 @@ type hitRegion struct {
 }
 
 // hitTest resolves pt against regions in reverse insertion order (back to front),
-// returning the topmost matching hit region and dispatch node identifier.
-func hitTest(regions []hitRegion, pt geometry.Point[geometry.Pixels]) (element.HitRegionID, input.DispatchNodeID, bool) {
+// returning the topmost matching hit region.
+func hitTest(regions []hitRegion, pt geometry.Point[geometry.Pixels]) (hitRegion, bool) {
 	for i := len(regions) - 1; i >= 0; i-- {
-		r := regions[i]
-		if r.bounds.Contains(pt) {
-			return r.id, r.nodeID, true
+		if regions[i].bounds.Contains(pt) {
+			return regions[i], true
 		}
 	}
-	return 0, -1, false
+	return hitRegion{}, false
 }
