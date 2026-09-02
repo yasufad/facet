@@ -69,6 +69,10 @@ w32/
       window size from a wanted client size at the correct per-monitor
       DPI, rather than assuming the primary display's scale.
 
+      Also added IsIconic, alongside the existing IsZoomed. Wails'
+      webview never needs to distinguish a minimized window from a
+      restored one; Facet's platform.Window.State() does.
+
     ole32.go
       Removed RegisterDragDrop and RevokeDragDrop, along with the
       combridge import. They depended on Wails' webview2 COM bridge,
