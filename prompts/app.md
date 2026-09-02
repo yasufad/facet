@@ -1,103 +1,88 @@
-# app: OnRelease stopped firing, and main is red
+# app: the concurrency paths nothing exercises
 
-Both parts of the round landed and the pointer storage is right. One thing is broken on
-`main` and it is broken silently, which is the failure mode this round existed to remove.
+Last round is closed. `OnRelease` fires again, the swallow is a panic pinned by a test
+that fails when reverted, and the executor terminates. I checked the panic fix and found
+something better than you claimed for it: reverting the assertion to `value.(T)` no longer
+compiles, because `onRelease` takes `*T` directly now. The bug that took `OnRelease` out
+for a round is a compile error rather than a runtime one. Say that on the function if it
+is not already there — it is the kind of property that gets lost in the next refactor.
 
-## 1. OnRelease never fires
+Two of the three items below are defects by inspection with no test that can see them, and
+the third is a decision I have been deferring and should stop deferring.
 
-`go test ./app` fails at HEAD, on both tags:
+## 1. AsyncApp.Update after App.Close blocks for ever
 
-    --- FAIL: TestOnReleaseFiresOnDrop
-        entity_test.go:108: OnRelease callback did not fire when the entity was dropped
-    --- FAIL: TestOnReleaseCascadesHandleDrop
-        entity_test.go:139: owned entity should have been dropped when its owner was dropped
+`run` enqueues a closure and blocks on a result channel. The shutdown check that returns
+"application has been shut down" is *inside* that closure, so it only runs if something
+drains a queue nothing is draining any more.
 
-The map now stores `*T`. `ReadEntity` and `UpdateEntity` were both updated to assert
-`v.(*T)`. This was not:
+The error path the doc comment promises is unreachable. Check before the enqueue.
 
-```go
-return c.app.onRelease(AnyEntity{id: id}, func(value any, app *App) {
-    t, ok := value.(T)
-    if !ok {
-        return
-    }
-    onRelease(&t, app)
-})
-```
+## 2. rc.shutdown is read without its mutex
 
-`value` is a `*T`, the assertion fails, and `if !ok { return }` swallows it. No panic, no
-log, no diagnostic — the callback simply never runs.
+`async.go:51` and `:83` read `rc.shutdown` from background goroutines while `markShutdown`
+writes it under `r.mu`. A race by inspection, on the one type documented as crossing await
+points.
 
-Fix the assertion, and then fix the swallow, because the swallow is the real defect. A
-failed type assertion here means the entity map holds something other than what this
-entity's type says it holds, which is a programmer error with no recovery — exactly the
-case `AGENTS.md` says to panic on. `ReadEntity` and `UpdateEntity` already panic with a
-message naming the id and the type. This should read the same way. Had it done so, the
-two tests would have failed with a message pointing straight at the cause instead of at a
-callback that did not run.
+No test exercises concurrent shutdown, and item 1 is why: the obvious test deadlocks
+before the read ever happens. Fix 1 first, then write the test that would have caught
+both, and run it under `-race`. A race the race detector cannot reach because the code
+deadlocks first is worse than one it can.
 
-Grep the package for every remaining assertion on a value out of the map before you call
-this done. Two of three were updated; the one that was not is the one with no panic on the
-failure path, which is not a coincidence — the compiler could not help, and neither could
-the code.
+## 3. Decide the ownership model
 
-## 2. One commit contained two rounds
+I have deferred this twice and said both times it would be decided soon. Deferring it
+again costs more than deciding it, so this round it gets an answer.
 
-`8cec6a5` is titled "make the goroutine-identity check a facet_debug-only guarantee". Its
-diff also contains the whole of part 1 — `insert(id, &value)`, both assertion changes, and
-the new doc comments about aliasing.
+`Entity[T]` is reference counted by hand. Go has no destructor, so a missed `Release`
+leaks the entity and every observer registered against it with no diagnostic, and a double
+`Release` panics somewhere unrelated to the mistake. `Context.Observe` spends four
+refcount operations per observer per notification and carries a comment explaining which
+handles are borrows.
 
-I tried to bisect the `OnRelease` failure and got an incoherent answer, because the commit
-that introduced the storage change does not say it did. `AGENTS.md` asks for one file per
-commit so that diffs stay reviewable; the deeper reason is that a commit whose subject
-does not describe its diff cannot be bisected, and this is the first time that has
-actually cost something here.
+What changed since I last deferred it: `element.Listener` landed, and it does an `Upgrade`
+and a deferred `Release` **per event**. Manual pairing is no longer confined to setup code
+holding a few long-lived handles; it is on the pointer-move path. I also removed that
+`defer` in review and no test in the tree noticed.
 
-Nothing to undo — the history stands. Land the fix above as its own commit that says what
-it does.
+So the question is live and it is not mine to answer from the outside. **Spike it and
+report before changing anything.** Specifically:
 
-## What is right
+Does `weak.Pointer[T]` plus `runtime.AddCleanup` actually express what the entity map
+wants — the map owns the value, handles are ordinary reachable references, an entity drops
+when nothing can reach it? The parts I want measured rather than argued: whether a cleanup
+can run `OnRelease` at all, given it runs on a separate goroutine and every exported entry
+point here asserts the UI goroutine; whether the lease survives, since leasing takes the
+value out of the map and a weak reference to something temporarily unreachable is exactly
+the case to get wrong; and what a notification costs afterwards against the four refcount
+operations it costs now.
 
-The pointer storage is correct and the doc comments you added around it are the best
-prose in the package. Both of these say something a caller could not otherwise know:
+If it does not work, that is a good answer and I want the reason written down, because it
+will be asked again. If it does, it is a large change and it lands on its own, with
+`element` and `ui` told first.
 
-    // The returned pointer aliases the value stored in the entity map, so a write
-    // through it is visible to every other reader.
+Do not start the migration inside this round. The spike is the deliverable.
 
-    // The pointer f receives is the one stored in the entity map, not the address
-    // of a copy: a handler that captures it and writes later ... writes to the real
-    // entity.
+## 4. Small, and it belongs with 1 and 2
 
-The `checkUI` split is right too, and the rewritten explanation in `goroutine.go` is
-honest about the gap it opens rather than glossing it — including the sentence saying a
-release build now has no protection against a live context used from the wrong goroutine.
-That paragraph is what the prompt meant by prose being part of the guarantee.
+`NewApp` binds the UI goroutine to whichever goroutine constructs it, and nothing says so.
+Every `AsyncApp` operation reaches `app.update` and its goroutine check, which only
+succeeds if the foreground queue is drained on that same goroutine. `examples/button` is
+correct by accident of ordering. Build an `App` anywhere else and every background update
+panics from inside the platform dispatcher, naming neither mistake.
 
-One consequence to keep in view, since your part 1 note now makes it live: a handler that
-captures the leased pointer and writes to it after the update ends now *lands* its write
-instead of losing it. `element` has landed `Listener`, so there is a correct way to write
-that handler, but the incorrect way is quieter than it was. `Context.checkGeneration`
-staying in release is what still makes it loud, and it must not follow `checkUI` behind
-the tag.
-
-## 3. Then the executor
-
-Unchanged from last round and not yet done. `ForegroundExecutor.stop` closes `done`, not
-`wake`, so `window.New`'s goroutine ranging over `Pending()` never ends and holds the
-platform, the app and the window alive for the process lifetime. `stop` also lacks the
-`sync.Once` its background counterpart has, so a second `App.Close` panics on a closed
-channel.
-
-Close `wake` under a `sync.Once`, make `stop` idempotent, and check the send path does not
-panic after shutdown. Say in the commit that `window` can now range to completion —
-`window` has landed its round and will pick that up.
+State the invariant on `NewApp`. Then decide whether it can be checked rather than only
+documented — a constructor that records its goroutine and a `Drain` that panics when
+called from another one would catch it at the point of the error instead of three frames
+later.
 
 ## Done when
 
     go test ./app
     go test -tags facet_debug ./app
+    go test -race ./app
 
-both pass. Break the assertion fix and confirm the two `OnRelease` tests fail — and check
-they fail with a message that names the cause, not one that says a callback did not run.
+all pass, with a concurrent-shutdown test that reaches the read in item 2 rather than
+deadlocking before it, and that fails under `-race` if the mutex is removed.
 
-The executor tests close a window's foreground queue and observe the range return.
+The spike is reported, with numbers, before anything in item 3 is written.

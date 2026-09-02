@@ -113,30 +113,6 @@ The base-mask change, then the half-open against inclusive edge mismatch.
 Separately: `boundsTree.clear` resets the node slice but each internal node's children
 slice is freshly allocated on the next frame's inserts, on a per-frame path.
 
-## app
-
-After `prompts/app.md` reports. Same files.
-
-**`AsyncApp.Update` after `App.Close` blocks for ever.** `run` enqueues the closure and
-then blocks on a result channel, and the shutdown check that returns "application has
-been shut down" sits inside that closure, so it only runs if something drains a queue
-nothing is draining any more. The error path the doc comment promises cannot be reached.
-Check before the enqueue.
-
-**`rc.shutdown` is read without its mutex** at `async.go:51` and `:83`, from background
-goroutines, while `markShutdown` writes it under `r.mu`. A race by inspection, on the one
-type documented as crossing await points. No test exercises concurrent shutdown, and the
-deadlock above stops the reads happening at all in the obvious one, so write the test
-that would have caught both.
-
-**`NewApp` binds the UI goroutine to its caller and nothing says which caller that must
-be.** Every `AsyncApp` operation reaches `app.update` and its `checkUI`, which only
-succeeds if the foreground queue is drained on the constructing goroutine.
-`examples/button` is correct by accident of ordering. Build the App anywhere else and
-every background update panics from inside the platform dispatcher, naming neither
-mistake. State the invariant on `NewApp`, and decide whether it can be checked rather
-than only documented.
-
 ## input
 
 After `prompts/input.md` reports.
