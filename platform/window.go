@@ -116,6 +116,24 @@ type Window interface {
 	// SetAlwaysOnTop controls whether the window stays above other windows.
 	SetAlwaysOnTop(onTop bool)
 
+	// State reports which of [WindowState]'s four states the window is
+	// currently in. Minimized and Maximized are read from the operating
+	// system directly and cannot drift from what the user or window manager
+	// did; Fullscreen is a state the backend applied itself (Windows has no
+	// native concept of it) and is reported only while the window still
+	// carries the geometry the backend set when entering it — see
+	// [Window.SetState].
+	State() WindowState
+
+	// SetState transitions the window to state. Leaving Fullscreen restores
+	// the size, position and decoration the window had before entering it.
+	// Minimizing does not change what SetState(WindowNormal) will later
+	// restore to — a fullscreen window that gets minimized comes back
+	// fullscreen, matching how Windows already keeps a maximized window
+	// maximized across a minimize/restore cycle without any extra state to
+	// track: minimizing never touches the geometry State reads back.
+	SetState(state WindowState)
+
 	// SetBackground sets the colour the client area is cleared to.
 	SetBackground(c colour.Rgba)
 
