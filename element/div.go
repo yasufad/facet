@@ -929,10 +929,19 @@ func (d *Div) Prepaint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		d.interactivity.hitRegionID = f.RegisterHitRegion(d.bounds, nodeID)
 	}
 
+	clips := st.Overflow.X != style.OverflowVisible || st.Overflow.Y != style.OverflowVisible
+	if clips {
+		f.PushClip(bounds)
+	}
+
 	for i, child := range d.children {
 		childLayoutID := d.childLayoutIDs[i]
 		childBounds := f.LayoutBounds(childLayoutID)
 		child.Prepaint(f, childBounds)
+	}
+
+	if clips {
+		f.PopClip()
 	}
 
 	if hasDispatch {

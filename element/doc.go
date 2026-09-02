@@ -196,13 +196,18 @@
 //
 // # Clipping and Overflow
 //
-// Frame exposes PushClip and PopClip (valid in the paint phase only) to confine child
-// primitives to container bounds. scene intersects nested clips automatically.
+// Frame exposes PushClip and PopClip in both prepaint and paint, against two
+// independent stacks: a prepaint push confines the bounds RegisterHitRegion
+// intersects against, and a paint push also confines painted primitives via
+// scene's clip stack, which intersects nested clips automatically.
 //
 // Div honours style.Overflow: when overflow is Hidden, Clip, or Scroll, Div pushes its
-// bounds onto the clip stack before painting its children and pops it immediately
-// afterwards. Under facet_debug, window verifies that the clip stack is completely empty
-// at the end of paint, panicking if an element pushed a clip without balancing it.
+// bounds onto the clip stack around both its Prepaint and its Paint children, popping
+// immediately afterwards in each. The prepaint push is what keeps a hit region scrolled
+// out of an overflow-hidden container from registering at all, rather than registering
+// and then being drawn over; without it the region is invisible and still clickable.
+// Under facet_debug, window verifies that the clip stack is completely empty at the end
+// of paint, panicking if an element pushed a clip without balancing it.
 //
 // At a baseline of 1,000 elements per frame, unmanaged heap allocation produces
 // ~640 KB of garbage per frame (~38 MB/s at 60 fps). While the CPU time fits within

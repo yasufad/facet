@@ -84,12 +84,15 @@ type Frame interface {
 	// RequestFocus moves keyboard focus to the node identified by id.
 	RequestFocus(id input.FocusID)
 
-	// PushClip pushes a content clip mask onto the scene clip stack.
-	// Valid during the paint phase only.
+	// PushClip pushes a content clip mask for the current phase. Valid during
+	// prepaint, where it confines the bounds RegisterHitRegion intersects
+	// against, and during paint, where it also confines painted primitives via
+	// the scene clip stack. The two stacks are independent, so a prepaint push
+	// does not touch the scene.
 	PushClip(bounds geometry.Bounds[geometry.Pixels])
 
-	// PopClip removes the top content clip mask from the scene clip stack.
-	// Valid during the paint phase only.
+	// PopClip removes the top content clip mask for the current phase. Valid
+	// during prepaint and paint; see PushClip.
 	PopClip()
 
 	// InsertQuad adds a quad primitive to the frame's scene.

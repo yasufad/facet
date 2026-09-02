@@ -37,17 +37,18 @@ type fakeFrame struct {
 	activeHitRegions  map[HitRegionID]bool
 	focusedIDs        map[input.FocusID]bool
 
-	quads          []scene.Quad
-	shadows        []scene.Shadow
-	paths          []scene.Path[geometry.ScaledPixels]
-	underlines     []scene.Underline
-	monoSprites    []scene.MonochromeSprite
-	polySprites    []scene.PolychromeSprite
-	textSys        *text.System
-	textStyleStack []style.TextStyle
-	clips          []geometry.Bounds[geometry.Pixels]
-	pushedClips    []geometry.Bounds[geometry.Pixels]
-	popClipCount   int
+	quads             []scene.Quad
+	shadows           []scene.Shadow
+	paths             []scene.Path[geometry.ScaledPixels]
+	underlines        []scene.Underline
+	monoSprites       []scene.MonochromeSprite
+	polySprites       []scene.PolychromeSprite
+	textSys           *text.System
+	textStyleStack    []style.TextStyle
+	clips             []geometry.Bounds[geometry.Pixels]
+	pushedClips       []geometry.Bounds[geometry.Pixels]
+	popClipCount      int
+	prepaintClipStack []geometry.Bounds[geometry.Pixels]
 }
 
 func newFakeFrame() *fakeFrame {
@@ -149,6 +150,9 @@ func (f *fakeFrame) RegisterHitRegion(bounds geometry.Bounds[geometry.Pixels], n
 	if f.phase != phasePrepainted {
 		panic("fakeFrame: RegisterHitRegion called outside prepaint phase")
 	}
+	if len(f.prepaintClipStack) > 0 {
+		bounds = bounds.Intersect(f.prepaintClipStack[len(f.prepaintClipStack)-1])
+	}
 	f.nextHitRegionID++
 	id := f.nextHitRegionID
 	f.hitRegions = append(f.hitRegions, recordedHitRegion{
@@ -188,20 +192,33 @@ func (f *fakeFrame) RequestFocus(id input.FocusID) {
 }
 
 func (f *fakeFrame) PushClip(bounds geometry.Bounds[geometry.Pixels]) {
-	if f.phase != phasePainted {
-		panic("fakeFrame: PushClip called outside paint phase")
+	switch f.phase {
+	case phasePrepainted:
+		if len(f.prepaintClipStack) > 0 {
+			bounds = bounds.Intersect(f.prepaintClipStack[len(f.prepaintClipStack)-1])
+		}
+		f.prepaintClipStack = append(f.prepaintClipStack, bounds)
+	case phasePainted:
+		f.clips = append(f.clips, bounds)
+		f.pushedClips = append(f.pushedClips, bounds)
+	default:
+		panic("fakeFrame: PushClip called outside prepaint or paint phase")
 	}
-	f.clips = append(f.clips, bounds)
-	f.pushedClips = append(f.pushedClips, bounds)
 }
 
 func (f *fakeFrame) PopClip() {
-	if f.phase != phasePainted {
-		panic("fakeFrame: PopClip called outside paint phase")
-	}
-	f.popClipCount++
-	if len(f.clips) > 0 {
-		f.clips = f.clips[:len(f.clips)-1]
+	switch f.phase {
+	case phasePrepainted:
+		if len(f.prepaintClipStack) > 0 {
+			f.prepaintClipStack = f.prepaintClipStack[:len(f.prepaintClipStack)-1]
+		}
+	case phasePainted:
+		f.popClipCount++
+		if len(f.clips) > 0 {
+			f.clips = f.clips[:len(f.clips)-1]
+		}
+	default:
+		panic("fakeFrame: PopClip called outside prepaint or paint phase")
 	}
 }
 
