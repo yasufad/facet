@@ -83,12 +83,10 @@ type Platform interface {
 	// Clipboard returns the system clipboard.
 	Clipboard() Clipboard
 
-	// SetCursor sets the pointer shape over the active window. See [Cursor]
-	// for the available shapes.
-	SetCursor(shape Cursor)
-
 	// SetCursorVisible shows or hides the pointer. Hiding is per-application;
-	// the pointer returns when the application exits.
+	// the pointer returns when the application exits. The pointer shape
+	// itself is a property of whichever window it is over — see
+	// [Window.SetCursor] — not of the application.
 	SetCursorVisible(visible bool)
 
 	// SetApplicationMenu sets the global application menu. On platforms with a

@@ -130,8 +130,8 @@
 //     survive after an element leaves the tree.
 //
 //   - Pointer cursor resolution: Cursor shape is resolved in Step 5 (intra-frame
-//     hit test) from the hovered hit region's cursor property. The window updates
-//     platform.Platform.SetCursor once per frame only when the cursor shape
+//     hit test) from the hovered hit region's cursor property. The window calls
+//     platform.Window.SetCursor once per frame only when the cursor shape
 //     actually changes, eliminating redundant OS syscalls and mouse flicker during
 //     continuous pointer motion within the same element.
 //

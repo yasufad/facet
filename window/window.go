@@ -491,8 +491,8 @@ func (w *Window) setCursor(cursor style.CursorStyle) {
 	platCursor := cursorStyleToPlatform(cursor)
 	if platCursor != w.currentCursor {
 		w.currentCursor = platCursor
-		if w.platform != nil {
-			w.platform.SetCursor(platCursor)
+		if w.platformWindow != nil {
+			w.platformWindow.SetCursor(platCursor)
 		}
 	}
 }

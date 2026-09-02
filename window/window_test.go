@@ -65,6 +65,7 @@ type stubPlatformWindow struct {
 	pos          geometry.Point[geometry.Pixels]
 	scale        float32
 	eventHandler func(platform.Event)
+	cursors      []platform.Cursor
 }
 
 func newStubPlatformWindow(size geometry.Size[geometry.Pixels], scale float32) *stubPlatformWindow {
@@ -93,7 +94,9 @@ func (w *stubPlatformWindow) NativeSurface() uintptr                          { 
 func (w *stubPlatformWindow) Focus()                                          {}
 func (w *stubPlatformWindow) IsFocused() bool                                 { return true }
 func (w *stubPlatformWindow) IsVisible() bool                                 { return true }
-func (w *stubPlatformWindow) SetCursor(shape platform.Cursor)                 {}
+func (w *stubPlatformWindow) SetCursor(shape platform.Cursor) {
+	w.cursors = append(w.cursors, shape)
+}
 func (w *stubPlatformWindow) SetEventHandler(h func(platform.Event)) {
 	w.eventHandler = h
 }
@@ -323,16 +326,12 @@ func (c *counterView) Render(cx *app.Context[counterView]) element.Element {
 type stubPlatform struct {
 	platform.Platform
 	dispatched []func()
-	cursors    []platform.Cursor
 }
 
 func (p *stubPlatform) Run() error { return nil }
 func (p *stubPlatform) Quit()      {}
 func (p *stubPlatform) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
 	return newStubPlatformWindow(opts.Size, 1.0), nil
-}
-func (p *stubPlatform) SetCursor(shape platform.Cursor) {
-	p.cursors = append(p.cursors, shape)
 }
 func (p *stubPlatform) Dispatch(f func()) {
 	p.dispatched = append(p.dispatched, f)
@@ -787,8 +786,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(plat.cursors) != 0 {
-		t.Fatalf("expected no SetCursor calls for default background cursor, got %v", plat.cursors)
+	if len(pw.cursors) != 0 {
+		t.Fatalf("expected no SetCursor calls for default background cursor, got %v", pw.cursors)
 	}
 
 	// 2. Move pointer onto Div A (50, 50)
@@ -797,8 +796,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(plat.cursors) != 1 || plat.cursors[0] != platform.CursorPointer {
-		t.Fatalf("expected [CursorPointer], got %v", plat.cursors)
+	if len(pw.cursors) != 1 || pw.cursors[0] != platform.CursorPointer {
+		t.Fatalf("expected [CursorPointer], got %v", pw.cursors)
 	}
 
 	// 3. Move pointer slightly within Div A (60, 60): must NOT call SetCursor again
@@ -807,8 +806,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(plat.cursors) != 1 {
-		t.Fatalf("expected no redundant SetCursor call when moving within same cursor region, got %v", plat.cursors)
+	if len(pw.cursors) != 1 {
+		t.Fatalf("expected no redundant SetCursor call when moving within same cursor region, got %v", pw.cursors)
 	}
 
 	// 4. Move pointer onto Div B (150, 50)
@@ -817,8 +816,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(plat.cursors) != 2 || plat.cursors[1] != platform.CursorNotAllowed {
-		t.Fatalf("expected [CursorPointer, CursorNotAllowed], got %v", plat.cursors)
+	if len(pw.cursors) != 2 || pw.cursors[1] != platform.CursorNotAllowed {
+		t.Fatalf("expected [CursorPointer, CursorNotAllowed], got %v", pw.cursors)
 	}
 
 	// 5. Move pointer back to background area (350, 250)
@@ -827,8 +826,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(plat.cursors) != 3 || plat.cursors[2] != platform.CursorDefault {
-		t.Fatalf("expected [CursorPointer, CursorNotAllowed, CursorDefault], got %v", plat.cursors)
+	if len(pw.cursors) != 3 || pw.cursors[2] != platform.CursorDefault {
+		t.Fatalf("expected [CursorPointer, CursorNotAllowed, CursorDefault], got %v", pw.cursors)
 	}
 }
 

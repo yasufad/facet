@@ -160,13 +160,6 @@ func (p *windowsPlatform) Clipboard() Clipboard {
 	return p.clipboard
 }
 
-// SetCursor sets the pointer shape.
-func (p *windowsPlatform) SetCursor(shape Cursor) {
-	p.dispatcher.Dispatch(func() {
-		setCursor(shape)
-	})
-}
-
 // SetCursorVisible shows or hides the pointer.
 func (p *windowsPlatform) SetCursorVisible(visible bool) {
 	p.dispatcher.Dispatch(func() {

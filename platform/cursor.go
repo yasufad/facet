@@ -1,9 +1,9 @@
 package platform
 
-// Cursor is the pointer shape the platform displays over the active window.
-// The set is deliberately small: the shapes a GUI framework needs, not every
-// cursor an OS provides. A backend that lacks a shape falls back to
-// [CursorDefault].
+// Cursor is the pointer shape a [Window] displays over itself, set through
+// [Window.SetCursor]. The set is deliberately small: the shapes a GUI
+// framework needs, not every cursor an OS provides. A backend that lacks a
+// shape falls back to [CursorDefault].
 type Cursor int
 
 const (
