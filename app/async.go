@@ -34,12 +34,22 @@ func (a *AsyncApp) Background() *BackgroundExecutor { return a.app.bg }
 // completed. This is the seam that keeps the single-goroutine invariant:
 // background tasks touch entity state only through closures that run on the UI
 // goroutine, while foreground continuations do not re-enter the dispatcher.
+//
+// enqueue's return value is checked, not just f's own shutdown check: once
+// App.Close has stopped the foreground executor, nothing ever drains its
+// queue again, so a job that got queued but never run would block run's
+// receive on res forever. Checking enqueue's result means a Close that has
+// already happened is reported immediately instead of deadlocking; f's own
+// check (in Update and AsyncRead) still catches a Close that lands after f
+// was queued but before it ran.
 func (a *AsyncApp) run(f func() error) error {
 	if goroutineID() == a.app.uiGoroutine {
 		return f()
 	}
 	res := make(chan error, 1)
-	a.app.fg.enqueue(func() { res <- f() })
+	if !a.app.fg.enqueue(func() { res <- f() }) {
+		return fmt.Errorf("app: application has been shut down")
+	}
 	return <-res
 }
 
