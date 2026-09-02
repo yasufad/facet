@@ -189,8 +189,9 @@ func sizeOfOutput(out shaping.Output) int64 {
 	return int64(len(out.Glyphs))*glyphSize + 64 // +64 for the Output header itself
 }
 
-// SetMaxBytes sets the shape cache's byte ceiling, evicting immediately if
-// the cache is already over it. The default is defaultShapeCacheBytes.
+// SetShapeCacheBytes sets the shape cache's byte ceiling, evicting
+// immediately if the cache is already over it. Zero means the cache holds
+// nothing, not that it is unbounded. The default is defaultShapeCacheBytes.
 func (s *System) SetShapeCacheBytes(n int64) { s.shapeCache.lru.SetMaxBytes(n) }
 
 // get returns the shaped Output for in, shaping on miss. The returned Output
