@@ -59,7 +59,7 @@ func TestForegroundExecutorStopClosesWakeAndIsIdempotent(t *testing.T) {
 	// window.New ranges over Pending() forever; that range must terminate
 	// when the executor stops, and a second stop (App.Close called twice)
 	// must not close an already-closed channel and panic.
-	fg := newForegroundExecutor()
+	fg := newForegroundExecutor(goroutineID())
 	fg.stop()
 
 	select {

@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 )
@@ -74,16 +75,29 @@ func (t Task[R]) Then(async *AsyncApp, f func(r R, async *AsyncApp)) {
 // queued and run when the UI loop drains the queue — typically between frames
 // and platform events. The queue is goroutine-safe because background tasks
 // dispatch their results onto it from other goroutines.
+//
+// "The UI goroutine" means whichever goroutine constructed the App that owns
+// this executor: see NewApp. Drain checks that against uiGoroutine, because
+// nothing else does at the frequency Drain runs. Draining on the wrong
+// goroutine does not corrupt anything Drain touches directly, but every job
+// it runs reaches app.update, whose own goroutine check (in a facet_debug
+// build only, since it runs per entity rather than per frame) would then
+// panic from inside whatever job happened to trip it — a confusing place to
+// learn that the App was built on a different goroutine than the one now
+// draining it. Checking once here, in every build, catches the actual
+// mistake at the actual call that made it.
 type ForegroundExecutor struct {
-	mu     sync.Mutex
-	queue  []func()
-	wake   chan struct{}
-	closed bool
+	mu          sync.Mutex
+	queue       []func()
+	wake        chan struct{}
+	closed      bool
+	uiGoroutine int64
 }
 
-func newForegroundExecutor() *ForegroundExecutor {
+func newForegroundExecutor(uiGoroutine int64) *ForegroundExecutor {
 	return &ForegroundExecutor{
-		wake: make(chan struct{}, 1),
+		wake:        make(chan struct{}, 1),
+		uiGoroutine: uiGoroutine,
 	}
 }
 
@@ -114,31 +128,41 @@ func fgSpawn[R any](fg *ForegroundExecutor, f func() R) Task[R] {
 		}()
 		res <- taskResult[R]{value: f()}
 	}
-	fg.enqueue(job)
+	if !fg.enqueue(job) {
+		res <- taskResult[R]{err: &shutdownError{}}
+	}
 	return Task[R]{result: res, cancel: cancel}
 }
 
-// enqueue appends f to the queue and wakes a waiting Pending() reader. A call
-// after stop is a silent no-op: the closed flag rules out both queueing and
-// sending on the (now closed) wake channel, checked under the same lock stop
-// holds while closing it, so the two never race.
-func (fg *ForegroundExecutor) enqueue(f func()) {
+// enqueue appends f to the queue and wakes a waiting Pending() reader. It
+// reports false, without queueing f, if the executor has already been
+// stopped: the closed flag rules out both queueing and sending on the (now
+// closed) wake channel, checked under the same lock stop holds while closing
+// it, so the two never race. A caller that needs f to actually run — rather
+// than silently never happening — must check the return value.
+func (fg *ForegroundExecutor) enqueue(f func()) bool {
 	fg.mu.Lock()
 	defer fg.mu.Unlock()
 	if fg.closed {
-		return
+		return false
 	}
 	fg.queue = append(fg.queue, f)
 	select {
 	case fg.wake <- struct{}{}:
 	default:
 	}
+	return true
 }
 
 // Drain runs every queued closure until the queue is empty. Closures queued
 // while draining are run in the same call. It must be called on the UI
-// goroutine.
+// goroutine — the one that constructed the App this executor belongs to —
+// and panics if it is not, naming both goroutines, rather than letting a job
+// it runs panic later from inside app.update with no mention of Drain.
 func (fg *ForegroundExecutor) Drain() {
+	if got := goroutineID(); got != fg.uiGoroutine {
+		panic(fmt.Sprintf("app: Drain called from goroutine %d, but the App was constructed on goroutine %d", got, fg.uiGoroutine))
+	}
 	for {
 		fg.mu.Lock()
 		if len(fg.queue) == 0 {
