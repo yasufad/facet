@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/yasufad/facet/geometry"
+	"github.com/yasufad/facet/third_party/w32"
 )
 
 // TestWindowOpensAndReportsInput creates a platform, opens a window, and
@@ -106,6 +107,152 @@ func TestWindowOpensAndReportsInput(t *testing.T) {
 	// Run blocks until Quit. The helper goroutine calls Quit through a
 	// dispatch when it is done; but since the helper's last action is
 	// Close, we quit from a separate dispatch after the helper finishes.
+	go func() {
+		<-done
+		p.Quit()
+	}()
+
+	if err := p.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+// TestWindowDeadKeyChar verifies that a committed character outside plain
+// ASCII arrives as a TextEvent. Dead-key sequences on European layouts (a
+// French or German keyboard composing an accented letter) never touch
+// WM_IME_*: the keyboard layout's own dead-key state machine combines the
+// keystrokes and delivers the result as an ordinary WM_CHAR, exactly like
+// the one this test synthesises.
+func TestWindowDeadKeyChar(t *testing.T) {
+	p, err := New(Options{Name: "facet-deadkey-test"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		w, err := p.NewWindow(WindowOptions{
+			Title:   "Facet Dead Key Test",
+			Size:    geometry.Size[geometry.Pixels]{Width: 200, Height: 150},
+			Visible: false,
+		})
+		if err != nil {
+			t.Errorf("NewWindow: %v", err)
+			return
+		}
+
+		events := make(chan Event, 16)
+		w.SetEventHandler(func(e Event) {
+			select {
+			case events <- e:
+			default:
+			}
+		})
+
+		p.Dispatch(func() {
+			postChar(w.NativeHandle(), 'è')
+		})
+
+		select {
+		case e := <-events:
+			te, ok := e.(TextEvent)
+			if !ok {
+				t.Errorf("expected TextEvent, got %T", e)
+				return
+			}
+			if te.Text != "è" {
+				t.Errorf("Text = %q, want %q", te.Text, "è")
+			}
+		case <-time.After(2 * time.Second):
+			t.Error("timed out waiting for TextEvent")
+			return
+		}
+
+		w.Close()
+	}()
+
+	go func() {
+		<-done
+		p.Quit()
+	}()
+
+	if err := p.Run(); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+// TestWindowIMEComposition drives a composition through its three phases and
+// verifies each arrives as an IMECompositionEvent with the right phase. The
+// window has no real IME session attached, so the composition text IMM32
+// reports is empty; that is a faithful test of the wndProc wiring — which
+// phase reaches the handler, and that an empty composition resolves to a
+// sane Cursor rather than panicking — not of IMM32 itself, which
+// TestRuneOffsetFromUTF16 in ime_windows_test.go covers directly, including
+// a composition character outside the basic multilingual plane.
+func TestWindowIMEComposition(t *testing.T) {
+	p, err := New(Options{Name: "facet-ime-test"})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+
+		w, err := p.NewWindow(WindowOptions{
+			Title:   "Facet IME Test",
+			Size:    geometry.Size[geometry.Pixels]{Width: 200, Height: 150},
+			Visible: false,
+		})
+		if err != nil {
+			t.Errorf("NewWindow: %v", err)
+			return
+		}
+
+		events := make(chan Event, 16)
+		w.SetEventHandler(func(e Event) {
+			select {
+			case events <- e:
+			default:
+			}
+		})
+
+		wantPhases := []IMEPhase{IMEStart, IMEUpdate, IMEEnd}
+		p.Dispatch(func() {
+			postIMEComposition(w.NativeHandle(), w32.WM_IME_STARTCOMPOSITION, 0)
+			postIMEComposition(w.NativeHandle(), w32.WM_IME_COMPOSITION, w32.GCS_COMPSTR)
+			postIMEComposition(w.NativeHandle(), w32.WM_IME_ENDCOMPOSITION, 0)
+		})
+
+		for _, wantPhase := range wantPhases {
+			select {
+			case e := <-events:
+				ce, ok := e.(IMECompositionEvent)
+				if !ok {
+					t.Errorf("expected IMECompositionEvent, got %T", e)
+					return
+				}
+				if ce.Phase != wantPhase {
+					t.Errorf("Phase = %v, want %v", ce.Phase, wantPhase)
+				}
+				// Cursor is a rune offset into Text, or -1 if the IME
+				// reported none; either way it must not exceed Text's
+				// length, and with no real composition here it settles on
+				// 0 (IMM32's answer for an empty string) rather than -1.
+				if n := len([]rune(ce.Text)); ce.Cursor != -1 && (ce.Cursor < 0 || ce.Cursor > n) {
+					t.Errorf("Cursor = %d, want -1 or within [0, %d]", ce.Cursor, n)
+				}
+			case <-time.After(2 * time.Second):
+				t.Errorf("timed out waiting for IMECompositionEvent phase %v", wantPhase)
+				return
+			}
+		}
+
+		w.Close()
+	}()
+
 	go func() {
 		<-done
 		p.Quit()
