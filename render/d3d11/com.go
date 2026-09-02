@@ -70,8 +70,9 @@ const (
 	d3d11CpuAccessWrite = 0x10000
 	d3d11CpuAccessRead  = 0x20000
 
-	d3d11MapRead         = 1
-	d3d11MapWriteDiscard = 4
+	d3d11MapRead             = 1
+	d3d11MapWriteDiscard     = 4
+	d3d11MapWriteNoOverwrite = 5
 
 	d3d11PrimitiveTopologyTriangleList  = 4
 	d3d11PrimitiveTopologyTriangleStrip = 5
