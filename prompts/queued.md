@@ -193,27 +193,6 @@ repaints in response to entity state. It looks reactive because every input even
 `dirty` directly. Neither doc comment mentions it. Either wire them or say plainly that
 they are for static content.
 
-## platform
-
-After `prompts/platform.md` reports, and larger than it.
-
-**Nothing in the interface can minimise, maximise, restore or go fullscreen.** Not
-missing from the Windows backend, missing from `platform.Window`. Any application with
-`Decorated: false`, which is what a custom title bar requires, must draw its own window
-controls and has nothing to call. This is an interface change and therefore a decision;
-the shape to aim at is a window state that can be read and set, not four booleans.
-
-**The shell is six stubs and four no-ops.** Tray, message dialog, open dialog, save
-dialog and notifications return "not implemented"; application menu, hide, show and icon
-are silent TODOs. The status table says "Windows", which reads as finished.
-
-Take the file dialogs first. No open dialog means no "Open File…", which is the first
-menu item in the application this framework exists to make possible. `ShowOpenDialog`
-already carries the threading note about not blocking the platform thread, so the
-contract is written; only the implementation is missing.
-
-Tray and notifications can wait. Menus wait for the window-state work, since a custom
-title bar changes what a menu bar even is.
 
 ## render: the atlas free list, with a number behind it
 

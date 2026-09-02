@@ -1,77 +1,91 @@
-# platform: window has reported, so take the second half
+# platform: finish the Windows backend before opening a second one
 
-All three items verified. The examples and `platform` cross-compile clean for Linux and
-macOS, `SetCursor` was added to `platform.Window` without touching `Platform` as
-instructed, and the rune conversion is right — I broke the low-surrogate test in
-`runeOffsetFromUTF16` and `TestRuneOffsetFromUTF16` failed on the astral-plane case with
-exact values, which is the assertion doing real work.
+The `SetCursor` move is verified. Six files in one commit is exactly the stated exception —
+each is part of one change and the tree builds at every step. I broke
+`w.platformWindow.SetCursor` and `TestCursorTransitionsAndDeduplication` failed, so moving
+the recording onto the window stub kept the test exercising the real path rather than
+merely compiling against it. That is the failure mode when a test double moves, and you
+avoided it.
 
-The layering of the IME tests is the part worth naming. The conversion has an exact unit
-test; the window-level test drives the message plumbing and says in its own comment that
-it asserts a sane cursor rather than IMM32's behaviour, because no real IME is attached.
-That is a bounded coverage claim recorded beside the code, which is what `AGENTS.md` asks
-for and what usually gets skipped. Relaxing the assertion when the real behaviour
-contradicted your guess — rather than changing the code to match the guess — was the right
-call in the right direction.
+`docs/packages.md` is written: the cursor split with the reason it falls where it does, and
+the IME production including the `WM_CHAR` finding and the UTF-16 conversion. I used your
+observation that IMM32 reports `0` rather than a sentinel for an empty composition. You
+were right to flag the stale `platform.Platform.SetCursor` in the `window` entry and right
+not to edit it; fixed in the same commit.
 
-## 1. SetCursor, second half — unblocked now
+## macOS is not next, and here is the gate
 
-`window` has landed and reported. `82ab7e5` rewrote `resolveNextHitTest` to return the
-whole hit region, and the function has settled; nothing else is queued against it. The
-contention I told you to wait for is gone.
+I said last round it was coming. It still is, and not yet.
 
-So take it: remove `SetCursor` from `Platform`, switch `window.resolveNextHitTest` to the
-window method, and update `Platform`'s doc comment — which still promises a cursor over
-the active window and stops being true when the method moves. One commit, because `window`
-is the only caller and splitting it leaves `main` unbuildable.
+The argument for starting now is real: `platform.Platform` and `render.Renderer` each have
+exactly one implementation, an interface with one implementation is untested, and finding
+out that Metal's command-encoder model does not fit `Renderer` is far cheaper with one
+backend written than three. That argument does not expire.
 
-This is the stated exception to staying inside your package. Commit by path
-(`git commit -m "..." -- <file> <file>`), because the index is shared and three agents have
-had another's staged file swept into their commit.
+What it is losing to: this framework still does not work end to end on the platform it
+already has. `examples/button` has never run. The integration test that drives a click
+through a real frame has never existed. Opening a second platform before the first one
+demonstrably works multiplies an unproven surface, and every defect found in the last five
+rounds was at a seam rather than in a backend.
 
-That the failure to tell you window had reported was mine. I said it in `window`'s prompt
-and in my report to Yasu and never wrote it here, which is exactly the kind of gap that
-leaves work parked for a round.
+**The gate is `examples/button` running and `internal/integration` passing.** Both are in
+`ui`'s hands now and both are close. When they land, macOS is your next assignment and I
+will say so unprompted.
 
-## 2. docs/packages.md — mine, and I am waiting on you
+Meanwhile there is work here that any real application needs and cannot proceed without.
 
-You were right to leave it alone and right to offer. I will write the `SetCursor` split
-into `platform`'s entry when the second half lands, because the reason the split falls
-where it does is only true once it has fallen — recording it now would describe an
-intention rather than the code, which is the failure mode the audit found throughout this
-repository.
+## 1. Window state, which is a decision first
 
-I will record the IME production at the same time. If you think the entry should say
-something you know and I do not — particularly about what `ImmGetCompositionStringW`'s
-length semantics cost you — put it in your report and I will use your words.
+Nothing in the interface can minimise, maximise, restore or go fullscreen. Not missing
+from the Windows backend — missing from `platform.Window`.
 
-## 3. Then macOS
+That is invisible until you notice what `Decorated: false` implies. A custom title bar is
+the reason to turn decorations off, and an application that draws its own title bar must
+draw its own window controls, and those controls have nothing to call.
 
-After the above, and only after reporting it.
+This is an interface change, so it is a decision and I am taking part of it: **a window
+state that can be read and set, not four booleans.** Four independent setters make
+illegal combinations representable and force every caller to sequence them correctly —
+restore-then-maximise behaves differently from maximise-then-restore and nothing says so.
 
-The first deliverable is a window that opens, reports a real `NSWindow*`, and delivers
-pointer and key events. No renderer, no drawing. That is enough to prove the purego path
-and to answer the question everything else rests on: whether `objc_msgSend` with struct
-returns is reachable without cgo.
+What I want from you before the implementation: the state enumeration itself, in Win32
+terms, and specifically what it costs to *read* the current one honestly. `IsZoomed` and
+`IsIconic` are straightforward; fullscreen is not a Win32 window state at all but a style
+and monitor-bounds change that has to be remembered and undone. If reading it back
+requires storing what we did, say so, because a state you can set and cannot read is a
+different interface and I would rather decide that deliberately than discover it.
 
-If it is not, that is a decision to record in `docs/architecture.md`, and the sooner it is
-recorded the less is built on the assumption. Bring me the answer before building on
-either branch of it.
+Propose the type. Then implement it.
 
-Do not start this inside the current round.
+## 2. File dialogs
 
-## Not yours, for the record
+Six shell methods return "not implemented" and four are silent TODOs, while the README
+says `platform` is "Windows", which reads as finished to anyone who has not opened the
+file.
 
-`tools/compile_shaders` is now the only thing stopping `go build ./...` on Linux and
-macOS — one missing `//go:build windows`. It belongs to `prompts/build.md` and it is
-assigned. Leave it; I would rather it landed with the CI that proves it.
+Take the dialogs first, and open before save. No open dialog means no "Open File…", which
+is the first menu item in the application this framework exists to make possible.
+`ShowOpenDialog`'s contract is already written, including the threading note about not
+blocking the platform thread — only the implementation is missing.
+
+Tray and notifications wait. Menus wait for item 1, because a custom title bar changes
+what a menu bar is.
+
+## 3. While you are in there
+
+`third_party/README` records the IMM32 bindings you added. If the dialog work needs more
+of the common-item-dialog COM surface than `w32` carries, the same applies: add it there,
+record what and why, and check the licence at the upstream `LICENSE` rather than from
+memory. Two attributions in this repository have been wrong and both read plausibly.
 
 ## Done when
 
-    go doc ./platform
+`platform.Window` can report and set its state, with a test that sets each and reads it
+back — including fullscreen, which is the one that will not round-trip for free.
 
-shows `SetCursor` on `Window` and not on `Platform`, `Platform`'s doc comment no longer
-promises something it does not do, and the tree builds with `window` calling the window
-method.
+`ShowOpenDialog` opens a real dialog and returns a real path, and does not block the
+platform thread while it is up.
 
-Report before starting anything in the macOS section.
+`docs/packages.md` gets the window-state contract from me once the shape is settled.
+
+Report the state type before implementing it, and do not start macOS.
