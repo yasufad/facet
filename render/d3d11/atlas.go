@@ -23,6 +23,7 @@ type shelfPacker struct {
 	cursorX     int
 	cursorY     int
 	shelfHeight int
+	usedArea    int
 }
 
 func newShelfPacker(w, h int) *shelfPacker {
@@ -36,6 +37,7 @@ func (p *shelfPacker) reset() {
 	p.cursorX = 0
 	p.cursorY = 0
 	p.shelfHeight = 0
+	p.usedArea = 0
 }
 
 func (p *shelfPacker) allocate(w, h int) (int, int, bool) {
@@ -62,16 +64,49 @@ func (p *shelfPacker) allocate(w, h int) (int, int, bool) {
 	if h > p.shelfHeight {
 		p.shelfHeight = h
 	}
+	p.usedArea += w * h
 
 	return x, y, true
 }
 
+// occupancy reports the fraction of the page's area allocated to tiles,
+// counting shelf padding as unused. It exists to give the page-growth
+// decision in docs/audit.md item 4 a number rather than a guess; see
+// TestShelfPackerSessionOccupancy.
+func (p *shelfPacker) occupancy() float64 {
+	total := p.width * p.height
+	if total == 0 {
+		return 0
+	}
+	return float64(p.usedArea) / float64(total)
+}
+
 type atlasPage struct {
-	index   uint32
-	kind    scene.AtlasTextureKind
-	texture *comObject
-	srv     *comObject
-	packer  *shelfPacker
+	index      uint32
+	kind       scene.AtlasTextureKind
+	texture    *comObject
+	srv        *comObject
+	packer     *shelfPacker
+	generation uint32
+}
+
+// Tile identifiers pack an 8-bit generation into their high byte, so a tile
+// handed out before a ClearAtlas of its page can be told apart from one
+// handed out after. scene.TileID is documented as opaque to the Scene and
+// serialised entirely by the atlas allocator, so this encoding is ours to
+// define; nothing outside this package interprets the bits.
+const (
+	tileGenerationBits  = 8
+	tileGenerationShift = 32 - tileGenerationBits
+	tileSequenceMask    = 1<<tileGenerationShift - 1
+)
+
+func makeTileID(generation, sequence uint32) scene.TileID {
+	return scene.TileID((generation&0xff)<<tileGenerationShift | sequence&tileSequenceMask)
+}
+
+func tileGeneration(id scene.TileID) uint32 {
+	return uint32(id) >> tileGenerationShift
 }
 
 type atlasManager struct {
@@ -209,12 +244,12 @@ func (m *atlasManager) upload(kind scene.AtlasTextureKind, size geometry.Size[ge
 		0,
 	)
 
-	tileID := m.nextTileID
+	tileID := makeTileID(targetPage.generation, m.nextTileID)
 	m.nextTileID++
 
 	return scene.AtlasTile{
 		TextureID: scene.AtlasTextureID{Index: targetPage.index, Kind: kind},
-		TileID:    scene.TileID(tileID),
+		TileID:    tileID,
 		Bounds: geometry.Bounds[geometry.DevicePixels]{
 			Origin: geometry.NewPoint(geometry.DevicePixels(x), geometry.DevicePixels(y)),
 			Size:   geometry.NewSize(geometry.DevicePixels(w), geometry.DevicePixels(h)),
@@ -231,7 +266,24 @@ func (m *atlasManager) clear(kind scene.AtlasTextureKind) {
 	}
 	for _, page := range pages {
 		page.packer.reset()
+		page.generation++
 	}
+}
+
+// tileValid reports whether tile was handed out by the page it names at
+// that page's current generation. It returns false for a tile whose page
+// has since been cleared, and for a tile naming a page that does not exist.
+func (m *atlasManager) tileValid(tile scene.AtlasTile) bool {
+	var pages []*atlasPage
+	if tile.TextureID.Kind == scene.TextureMonochrome {
+		pages = m.monoPages
+	} else {
+		pages = m.polyPages
+	}
+	if int(tile.TextureID.Index) >= len(pages) {
+		return false
+	}
+	return tileGeneration(tile.TileID) == pages[tile.TextureID.Index].generation&0xff
 }
 
 func (m *atlasManager) getSRV(id scene.AtlasTextureID) *comObject {
