@@ -27,7 +27,7 @@ decisions come in; the packages below marked reopened each have an assignment in
 | `input`    | in progress             |
 | `style`    | done                    |
 | `platform` | Windows, reopened       |
-| `render`   | Direct3D 11, reopened   |
+| `render`   | Direct3D 11            |
 | `element`  | reopened                |
 | `window`   | reopened                |
 | `ui`       | in progress             |
