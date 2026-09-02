@@ -59,18 +59,26 @@ func (s *System) segmentRun(
 
 	runs := s.seg.Split(input, fmap)
 
+	// Split carries the input's Language and FontFeatures through to every
+	// sub-run unchanged, so their cache-key string forms are interned once
+	// here rather than once per sub-run.
+	langKey := string(lang)
+	featsKey := featuresKey(features)
+
 	out := make([]subRun, 0, len(runs))
 	for _, r := range runs {
 		// The sub-run's runes, isolated for cacheable shaping.
 		subText := string(paragraph[r.RunStart:r.RunEnd])
 		in := shapeInput{
-			text:      subText,
-			face:      r.Face,
-			size:      size,
-			direction: r.Direction,
-			script:    r.Script,
-			language:  r.Language,
-			features:  features,
+			text:           subText,
+			face:           r.Face,
+			size:           size,
+			direction:      r.Direction,
+			script:         r.Script,
+			language:       r.Language,
+			languageKey:    langKey,
+			features:       features,
+			featuresKeyStr: featsKey,
 		}
 		shaped := s.shapeCache.get(&s.shaper, in)
 

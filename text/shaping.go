@@ -2,6 +2,7 @@ package text
 
 import (
 	"fmt"
+	"unsafe"
 
 	"github.com/go-text/typesetting/di"
 	"github.com/go-text/typesetting/font"
@@ -86,6 +87,15 @@ type shapeInput struct {
 	script    language.Script
 	language  language.Language
 	features  []shaping.FontFeature
+
+	// languageKey and featuresKeyStr are string(language) and featuresKey(features),
+	// computed once per style run by the caller rather than per sub-run: every
+	// sub-run of a segmented style run shares the same language and features,
+	// so segmentRun interns them once and every shapeInput built from that run
+	// carries the same strings. key() then only copies them, instead of paying
+	// for the conversion on every cache lookup, hit or miss.
+	languageKey    string
+	featuresKeyStr string
 }
 
 // cacheKey is the shapeCache key. It captures everything that changes a run's
@@ -109,8 +119,8 @@ func (in shapeInput) key() cacheKey {
 		size:      bitsOfFloat32(in.size),
 		direction: uint8(in.direction),
 		script:    uint32(in.script),
-		language:  string(in.language),
-		features:  featuresKey(in.features),
+		language:  in.languageKey,
+		features:  in.featuresKeyStr,
 	}
 }
 
@@ -154,20 +164,40 @@ func toTypesettingFeatures(features []FontFeature) []shaping.FontFeature {
 	return out
 }
 
-// shapeCache memoises shaped Output by run. It is not safe for concurrent use.
+// defaultShapeCacheBytes bounds shapeCache. A shaping.Glyph is roughly 80
+// bytes; a screen of code at 60 lines by 100 columns is around 6,000 glyphs,
+// so one screen's worth of shaped output is under 500 KiB. 4 MiB covers
+// several such screens across tabs, font sizes and scripts without the
+// unbounded growth an editor session run across a working day would
+// otherwise accumulate.
+const defaultShapeCacheBytes = 4 << 20
+
+// shapeCache memoises shaped Output by run, bounded by total byte size. It is
+// not safe for concurrent use.
 type shapeCache struct {
-	entries map[cacheKey]shaping.Output
+	lru *byteLRU[cacheKey, shaping.Output]
 }
 
 func newShapeCache() shapeCache {
-	return shapeCache{entries: make(map[cacheKey]shaping.Output)}
+	return shapeCache{lru: newByteLRU[cacheKey, shaping.Output](defaultShapeCacheBytes, sizeOfOutput)}
 }
+
+// sizeOfOutput estimates the byte weight of a shaped Output for the cache's
+// eviction accounting: its glyph slice dominates the cost.
+func sizeOfOutput(out shaping.Output) int64 {
+	const glyphSize = int64(unsafe.Sizeof(shaping.Glyph{}))
+	return int64(len(out.Glyphs))*glyphSize + 64 // +64 for the Output header itself
+}
+
+// SetMaxBytes sets the shape cache's byte ceiling, evicting immediately if
+// the cache is already over it. The default is defaultShapeCacheBytes.
+func (s *System) SetShapeCacheBytes(n int64) { s.shapeCache.lru.SetMaxBytes(n) }
 
 // get returns the shaped Output for in, shaping on miss. The returned Output
 // has ClusterIndex values 0-based within in.text and Runes.Offset zero.
 func (c *shapeCache) get(shaper *shaping.HarfbuzzShaper, in shapeInput) shaping.Output {
 	key := in.key()
-	if out, ok := c.entries[key]; ok {
+	if out, ok := c.lru.Get(key); ok {
 		return out
 	}
 	runes := []rune(in.text)
@@ -188,7 +218,7 @@ func (c *shapeCache) get(shaper *shaping.HarfbuzzShaper, in shapeInput) shaping.
 	// Glyphs, so this is belt and braces.
 	stored := out
 	stored.Glyphs = append([]shaping.Glyph(nil), out.Glyphs...)
-	c.entries[key] = stored
+	c.lru.Put(key, stored)
 	return stored
 }
 
