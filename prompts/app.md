@@ -1,135 +1,103 @@
-# app: the entity map hands out copies
+# app: OnRelease stopped firing, and main is red
 
-Three defects, all in this package, none of which change a single exported signature.
-That is why this runs now, in parallel with everything else: nothing above you moves.
+Both parts of the round landed and the pointer storage is right. One thing is broken on
+`main` and it is broken silently, which is the failure mode this round existed to remove.
 
-`docs/audit.md` has the full reasoning. The parts that are yours are below.
+## 1. OnRelease never fires
 
-## 1. Store pointers, not values
+`go test ./app` fails at HEAD, on both tags:
 
-`entityMap.values` is `map[entityID]any` holding a `T`. Every path in and out copies:
+    --- FAIL: TestOnReleaseFiresOnDrop
+        entity_test.go:108: OnRelease callback did not fire when the entity was dropped
+    --- FAIL: TestOnReleaseCascadesHandleDrop
+        entity_test.go:139: owned entity should have been dropped when its owner was dropped
 
-```go
-func ReadEntity[T any](app *App, handle Entity[T]) *T {
-    v := app.entities.read(handle.id)   // any
-    t, ok := v.(T)                      // copies out of the interface box
-    return &t                           // address of the local
-}
-```
-
-The returned `*T` points at a stack local. Writing through it is discarded silently. I
-probed it: write 42, read back 1, no panic, no warning. `Context.OnRelease` has the same
-shape and so does the `endLease` write-back.
-
-**Store `*T`.** `New` boxes the value once at construction; nothing boxes again.
-`ReadEntity` returns the stored pointer and aliases the real thing. `UpdateEntity` hands
-`f` the stored pointer instead of the address of a copy.
-
-Keep the lease. `lease` still takes the pointer out of the map so a re-entrant update
-finds an empty slot and panics, and `endLease` still puts it back — the guard is the
-reason the mechanism exists and it does not change. What goes is the copying, in both
-directions.
-
-Measured before the change: one allocation per `UpdateEntity`, from `endLease` re-boxing
-the value. After, it should be zero.
-
-No exported signature moves. `ReadEntity` still returns `*T`; it just starts telling the
-truth.
-
-Write the probe as a test and keep it. Then break the fix and confirm the test fails — a
-test that cannot fail is not a test, and this is a defect that survived five test files.
-
-### What this does to the defect `element` is fixing
-
-Worth knowing, because the two are in flight together and I only noticed by probing it.
-
-Today a click handler that captures the leased `v` and writes to it after the update has
-ended writes into a stack local that `endLease` has already superseded, so the write is
-lost. Once the map stores `*T`, the captured pointer is the stored value, and that same
-wrong code starts landing its write. I ran both leases side by side to be sure: value
-lease loses it, pointer lease applies it.
-
-The mutation half of the broken pattern therefore goes quiet under you. What still makes
-it loud is `cx.Notify()` tripping the generation check — and a handler that mutates
-without notifying was already silent and stays silent, so nothing gets worse than it is.
-
-This does not change what you build. It changes why part 2 is bounded the way it is:
-keeping the generation compare in release builds is now holding up correctness as well as
-paying for itself on performance. Do not let it follow `checkUI` behind the tag, and say
-in the doc comment that it is the check that survives, so the next person to look at the
-two of them together knows they are not the same kind of guard.
-
-## 2. Take the goroutine check out of release builds
-
-`app`'s doc says the 6 µs check is affordable because it runs "at update boundaries" and
-"a frame opens a few update boundaries". That sentence is wrong and it was mine. Every
-`UpdateEntity` is an update boundary. Every `Notify` is an exported method. Every
-observer firing opens another `UpdateEntity` of its own.
-
-The measurement, from your own benchmark:
-
-    BenchmarkFrameSimulatesUpdateNotify   4.87 ms / 1000 entities, 3745 allocs
-    BenchmarkCheckUI                      3.16 µs
-    BenchmarkCheckGeneration              1.50 ns
-
-Two `checkUI` calls per entity update is most of the 4.87 ms. At 1000 entities that is
-roughly 29% of a 60 Hz frame spent parsing `runtime.Stack` output.
-
-`checkGeneration` already has the shape: `context_check.go` for release,
-`context_debug.go` for `facet_debug`. Do the same to `checkUI` — an empty body behind
-`!facet_debug`, the real check behind `facet_debug`. The generation compare stays in
-release and still catches a context used after its update ended; the goroutine check
-becomes a debug-build guarantee.
-
-Then rewrite the paragraph in `goroutine.go` that explains the three mechanisms, because
-it currently describes a placement the code no longer has. A comment stating a guarantee
-is part of that guarantee.
-
-Re-run the benchmark and put the new number in the commit body.
-
-## 3. The foreground executor never stops
+The map now stores `*T`. `ReadEntity` and `UpdateEntity` were both updated to assert
+`v.(*T)`. This was not:
 
 ```go
-func (fg *ForegroundExecutor) stop() { close(fg.done) }
+return c.app.onRelease(AnyEntity{id: id}, func(value any, app *App) {
+    t, ok := value.(T)
+    if !ok {
+        return
+    }
+    onRelease(&t, app)
+})
 ```
 
-`Pending()` returns `fg.wake`, which nothing closes. `window.New` starts a goroutine that
-ranges over `Pending()` forever; it holds the platform, the app and the window alive for
-the life of the process, and `Window.Close` cannot end it.
+`value` is a `*T`, the assertion fails, and `if !ok { return }` swallows it. No panic, no
+log, no diagnostic — the callback simply never runs.
 
-`stop` also has no `sync.Once`, unlike `BackgroundExecutor.stop` three types down. Calling
-`App.Close` twice closes a closed channel and panics.
+Fix the assertion, and then fix the swallow, because the swallow is the real defect. A
+failed type assertion here means the entity map holds something other than what this
+entity's type says it holds, which is a programmer error with no recovery — exactly the
+case `AGENTS.md` says to panic on. `ReadEntity` and `UpdateEntity` already panic with a
+message naming the id and the type. This should read the same way. Had it done so, the
+two tests would have failed with a message pointing straight at the cause instead of at a
+callback that did not run.
 
-Close `wake` under a `sync.Once` so the range terminates, and make `stop` idempotent.
-Anything that sends on `wake` after shutdown must not panic either — check the send path.
+Grep the package for every remaining assertion on a value out of the map before you call
+this done. Two of three were updated; the one that was not is the one with no panic on the
+failure path, which is not a coincidence — the compiler could not help, and neither could
+the code.
 
-`window` owns the goroutine and will handle its side; you own making termination
-possible. Say in the commit that `window` can now range to completion, so whoever picks
-that prompt up knows it is there.
+## 2. One commit contained two rounds
 
-## Not in scope, deliberately
+`8cec6a5` is titled "make the goroutine-identity check a facet_debug-only guarantee". Its
+diff also contains the whole of part 1 — `insert(id, &value)`, both assertion changes, and
+the new doc comments about aliasing.
 
-Manual reference counting is the other thing `docs/audit.md` raises about this package,
-and it is a design question rather than a defect: `Clone` and `Release` have to be paired
-by hand in a language with no destructor, and a missed `Release` leaks silently. Go 1.24
-added `weak.Pointer[T]` and `runtime.AddCleanup`, which would let the collector own the
-lifetime instead.
+I tried to bisect the `OnRelease` failure and got an incoherent answer, because the commit
+that introduced the storage change does not say it did. `AGENTS.md` asks for one file per
+commit so that diffs stay reviewable; the deeper reason is that a commit whose subject
+does not describe its diff cannot be bisected, and this is the first time that has
+actually cost something here.
 
-I am not deciding that this round. Changing it after `ui` has thirty widgets is much
-worse than changing it now, so it will be decided soon — but not while three other
-packages are mid-flight against the current handle semantics. If you hit something while
-doing the above that changes the argument either way, say so.
+Nothing to undo — the history stands. Land the fix above as its own commit that says what
+it does.
+
+## What is right
+
+The pointer storage is correct and the doc comments you added around it are the best
+prose in the package. Both of these say something a caller could not otherwise know:
+
+    // The returned pointer aliases the value stored in the entity map, so a write
+    // through it is visible to every other reader.
+
+    // The pointer f receives is the one stored in the entity map, not the address
+    // of a copy: a handler that captures it and writes later ... writes to the real
+    // entity.
+
+The `checkUI` split is right too, and the rewritten explanation in `goroutine.go` is
+honest about the gap it opens rather than glossing it — including the sentence saying a
+release build now has no protection against a live context used from the wrong goroutine.
+That paragraph is what the prompt meant by prose being part of the guarantee.
+
+One consequence to keep in view, since your part 1 note now makes it live: a handler that
+captures the leased pointer and writes to it after the update ends now *lands* its write
+instead of losing it. `element` has landed `Listener`, so there is a correct way to write
+that handler, but the incorrect way is quieter than it was. `Context.checkGeneration`
+staying in release is what still makes it loud, and it must not follow `checkUI` behind
+the tag.
+
+## 3. Then the executor
+
+Unchanged from last round and not yet done. `ForegroundExecutor.stop` closes `done`, not
+`wake`, so `window.New`'s goroutine ranging over `Pending()` never ends and holds the
+platform, the app and the window alive for the process lifetime. `stop` also lacks the
+`sync.Once` its background counterpart has, so a second `App.Close` panics on a closed
+channel.
+
+Close `wake` under a `sync.Once`, make `stop` idempotent, and check the send path does not
+panic after shutdown. Say in the commit that `window` can now range to completion —
+`window` has landed its round and will pick that up.
 
 ## Done when
 
     go test ./app
     go test -tags facet_debug ./app
 
-both pass, with a test that fails if the pointer storage is reverted.
+both pass. Break the assertion fix and confirm the two `OnRelease` tests fail — and check
+they fail with a message that names the cause, not one that says a callback did not run.
 
-`BenchmarkFrameSimulatesUpdateNotify` and `TestUpdateAllocs`-style probes show zero
-allocations per `UpdateEntity` and the release-build cost of `checkUI` gone.
-
-`goroutine.go`'s explanation matches where the checks now are.
-
-Then report, with the before and after numbers.
+The executor tests close a window's foreground queue and observe the range return.
