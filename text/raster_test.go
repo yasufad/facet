@@ -140,12 +140,12 @@ func TestAtlasClear(t *testing.T) {
 	}
 	atlas := NewAtlas(1.0)
 	_ = atlas.Entry(face, GlyphID(gid), geometry.Pixels(16), SubpixelZero)
-	if len(atlas.entries) == 0 {
+	if atlas.lru.Len() == 0 {
 		t.Fatal("atlas empty before Clear")
 	}
 	atlas.Clear()
-	if len(atlas.entries) != 0 {
-		t.Fatalf("atlas has %d entries after Clear", len(atlas.entries))
+	if atlas.lru.Len() != 0 {
+		t.Fatalf("atlas has %d entries after Clear", atlas.lru.Len())
 	}
 }
 

@@ -48,8 +48,15 @@ type atlasKey struct {
 	subpixel SubpixelOffset
 }
 
+// defaultAtlasBytes bounds Atlas. A 16px glyph mask covers roughly 16x16 =
+// 256 bytes of coverage; a 96px heading glyph is two orders of magnitude
+// larger at roughly 96x96 = 9 KiB. A few thousand distinct glyphs — several
+// scripts, sizes and styles open across a working day, weighted toward the
+// larger end — lands under 8 MiB, which is the default ceiling.
+const defaultAtlasBytes = 8 << 20
+
 // Atlas caches rasterised glyphs keyed by face, glyph ID, size and subpixel
-// offset. It is not safe for concurrent use.
+// offset, bounded by total mask byte size. It is not safe for concurrent use.
 //
 // The atlas does not pack masks into a texture; that is the renderer's job.
 // It stores each mask separately so the renderer can upload them however it
@@ -61,7 +68,7 @@ type atlasKey struct {
 // through geometry.BoundsToDevicePixels with this factor, so atlas tiles
 // agree with the geometry around them at any scale.
 type Atlas struct {
-	entries     map[atlasKey]AtlasEntry
+	lru         *byteLRU[atlasKey, AtlasEntry]
 	ScaleFactor float32
 }
 
@@ -69,13 +76,33 @@ type Atlas struct {
 // factor (device pixels per logical pixel). Pass 1.0 for a standard display,
 // 2.0 for a HiDPI display.
 func NewAtlas(scaleFactor float32) *Atlas {
-	return &Atlas{entries: make(map[atlasKey]AtlasEntry), ScaleFactor: scaleFactor}
+	return &Atlas{
+		lru:         newByteLRU[atlasKey, AtlasEntry](defaultAtlasBytes, sizeOfAtlasEntry),
+		ScaleFactor: scaleFactor,
+	}
 }
+
+// sizeOfAtlasEntry estimates the byte weight of an atlas entry for the
+// cache's eviction accounting: the coverage mask dominates the cost.
+func sizeOfAtlasEntry(e AtlasEntry) int64 {
+	return int64(len(e.Mask.Coverage)) + 32 // +32 for the entry's own bounds and header
+}
+
+// SetMaxBytes sets the atlas's byte ceiling, evicting immediately if the
+// atlas is already over it. The default is defaultAtlasBytes.
+func (a *Atlas) SetMaxBytes(n int64) { a.lru.SetMaxBytes(n) }
 
 // Entry returns the atlas entry for a glyph, rasterising on miss. The glyph's
 // device-pixel bounds go through geometry.BoundsToDevicePixels so the atlas
 // tiles agree with the geometry around them: both edges are snapped and the
 // size is derived, rather than rounding origin and size independently.
+//
+// Entry does not invalidate any GPU tile a renderer caches for the same
+// glyph: eviction here only frees the CPU-side mask, and a renderer's GPU
+// atlas is free to keep serving the tile it already uploaded. The two caches
+// are allowed to disagree because they hold different things — this one a
+// coverage mask, the renderer's a texture region — and only the renderer
+// knows when its own tile must be invalidated.
 func (a *Atlas) Entry(face Face, gid GlyphID, size geometry.Pixels, subpixel SubpixelOffset) AtlasEntry {
 	if !face.valid() {
 		return AtlasEntry{}
@@ -86,11 +113,11 @@ func (a *Atlas) Entry(face Face, gid GlyphID, size geometry.Pixels, subpixel Sub
 		size:     bitsOfFloat32(float32(size)),
 		subpixel: subpixel,
 	}
-	if e, ok := a.entries[key]; ok {
+	if e, ok := a.lru.Get(key); ok {
 		return e
 	}
 	e := a.rasterise(face, font.GID(gid), float32(size), subpixel)
-	a.entries[key] = e
+	a.lru.Put(key, e)
 	return e
 }
 
@@ -130,5 +157,5 @@ func (a *Atlas) rasterise(face Face, gid font.GID, size float32, subpixel Subpix
 
 // Clear empties the atlas, freeing the rasterised masks.
 func (a *Atlas) Clear() {
-	a.entries = make(map[atlasKey]AtlasEntry)
+	a.lru.Clear()
 }
