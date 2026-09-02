@@ -351,6 +351,17 @@ can write a handler without importing it. Aliases rather than distinct structs:
 delta and a mouse notch's inexact line delta. A re-declaration would risk losing
 that distinction on some future edit; an alias cannot, because it is the same type.
 
+The rule for what to alias is what a caller above has to *write*, not what this
+package's own signatures happen to name. A handler signature naming `WheelEvent`
+was not enough on its own — its body reads `event.Delta.Unit == platform.ScrollPixels`
+to decide whether the delta is pixel-exact, so `ScrollUnit`, `ScrollPixels` and
+`ScrollLines` are named here too. A constant cannot be aliased, so the two are
+declarations, but because `ScrollUnit` is aliased, `input.ScrollPixels` and
+`platform.ScrollPixels` are the same value of the same type and compare equal
+across the boundary. `ScrollDelta` itself is not named: nothing above reaches it
+except through a `WheelEvent`'s `Delta` field, so no caller has to write the type
+name, and it gets added only once one does.
+
 ## element
 
 The Element interface, the three-phase lifecycle, the element tree, and `div`.
