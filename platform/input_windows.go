@@ -125,6 +125,37 @@ func lParamToClientPoint(lParam uintptr) geometry.Point[geometry.DevicePixels] {
 	return geometry.Point[geometry.DevicePixels]{X: geometry.DevicePixels(x), Y: geometry.DevicePixels(y)}
 }
 
+// runeOffsetFromUTF16 converts unitOffset, a UTF-16 code-unit offset into
+// units, to the equivalent offset counted in runes. ImmGetCompositionString
+// reports the composition cursor in UTF-16 units, but
+// [IMECompositionEvent.Cursor] is documented as a rune offset into Text; the
+// two agree everywhere in the basic multilingual plane and diverge exactly
+// where a composed character sits outside it and occupies two UTF-16 units
+// for one rune. unitOffset of -1 (no cursor) passes through unchanged.
+//
+// Counts by scanning the units below unitOffset and counting every unit that
+// is not a low surrogate — the second half of a pair never starts a rune, so
+// skipping it is what turns a UTF-16 unit count into a rune count. An
+// unitOffset landing between the two halves of a pair is not a position any
+// real cursor should report; scanning unit-by-unit still gives a defined
+// answer for it; that half is already counted, because its high surrogate
+// started the rune.
+func runeOffsetFromUTF16(units []uint16, unitOffset int) int {
+	if unitOffset < 0 {
+		return -1
+	}
+	if unitOffset > len(units) {
+		unitOffset = len(units)
+	}
+	runes := 0
+	for _, u := range units[:unitOffset] {
+		if u < 0xDC00 || u > 0xDFFF {
+			runes++
+		}
+	}
+	return runes
+}
+
 // wParamToPointerButtons extracts the held mouse buttons from the wParam of
 // WM_MOUSEMOVE, WM_LBUTTONDOWN and similar messages.
 func wParamToPointerButtons(wParam uintptr) PointerButtons {
