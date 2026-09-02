@@ -1,4 +1,32 @@
-# element: TextLayout is the last thing blocking the text field
+# element: elementtest still rejects the clip you now push
+
+## Before anything else
+
+`go test ./ui` panics at HEAD:
+
+    --- FAIL: TestScrollViewClipping
+    panic: elementtest: PushClip called outside paint phase
+        element/elementtest/frame.go:559
+
+`Div.Prepaint` pushes a clip now. You taught `element/fake_frame_test.go` the dual-stack
+semantics and left `element/elementtest/frame.go` — the *exported* double — enforcing the
+old paint-only rule. `ui` builds every widget test on that double, so it cannot run any of
+them.
+
+`go test ./element ./element/elementtest` passes, because nothing inside `elementtest`
+drives a clipping `Div` through prepaint. That is the shape this repository keeps
+producing: a capability verified only by its provider is half tested. `docs/packages.md`
+records that the double exists so `ui` can test without importing `platform`, `scene`,
+`text` or `render` — keeping it truthful is part of changing the phase rules, not a
+follow-up.
+
+Give it the same two stacks the real `Frame` has, and add the test that would have caught
+it: prepaint a clipping `Div` through `elementtest.Frame` and assert the registered hit
+region is clipped. Break the phase rule and confirm it fails.
+
+Do this first. `ui` is blocked on it and so is the layering work behind it.
+
+## The round
 
 All three gaps closed and I verified each by breaking it. The prepaint clip test fails
 with the unclipped bounds named in the message; removing `defer entity.Release()` from
