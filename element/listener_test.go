@@ -107,3 +107,102 @@ func TestPhasedListenerReachesEntityState(t *testing.T) {
 		t.Fatalf("count = %d, want 1: phased listener's write did not reach entity state", got)
 	}
 }
+
+// TestListenerAdapterTypesFitDispatchSlots is the argument for these adapters'
+// existence made as a compile-time assertion rather than prose: PhasedListener
+// drops into DispatchNode's handler slices and Listener into Div.OnClick with
+// no conversion and no signature change anywhere else in the tree. Every other
+// test in this file calls the returned closure directly, which checks the
+// adapter's behaviour but never checks that it fits the slot it was built for.
+func TestListenerAdapterTypesFitDispatchSlots(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	entity := app.New(a, func(cx *app.Context[listenerCounter]) listenerCounter {
+		return listenerCounter{}
+	})
+	defer entity.Release()
+
+	entity.Update(a, func(v *listenerCounter, cx *app.Context[listenerCounter]) {
+		var _ input.KeyEventHandler = PhasedListener(cx, func(v *listenerCounter, e input.KeyEvent, phase input.DispatchPhase, cx *app.Context[listenerCounter]) bool {
+			return false
+		})
+		var _ input.PointerEventHandler = PhasedListener(cx, func(v *listenerCounter, e input.PointerEvent, phase input.DispatchPhase, cx *app.Context[listenerCounter]) bool {
+			return false
+		})
+		var _ input.WheelEventHandler = PhasedListener(cx, func(v *listenerCounter, e input.WheelEvent, phase input.DispatchPhase, cx *app.Context[listenerCounter]) bool {
+			return false
+		})
+		NewDiv().OnClick(Listener(cx, func(v *listenerCounter, e ClickEvent, cx *app.Context[listenerCounter]) bool {
+			return false
+		}))
+	})
+}
+
+// TestListenerReleasesUpgradedHandle pins the balance docs/audit.md names as
+// the framework's central lifetime hazard: Listener upgrades a weak handle on
+// every dispatch, and a missed Release on that upgrade leaks the entity even
+// after its owner releases its own handle. Firing the listener many times and
+// then dropping the owning handle must leave the entity fully dropped — a
+// leaked upgrade would keep one strong count outstanding and Upgrade would
+// still succeed.
+func TestListenerReleasesUpgradedHandle(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	entity := app.New(a, func(cx *app.Context[listenerCounter]) listenerCounter {
+		return listenerCounter{}
+	})
+
+	var weak app.WeakEntity[listenerCounter]
+	var handler func(ClickEvent) bool
+	entity.Update(a, func(v *listenerCounter, cx *app.Context[listenerCounter]) {
+		weak = cx.WeakEntity()
+		handler = Listener(cx, func(v *listenerCounter, e ClickEvent, cx *app.Context[listenerCounter]) bool {
+			v.count++
+			return true
+		})
+	})
+
+	for range 5 {
+		handler(ClickEvent{})
+	}
+
+	entity.Release()
+
+	if _, ok := weak.Upgrade(); ok {
+		t.Fatalf("entity still upgrades after its owning handle was released: a dispatch left a strong reference behind")
+	}
+}
+
+// TestPhasedListenerReleasesUpgradedHandle is
+// TestListenerReleasesUpgradedHandle for PhasedListener, since it upgrades
+// and releases independently of Listener.
+func TestPhasedListenerReleasesUpgradedHandle(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	entity := app.New(a, func(cx *app.Context[listenerCounter]) listenerCounter {
+		return listenerCounter{}
+	})
+
+	var weak app.WeakEntity[listenerCounter]
+	var handler input.KeyEventHandler
+	entity.Update(a, func(v *listenerCounter, cx *app.Context[listenerCounter]) {
+		weak = cx.WeakEntity()
+		handler = PhasedListener(cx, func(v *listenerCounter, e input.KeyEvent, phase input.DispatchPhase, cx *app.Context[listenerCounter]) bool {
+			v.count++
+			return true
+		})
+	})
+
+	for range 5 {
+		handler(input.KeyEvent{}, input.Bubble)
+	}
+
+	entity.Release()
+
+	if _, ok := weak.Upgrade(); ok {
+		t.Fatalf("entity still upgrades after its owning handle was released: a dispatch left a strong reference behind")
+	}
+}
