@@ -207,6 +207,12 @@ func (r *d3d11Renderer) Upload(kind scene.AtlasTextureKind, size geometry.Size[g
 	return r.atlas.upload(kind, size, data)
 }
 
+// ClearAtlas resets the shelf packer for every page of the given kind, so
+// the next Upload reuses the coordinates a still-referenced tile may
+// occupy. Every [scene.AtlasTile] this renderer handed out for kind before
+// the call is invalid afterwards; the caller owns dropping its references.
+// Under facet_debug, drawing a stale tile panics instead of sampling
+// whatever Upload wrote over it — see debugCheckTile.
 func (r *d3d11Renderer) ClearAtlas(kind scene.AtlasTextureKind) {
 	r.atlas.clear(kind)
 }
@@ -299,6 +305,7 @@ func (r *d3d11Renderer) Draw(s *scene.Scene) error {
 	r.context.call(24, uintptr(d3d11PrimitiveTopologyTriangleList))
 
 	// 6. Draw Batches
+	r.dynamicBuffer.beginFrame()
 	for batch := range s.Batches() {
 		switch batch.Kind {
 		case scene.BatchShadows:
