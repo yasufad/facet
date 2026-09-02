@@ -44,6 +44,20 @@ w32/
       Facet's wndproc needs them to translate WM_MOUSEWHEEL and
       WM_XBUTTONDOWN.
 
+      Also added WM_IME_STARTCOMPOSITION, WM_IME_COMPOSITION and
+      WM_IME_ENDCOMPOSITION, for the same reason: Wails' webview owns IME
+      composition itself and never needed these.
+
+    imm32.go
+      Not from Wails at all — added whole. IMM32 (ImmGetContext,
+      ImmReleaseContext, ImmGetCompositionStringW) has no counterpart
+      anywhere in Wails v3's w32 package, because its webview-based input
+      model never reads a composition string. Facet needs it to draw IME
+      composition text inline (platform.IMECompositionEvent). Written in
+      this package's own file-per-DLL convention and reached through
+      syscall.NewLazyDLL like everything else here, so raw Win32 access
+      stays centralised in one place rather than duplicated in platform.
+
     user32.go
       Added procShowCursor and the ShowCursor wrapper, and
       procAdjustWindowRectExForDpi with the AdjustWindowRectExForDpi
