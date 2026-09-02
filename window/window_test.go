@@ -1112,6 +1112,80 @@ func TestPointerCaptureRoutesMoveOutsideRegionAndClearsActive(t *testing.T) {
 	}
 }
 
+// TestPointerCaptureDoesNotActivateAnotherRegion is the discriminating
+// sibling TestPointerCaptureRoutesMoveOutsideRegionAndClearsActive cannot be:
+// that test drags into empty space, where the plain (uncaptured) hit test
+// also finds nothing and also clears IsActive, so it passes whether or not
+// capture is wired up. Dragging onto a second, live hit region is the case
+// where the two paths disagree — without capture, hitTest finds region B
+// under the pointer and, since pointerDown is still true, B lights up as
+// pressed even though the press started on A.
+func TestPointerCaptureDoesNotActivateAnotherRegion(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	normalBg := colour.Rgba{R: 0.0, G: 0.0, B: 1.0, A: 1.0}
+	activeBg := colour.Rgba{R: 1.0, G: 0.0, B: 0.0, A: 1.0}
+
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().
+			Width(style.Px(400)).
+			Height(style.Px(300)).
+			Children(
+				// Button A: default row layout places it at x:[0,100).
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(100)).
+					Bg(normalBg).
+					Active(func(s *style.Refinement) {
+						s.SetBackground(activeBg)
+					}),
+				// Button B: immediately adjacent, at x:[100,200).
+				element.NewDiv().
+					Width(style.Px(100)).
+					Height(style.Px(100)).
+					Bg(normalBg).
+					Active(func(s *style.Refinement) {
+						s.SetBackground(activeBg)
+					}),
+			)
+	})
+	w.Draw()
+
+	// Press inside A.
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerDown,
+		Position: geometry.NewPoint[geometry.DevicePixels](50, 50),
+		Button:   platform.PointerLeft,
+	})
+	w.Draw()
+	if len(r.quads) != 2 || r.quads[0].Background != activeBg {
+		t.Fatalf("expected A active after press, got A=%v B=%v", r.quads[0].Background, r.quads[1].Background)
+	}
+	if r.quads[1].Background != normalBg {
+		t.Fatalf("expected B not active after press, got %v", r.quads[1].Background)
+	}
+
+	// Drag onto B without releasing.
+	w.DispatchEvent(platform.PointerEvent{
+		Phase:    platform.PointerMove,
+		Position: geometry.NewPoint[geometry.DevicePixels](150, 50),
+	})
+	w.Draw()
+
+	if r.quads[1].Background == activeBg {
+		t.Fatal("expected B to stay inactive while the drag that started on A is still captured to A")
+	}
+	if r.quads[0].Background != normalBg {
+		t.Fatalf("expected A to have cleared active once the pointer left its bounds, got %v", r.quads[0].Background)
+	}
+}
+
 func TestPointerDownOnUnfocusableElementLeavesFocusAlone(t *testing.T) {
 	a := app.NewApp()
 	defer a.Close()
@@ -1251,5 +1325,41 @@ func TestNilRootDrawLeavesFrameConsistent(t *testing.T) {
 	w.Draw()
 	if len(r.quads) != 1 {
 		t.Fatalf("expected 1 quad after recovering from a nil-root frame, got %d", len(r.quads))
+	}
+}
+
+func TestCloseEndsForegroundPumpGoroutine(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	plat := &stubPlatform{}
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+	w.platform = plat
+
+	w.startForegroundPump(plat, a)
+	if w.pumpDone == nil {
+		t.Fatal("expected startForegroundPump to start the pump goroutine")
+	}
+
+	if err := w.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// Close waits for the goroutine to exit before returning, so pumpDone
+	// must already be closed here — a range over a channel that never closes
+	// would otherwise leave the window, the platform and the app reachable
+	// for the life of the process.
+	select {
+	case <-w.pumpDone:
+	default:
+		t.Fatal("expected the pump goroutine's range over Pending() to have returned by the time Close returns")
+	}
+
+	// A second Close must not panic by closing an already-closed pumpStop.
+	if err := w.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
 	}
 }
