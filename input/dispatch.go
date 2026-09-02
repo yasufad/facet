@@ -24,19 +24,19 @@ type ActionHandler func(action Action, phase DispatchPhase) bool
 
 // KeyEventHandler receives raw key events during dispatch. Returning true marks
 // the event handled and halts propagation.
-type KeyEventHandler func(event platform.KeyEvent, phase DispatchPhase) bool
+type KeyEventHandler func(event KeyEvent, phase DispatchPhase) bool
 
 // PointerEventHandler receives pointer movement and button events. Returning true
 // marks the event handled and halts bubbling.
-type PointerEventHandler func(event platform.PointerEvent, phase DispatchPhase) bool
+type PointerEventHandler func(event PointerEvent, phase DispatchPhase) bool
 
 // WheelEventHandler receives scroll-wheel and trackpad events. Returning true
 // marks the event handled and halts bubbling.
-type WheelEventHandler func(event platform.WheelEvent, phase DispatchPhase) bool
+type WheelEventHandler func(event WheelEvent, phase DispatchPhase) bool
 
 // TextEventHandler receives finalized text input directed at the focused node.
 // Returning true marks the text input handled.
-type TextEventHandler func(event platform.TextEvent) bool
+type TextEventHandler func(event TextEvent) bool
 
 // DispatchNodeID identifies a node within the DispatchTree.
 type DispatchNodeID int
