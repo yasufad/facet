@@ -56,12 +56,21 @@ type App struct {
 	uiGoroutine int64
 }
 
-// NewApp constructs an App bound to the calling goroutine. The calling
-// goroutine becomes the UI goroutine: every context method invoked from
-// another goroutine panics. The foreground and background executors are
+// NewApp constructs an App bound to the calling goroutine. Whichever
+// goroutine calls NewApp becomes the UI goroutine for that App's entire
+// life: every context method invoked from another goroutine panics (in a
+// facet_debug build; see checkUI), and — just as importantly — the
+// foreground executor's queue must only ever be drained from that same
+// goroutine, since every job it runs reaches back into App state. A platform
+// event loop must call NewApp and then run its dispatch loop, including every
+// Foreground().Drain(), on one goroutine; building the App on one goroutine
+// and driving it from another is a mistake this package cannot fully stop you
+// from making, only catch as close to the mistake as it can (see
+// ForegroundExecutor.Drain). The foreground and background executors are
 // created here so that App is self-contained and testable before platform is
 // wired in.
 func NewApp() *App {
+	uiGoroutine := goroutineID()
 	app := &App{
 		rc:                   newRefCounts(),
 		entities:             newEntityMap(),
@@ -69,9 +78,9 @@ func NewApp() *App {
 		observers:            newSubscriberSet[entityID, observerHandler](),
 		subscribers:          newSubscriberSet[entityID, subscriberEntry](),
 		releases:             newSubscriberSet[entityID, releaseHandler](),
-		uiGoroutine:          goroutineID(),
+		uiGoroutine:          uiGoroutine,
 	}
-	app.fg = newForegroundExecutor()
+	app.fg = newForegroundExecutor(uiGoroutine)
 	app.bg = newBackgroundExecutor()
 	return app
 }
