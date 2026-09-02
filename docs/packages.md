@@ -103,6 +103,18 @@ that same pointer. Leasing is unchanged and is what makes it safe — the value 
 the map for the duration of an update, so a re-entrant update or a concurrent read
 panics rather than racing.
 
+`NewApp` binds the UI goroutine to whichever goroutine constructs it, and that is an
+invariant callers have to satisfy rather than a detail: every `AsyncApp` operation
+marshals back to it, so an `App` built on one goroutine and drained on another panics
+from inside the platform dispatcher, naming neither mistake. `Drain` checks the
+goroutine it was given at construction, so the error arrives where it was made.
+
+Shutdown is reported, not blocked on. `enqueue` returns whether it actually queued the
+job and refuses once the executor has stopped; `AsyncApp.run` checks that result instead
+of waiting on a reply nothing will send. The shutdown error the doc comments promise had
+been unreachable — the check for it sat inside the closure being enqueued, so it could
+only run if something were still draining a queue nothing was draining any more.
+
 Entity lifetime is reference counted by hand, and stays that way. Go 1.24's
 `weak.Pointer[T]` with `runtime.AddCleanup` was spiked against this design and rejected
 on evidence, so it does not need spiking again. A cleanup runs on its own goroutine at an
