@@ -1,91 +1,86 @@
-# window: the capture test agrees with the bug it is testing for
+# window: the test the audit asked for, and IME has a producer now
 
-Five of six items landed and the work is good. The prepaint clip relaxation is exactly the
-shape asked for — a separate stack, `RegisterHitRegion` intersecting against it, and the
-`facet_debug` balance assertion extended to cover it. `element` is unblocked and has been
-told so. Returning the whole hit region from `hitTest` removed the three redundant scans
-cleanly, and `platform` can now take its `SetCursor` half; I have told it the function has
-settled.
+Both findings closed and I verified both by breaking them. Dead-coding
+`resolveCapturedHitTest` leaves the old test passing and fails
+`TestPointerCaptureDoesNotActivateAnotherRegion` — which is exactly the discrimination
+that was missing, demonstrated rather than asserted.
 
-One test does not test what its name says.
+The pump work is better than what I asked for. I asked you to end the goroutine; you made
+`Close` block on `pumpDone` so termination is observable rather than hoped for, which is
+why the test fails in 0.12s instead of hanging. And the `case _, ok := <-pending` guard is
+the thing I went looking for and expected to find missing: after `App.Close` closes `wake`,
+a select on a closed channel spins, and you handled it.
 
-## The capture test cannot fail on half its claim
+## 1. The test docs/audit.md asked for, which nothing has written
 
-`TestPointerCaptureRoutesMoveOutsideRegionAndClearsActive`. I dead-coded the entire
-capture-aware hit resolution:
+`prompts/build.md` has been carrying this and it names `window` as its home. It was
+blocked on `element` landing the listener seam. That landed several rounds ago and nothing
+picked this up, which is my tracking failure rather than yours.
+
+Nothing in `window/*_test.go` references `element.Listener`. So the framework's central
+path — a view whose state changes because someone clicked it — is still not exercised
+anywhere above `element`'s own unit tests.
+
+Write it. Build a view with real entity state, give it a `Div` with an
+`element.Listener`-wrapped `OnClick`, drive a frame through `Draw`, dispatch a synthetic
+pointer down and up through `DispatchEvent`, and assert two things: the entity changed,
+and the next frame reflects it. Against the fakes `window_test.go` already has, so it
+needs no GPU.
+
+`docs/audit.md` says this one test would have caught three of the four blocking defects it
+opens with. Two of those three are fixed now; the value is that the path executes at all,
+and that it keeps executing.
+
+Break the listener and confirm it fails.
+
+## 2. IME dispatch — unblocked
+
+`platform` has landed. `window_windows.go` emits `IMECompositionEvent` from
+`WM_IME_STARTCOMPOSITION`, `WM_IME_COMPOSITION` and `WM_IME_ENDCOMPOSITION`, with `Cursor`
+converted to a rune offset. `DispatchEvent` still has no case for it.
+
+Route it. `input.DispatchText` currently delivers only to the focused node with no capture
+or bubble phase, unlike the other three dispatchers — that asymmetry is recorded as an open
+question in `prompts/queued.md` and composition is the event that makes it concrete. If
+routing IME to the focused node alone is the right contract, say so and I will write it
+down; if you find you need the phases, that is a finding and `input` owns the change.
+
+There is no consumer above you yet — `ui`'s text field is being built now. So route it and
+prove it arrives with a test; do not invent an API for a caller that does not exist.
+
+## 3. The part of the frame work that does not need element identity
+
+Still outstanding from last round:
 
 ```go
-func (w *Window) resolveNextHitTest() {
-    if false {                      // was: if w.captureActive
-        w.resolveCapturedHitTest()
-        return
-    }
+nodeBounds        map[layout.NodeID]geometry.Bounds[geometry.Pixels]
+measureCallbacks  map[layout.NodeID]element.MeasureFunc
 ```
 
-The test still passes.
+`layout.NodeID`s are dense integers within a frame. Slices indexed by id, reset rather
+than cleared. This is per-frame allocation on the layout path and it does not depend on
+anything I have not decided.
 
-The routing half is real — the `moveEvents` assertion runs through `DispatchEvent`, which
-my edit did not touch, and that half would catch a regression. The `ClearsActive` half
-cannot. The test drags to (5000, 5000), and at that point the plain `hitTest` path misses
-every region too, so `activeHitRegion` becomes 0 and the background reverts either way.
-The assertion is satisfied by the fix and by its absence, which is the "check the
-assertion knows the answer" case in `AGENTS.md` — it is a correct expectation that
-distinguishes nothing.
+## Still not yet, unchanged
 
-`resolveCapturedHitTest` is therefore entirely unprotected, and what it prevents is not
-obscure:
+**The layout tree is rebuilt every frame.** `w.layoutTree = layout.NewTaffyTree()` throws
+away a faithfully ported per-node cache before it can span a frame. It is the biggest
+single performance defect in the tree and it needs node identity that survives a frame,
+which needs the element identity decision. `docs/audit.md` now has GPUI's actual mechanism
+read from source rather than inferred — a path from the root, state carried between the
+two frames you already keep, reachable in prepaint. I have not taken that decision and
+taking it badly is worse than waiting.
 
-```go
-for _, hr := range w.next.hitRegions {
-    if hr.nodeID != w.captureNodeID {
-        continue
-    }
-```
-
-Only the captured node is eligible. Without it, `hitTest` finds whatever is under the
-pointer, and since `w.pointerDown` is true during a drag, that region becomes
-`activeHitRegion`. Press button A, drag onto button B, and **B lights up as pressed**.
-That is the bug, and every toolkit gets it right, which is why the prompt separated
-routing from `IsActive` in the first place.
-
-The discriminating test drags onto a *second* hit region rather than into empty space:
-two adjacent buttons, press A, move over B, draw, and assert B is not active and A is not
-active either. Break `resolveCapturedHitTest` and confirm it fails. The existing test is
-worth keeping — it covers routing and the outside-the-window case — but it needs the
-sibling that sees the difference.
-
-This is the second time this round a test has been written well and pointed at empty
-space. It is the most valuable check we have and the easiest to satisfy accidentally.
-
-## Item 6 is now unblocked
-
-`app` has landed `ForegroundExecutor.stop` closing `wake` under a `sync.Once`, so the pump
-goroutine can terminate. Make `Window.Close` end it and prove it with a test that closes a
-window and observes the range return.
-
-IME dispatch still waits on `platform` producing `IMECompositionEvent`; that half of its
-prompt is live and not yet reported.
-
-## What is right
-
-The comment on `resolveNextHitTest` explains why the captured node is found by `nodeID`
-rather than by point — hit region ids are minted fresh every frame and the id from the
-capture frame never appears again, while dispatch node ids are stable for an unchanged
-tree. That is the non-obvious part of the whole mechanism and it is written down where
-someone will hit it.
-
-Refreshing `captureBounds` from the current frame's region is right too, and not what a
-first implementation does. A drag that resizes the element it started on keeps working.
-
-Your process note: you found `git commit -m` picking up another agent's staged file, and
-you found the fix — `git commit -m "..." -- <path>` commits only the named path whatever
-else is staged. Three agents hit this; you are the one who closed it. It is in `AGENTS.md`
-now, credited to this round.
+**Layers.** `scene` has them, `Frame` does not expose them, and they arrive with their
+first caller in `ui`, not before.
 
 ## Done when
 
     go test ./window
     go test -tags facet_debug ./window
 
-pass, with the second-region capture test failing when `resolveCapturedHitTest` is
-disabled, and `Window.Close` ending the pump goroutine.
+pass, with the click-to-state test failing when the listener is broken, and an IME
+composition arriving at a focused node in a test.
+
+Report on the `DispatchText` phase question either way — it is a contract and it should be
+written down rather than left as an accident of which dispatcher was written first.
