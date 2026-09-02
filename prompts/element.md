@@ -1,107 +1,99 @@
-# element: the seam is right, and nothing pins it to the slot it fits
+# element: TextLayout is the last thing blocking the text field
 
-The listener work is correct. I read it at HEAD, broke it, and confirmed the tests fail
-the way they should. `defer entity.Release()` on the panic path, the dropped-view branch
-returning unhandled with its own test, and a doc comment that says plainly this is a
-mitigation rather than sugar — all of that is what the round asked for.
+All three gaps closed and I verified each by breaking it. The prepaint clip test fails
+with the unclipped bounds named in the message; removing `defer entity.Release()` from
+either adapter now fails both balance tests, which is exactly the hole I found last round
+and it is shut. The `Frame` doc comment saying the two clip stacks are independent and a
+prepaint push does not touch the scene is the sentence someone will need, and it is there.
 
-Two gaps, both in what is tested rather than in what was written, and then the rest of the
-round.
+Bundling `div.go`, `doc.go`, `frame.go` and `fake_frame_test.go` into one commit was
+right. The fake had to match or nothing built, and the doc comments state the guarantee
+that changed — that is the not-true-in-pieces exception doing its job rather than being
+stretched.
 
-## 1. Nothing tests the seam the design exists for
+## First, my error, because it is your question
 
-The whole argument for `PhasedListener`'s shape is that it drops into the existing slots
-with no signature change anywhere. Your report says so. No test says so — every test calls
-the returned closure directly.
+You asked whether to take `ui.Button` and `examples/button`. You should not, and the
+reason is that I told you to. My last prompt said "take them now"; `prompts/ui.md` assigns
+the same migration to whoever holds `ui`. Two prompts claiming one file is the collision I
+have spent three rounds trying to prevent, and I wrote it.
 
-I checked the claim and it holds. All three fit:
+**`ui` owns `ui/button.go` and `examples/button`.** Do not touch either.
+
+What you own is the thing that lets `ui` do it in one landing instead of two.
+
+## 1. TextLayout
+
+`ui` has been waiting on this for three rounds and it is now the only thing between the
+text field and a caret. Nothing below you is missing; `text.ShapedLine` has all three
+already.
 
 ```go
-var _ input.KeyEventHandler = element.PhasedListener(cx, ...)
-var _ input.PointerEventHandler = element.PhasedListener(cx, ...)
-var _ input.WheelEventHandler = element.PhasedListener(cx, ...)
-element.NewDiv().OnClick(element.Listener(cx, ...))
+type TextLayout struct{ ... }              // element's type, wrapping the shaped line
+func (t *Text) Layout() TextLayout
+func (l TextLayout) XForIndex(byteIndex int) geometry.Pixels
+func (l TextLayout) IndexForX(x geometry.Pixels) (int, bool)
+func (l TextLayout) ClosestIndexForX(x geometry.Pixels) int
 ```
 
-That is four lines and it belongs in the package, not in my scratch directory. It is a
-compile-time assertion, so it costs nothing at run time and fails loudly the day someone
-adds a parameter to one of those handler types.
+`ui` stores a `TextLayout` in its state entity and queries it during event handling, where
+there is no `Frame`. That is the whole point of wrapping it: the caret arithmetic has to
+work outside the frame, and `ui` must not learn `text`.
 
-This is the `AGENTS.md` rule about setting one thing and checking another. The listeners
-were tested in isolation; they exist to fit somewhere.
+Add exactly these three. If the text field needs a fourth, that is a finding to report,
+not a method to guess at.
 
-## 2. A missing Release breaks no test
+One thing to get right while you are here, because it is the same arithmetic twice.
+`element` puts the baseline at `bounds.Origin.Y + ascent`, so when the line box is taller
+than ascent plus descent the whole difference lands below the glyphs. `DefaultTextStyle`
+ships `FontSize: 16` with `LineHeight: 20`, so the default configuration already has
+leading it puts on one side, and an editor's 1.5 line height pins glyphs to the top of the
+box. The rule is CSS's: half the difference above the ascent. Caret height and position
+come out of the same numbers, so getting the leading wrong once means getting the caret
+wrong twice.
 
-I removed `defer entity.Release()` from both adapters and the whole package still passed.
+## 2. Text re-shapes for a width that changes nothing
 
-The code is right. The point is that the line most likely to be lost in a future edit is
-unguarded, in the one package that opts into manual reference counting on a per-event
-path. `docs/audit.md` names this as the framework's central lifetime hazard: a missed
-`Release` leaks the entity and every observer registered against it, with no diagnostic.
-An adapter that runs on every click is where that would accumulate fastest.
+```go
+if t.shapedLine == nil || t.lastAvailWidth != avail.Width {
+```
 
-Pin the balance. Register a listener, fire it many times, and assert the entity still
-drops when its last strong handle goes — a leaked upgrade keeps it alive and the assertion
-catches it. Break the `Release` and confirm your test fails.
+`ShapeLine` takes no width and wraps nothing, so its output is identical at every
+available width, and flexbox calls a leaf measure several times per solve with different
+constraints. Invalidate on content and resolved text style — the inputs `ShapeLine`
+actually reads.
 
-## 3. Div.Prepaint is unblocked
+`text` has landed a line cache that made the repeat call roughly 190 times cheaper, so the
+absolute cost has collapsed. Do it anyway. The call is still wrong, and a cache that makes
+a mistake affordable is not the same as not making it.
 
-`window` has landed. `PushClip` and `PopClip` are legal in prepaint, hit regions are
-intersected with the prepaint clip stack, and there is a `facet_debug` balance assertion
-on that stack.
+Add the benchmark that would have caught it: vary the width and assert the shaped line is
+not rebuilt, not merely that the answer is right.
 
-So push and pop around children in `Div.Prepaint` exactly as `Div.Paint` already does, and
-update the phase rules in the `Frame` doc comment in the same commit — the comment states
-the guarantee and is part of it.
+## 3. Style resolved three times per frame
 
-The test worth writing is the one that was impossible before: register a hit region inside
-an overflow-hidden container, put the pointer where the clip excludes it, and assert the
-hit misses. A button scrolled out of a `ScrollView` has been invisible and clickable for
-the whole life of this repository.
+`RequestLayout`, `Prepaint` and `Paint` each build a 488-byte `style.Style` from the
+refinement. Resolve once in `RequestLayout`, carry it on the element, layer the
+pseudo-state refinements onto a copy in `Paint`.
 
-## 4. Carried forward, unchanged
+Calibrated: `BenchmarkStyleRefineNonEmpty` is 51 ns against an element build of about
+4 µs, so this is roughly 4% and a tidy-up rather than a wall. It is free and worth having;
+it is not worth restructuring anything to get.
 
-**`TextLayout`.** `ui` is still waiting and it is now the last thing between the text
-field and a caret. `XForIndex`, `IndexForX`, `ClosestIndexForX`, wrapping the shaped line
-so `ui` never learns `text`.
+## Not yours, still
 
-**`Text` re-shapes for a width that changes nothing.** `ShapeLine` takes no width and
-wraps nothing, so the output is identical at every available width, and
-`t.lastAvailWidth != avail.Width` throws away a correct answer several times per solve.
-Invalidate on content and resolved style.
-
-`text` has since landed a line cache that makes the repeat call roughly 190 times cheaper,
-so the absolute cost of the redundant call has collapsed. Do it anyway: the call is still
-wrong, and a cache making a mistake affordable is not the same as not making it.
-
-**Style resolved three times per frame.** Resolve once in `RequestLayout`, carry it on the
-element, layer the pseudo-state refinements onto a copy in `Paint`. Roughly 4% of element
-cost, so it is a tidy-up rather than a wall — the prompt said that last round and it is
-still true.
-
-## 5. Then ui and the examples
-
-You stopped before `ui` and `examples/button` to let me see the seam. That was right and
-the seam is good.
-
-Take them now. `ui.Button` migrates to `Listener` with a test that changes real entity
-state through a dispatch and reads it back, and `examples/button` becomes the thing it has
-always claimed to be. It is one landing with the migration; `prompts/ui.md` covers the
-widget side and whoever holds `ui` writes the cross-stack test in `internal/integration`.
-
-Report before you start, only so we do not both move `ui` at once.
-
-## On the shared index
-
-You hit `git add` picking up another agent's concurrently staged file twice, caught both
-with `git show --name-only`, and fixed them. That is the check working exactly as
-`AGENTS.md` intends, and it is worth saying that you caught it rather than that it
-happened.
+No `PushLayer`, `PopLayer` or deferred paint on `Frame`. `window` implements `Frame`, so
+the implementer goes first, and neither of us adds it before `ui` has a popup to call it.
+An interface method with no caller is a guess and we have had two.
 
 ## Done when
 
     go test ./element ./element/elementtest
     go test -tags facet_debug ./element
 
-pass, with the compile-time slot assertions, a test that fails if `Release` is dropped,
-and the prepaint clip test that fails if the clip is ignored.
+pass, with `TextLayout` driven through `elementtest.Frame`, a benchmark that fails if the
+width invalidation comes back, and half-leading applied so a 1.5 line height centres its
+glyphs.
+
+Report when `TextLayout` lands, ahead of the rest if it is ready first — `ui` is blocked
+on that method set and nothing else.
