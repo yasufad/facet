@@ -1,127 +1,86 @@
-# element: elementtest still rejects the clip you now push
+# element: elementtest still blocks ui, and one comment claims more than it can
 
-## Before anything else
+Three good landings. `TextLayout` is the shape asked for and the zero-value guard is real —
+I stripped it and the test panicked. The half-leading test comparing sprite position at
+natural against taller line height is the right construction, because it does not depend
+on which font backs the system, and this repository has had font-dependent assertions
+before. The `Div` resolve-once is correct including the part that is easy to get wrong:
+`style.Style` has exactly one slice field and `Refine` assigns it wholesale rather than
+appending, so the copy your comment relies on really is a copy. I checked.
 
-`go test ./ui` panics at HEAD:
+## 1. elementtest, still — and this is the blocker
 
-    --- FAIL: TestScrollViewClipping
+`go test ./ui` still panics at HEAD:
+
     panic: elementtest: PushClip called outside paint phase
         element/elementtest/frame.go:559
 
-`Div.Prepaint` pushes a clip now. You taught `element/fake_frame_test.go` the dual-stack
-semantics and left `element/elementtest/frame.go` — the *exported* double — enforcing the
-old paint-only rule. `ui` builds every widget test on that double, so it cannot run any of
-them.
+I pushed this into your prompt after you had already started, so you plausibly never saw
+it. It is unchanged and it is the highest-value thing in the tree right now, because `ui`
+cannot run a single widget test until it lands, and `ui` is the last package between this
+framework and `examples/button` working.
 
-`go test ./element ./element/elementtest` passes, because nothing inside `elementtest`
-drives a clipping `Div` through prepaint. That is the shape this repository keeps
-producing: a capability verified only by its provider is half tested. `docs/packages.md`
-records that the double exists so `ui` can test without importing `platform`, `scene`,
-`text` or `render` — keeping it truthful is part of changing the phase rules, not a
-follow-up.
+`Div.Prepaint` pushes a clip. You taught `element/fake_frame_test.go` the dual-stack
+semantics and left `element/elementtest/frame.go` — the exported double — enforcing the
+old paint-only rule. `PushClip` and `PopClip` both, lines 559 and 581.
 
-Give it the same two stacks the real `Frame` has, and add the test that would have caught
-it: prepaint a clipping `Div` through `elementtest.Frame` and assert the registered hit
-region is clipped. Break the phase rule and confirm it fails.
+Give it the two stacks the real `Frame` has, and add the test that would have caught it:
+prepaint a clipping `Div` through `elementtest.Frame` and assert the registered hit region
+is clipped. Break the phase rule and confirm it fails.
 
-Do this first. `ui` is blocked on it and so is the layering work behind it.
+`go test ./element ./element/elementtest` passing is not evidence here — nothing inside
+`elementtest` drives a clipping `Div` through prepaint, which is why the break landed in
+`ui` instead. Run `go test ./ui` before you report.
 
-## The round
+## 2. The width comment is right about content and wrong about style
 
-All three gaps closed and I verified each by breaking it. The prepaint clip test fails
-with the unclipped bounds named in the message; removing `defer entity.Release()` from
-either adapter now fails both balance tests, which is exactly the hole I found last round
-and it is shut. The `Frame` doc comment saying the two clip stacks are independent and a
-prepaint push does not touch the scene is the sentence someone will need, and it is there.
+Dropping `lastAvailWidth` is correct and the test is good — five widths, one `ShapeLine`
+call, and it fails with five when the old check comes back.
 
-Bundling `div.go`, `doc.go`, `frame.go` and `fake_frame_test.go` into one commit was
-right. The fake had to match or nothing built, and the doc comments state the guarantee
-that changed — that is the not-true-in-pieces exception doing its job rather than being
-stretched.
+The justification you wrote into the code is not:
 
-## First, my error, because it is your question
+    // Content and style are fixed for the lifetime of this element (they
+    // can only change before RequestLayout, which runs once), so shaping
+    // once and keeping it for every later call is the whole cache.
 
-You asked whether to take `ui.Button` and `examples/button`. You should not, and the
-reason is that I told you to. My last prompt said "take them now"; `prompts/ui.md` assigns
-the same migration to whoever holds `ui`. Two prompts claiming one file is the collision I
-have spent three rounds trying to prevent, and I wrote it.
+Content, yes. Style, no. `Text.Paint` re-reads `f.TextStyle()`, and that value carries the
+pseudo-state refinements a container merges in before children paint — `docs/packages.md`
+says so explicitly, and hover is resolved at step 5, between prepaint and paint. So the
+style the element paints under is not always the style it shaped under.
 
-**`ui` owns `ui/button.go` and `examples/button`.** Do not touch either.
+`Paint` then shapes only `if t.shapedLine == nil`, which is never true by that point, so it
+computes `textStyle` and drops it on the floor. Hover a container that changes font size,
+family, weight or features, and the glyphs keep the layout-time shaping. Colour still
+updates, because that is per-sprite — so it looks half-working, which is worse than
+looking broken.
 
-What you own is the thing that lets `ui` do it in one landing instead of two.
+You inherited that guard rather than writing it; the commit only touched the measure path.
+What is new is the comment asserting it is safe, and a comment that states a guarantee is
+part of it.
 
-## 1. TextLayout
+Two things to settle, and I want your reading before I decide the second:
 
-`ui` has been waiting on this for three rounds and it is now the only thing between the
-text field and a caret. Nothing below you is missing; `text.ShapedLine` has all three
-already.
+Fix the comment now, whatever else happens. Say that content is fixed and style is not,
+and name the paint-time merge as the reason.
 
-```go
-type TextLayout struct{ ... }              // element's type, wrapping the shaped line
-func (t *Text) Layout() TextLayout
-func (l TextLayout) XForIndex(byteIndex int) geometry.Pixels
-func (l TextLayout) IndexForX(x geometry.Pixels) (int, bool)
-func (l TextLayout) ClosestIndexForX(x geometry.Pixels) int
-```
+Then say what the invalidation should be. Re-shaping in paint when the resolved text style
+differs from the one shaped under is the obvious answer and it costs a comparison plus, on
+a real hover, one `ShapeLine` — which `text` has made roughly 190 times cheaper since this
+was written. The alternative is to declare that pseudo-state may not change font metrics,
+only colour, and enforce it. That is a narrower framework and a defensible one. It is a
+contract question rather than a bug fix, so tell me which you would take and why.
 
-`ui` stores a `TextLayout` in its state entity and queries it during event handling, where
-there is no `Frame`. That is the whole point of wrapping it: the caret arithmetic has to
-work outside the frame, and `ui` must not learn `text`.
+## 3. What is left
 
-Add exactly these three. If the text field needs a fourth, that is a finding to report,
-not a method to guess at.
-
-One thing to get right while you are here, because it is the same arithmetic twice.
-`element` puts the baseline at `bounds.Origin.Y + ascent`, so when the line box is taller
-than ascent plus descent the whole difference lands below the glyphs. `DefaultTextStyle`
-ships `FontSize: 16` with `LineHeight: 20`, so the default configuration already has
-leading it puts on one side, and an editor's 1.5 line height pins glyphs to the top of the
-box. The rule is CSS's: half the difference above the ascent. Caret height and position
-come out of the same numbers, so getting the leading wrong once means getting the caret
-wrong twice.
-
-## 2. Text re-shapes for a width that changes nothing
-
-```go
-if t.shapedLine == nil || t.lastAvailWidth != avail.Width {
-```
-
-`ShapeLine` takes no width and wraps nothing, so its output is identical at every
-available width, and flexbox calls a leaf measure several times per solve with different
-constraints. Invalidate on content and resolved text style — the inputs `ShapeLine`
-actually reads.
-
-`text` has landed a line cache that made the repeat call roughly 190 times cheaper, so the
-absolute cost has collapsed. Do it anyway. The call is still wrong, and a cache that makes
-a mistake affordable is not the same as not making it.
-
-Add the benchmark that would have caught it: vary the width and assert the shaped line is
-not rebuilt, not merely that the answer is right.
-
-## 3. Style resolved three times per frame
-
-`RequestLayout`, `Prepaint` and `Paint` each build a 488-byte `style.Style` from the
-refinement. Resolve once in `RequestLayout`, carry it on the element, layer the
-pseudo-state refinements onto a copy in `Paint`.
-
-Calibrated: `BenchmarkStyleRefineNonEmpty` is 51 ns against an element build of about
-4 µs, so this is roughly 4% and a tidy-up rather than a wall. It is free and worth having;
-it is not worth restructuring anything to get.
-
-## Not yours, still
-
-No `PushLayer`, `PopLayer` or deferred paint on `Frame`. `window` implements `Frame`, so
-the implementer goes first, and neither of us adds it before `ui` has a popup to call it.
-An interface method with no caller is a guess and we have had two.
+Nothing else from the last round. `PushLayer`, `PopLayer` and deferred paint stay with
+`window`, and `ui.Button` and `examples/button` stay with `ui` — you were right not to
+touch them, and the confusion was mine.
 
 ## Done when
 
-    go test ./element ./element/elementtest
-    go test -tags facet_debug ./element
+    go test ./ui
 
-pass, with `TextLayout` driven through `elementtest.Frame`, a benchmark that fails if the
-width invalidation comes back, and half-leading applied so a 1.5 line height centres its
-glyphs.
+runs. That is the measure this round, not `go test ./element`.
 
-Report when `TextLayout` lands, ahead of the rest if it is ready first — `ui` is blocked
-on that method set and nothing else.
+Plus the `elementtest` prepaint-clip test failing when the phase rule is reverted, the
+width comment telling the truth, and your answer on the style-invalidation question.
