@@ -1,206 +1,107 @@
-# element: an event handler cannot reach the state it belongs to
+# element: the seam is right, and nothing pins it to the slot it fits
 
-This is the defect that blocks the framework, and it is yours. Read
-`docs/audit.md` first; it has the reproduction.
+The listener work is correct. I read it at HEAD, broke it, and confirmed the tests fail
+the way they should. `defer entity.Release()` on the panic path, the dropped-view branch
+returning unhandled with its own test, and a doc comment that says plainly this is a
+mitigation rather than sugar — all of that is what the round asked for.
 
-## The problem
+Two gaps, both in what is tested rather than in what was written, and then the rest of the
+round.
 
-`examples/button` is written the way anyone would write it:
+## 1. Nothing tests the seam the design exists for
 
-```go
-func (c *CounterView) Render(cx *app.Context[CounterView]) element.Element {
-    return element.NewDiv().Children(
-        ui.NewButton("Click Me").
-            OnClick(func(event element.ClickEvent) bool {
-                c.count++
-                cx.Notify()
-                return true
-            }),
-    )
-}
-```
+The whole argument for `PhasedListener`'s shape is that it drops into the existing slots
+with no signature change anywhere. Your report says so. No test says so — every test calls
+the returned closure directly.
 
-`View[T].Render` calls `app.UpdateEntity`, so `Render` runs inside an update. `c` is the
-pointer that update leased out and `cx` is a context whose generation expires the moment
-it returns. The closure is stored in the dispatch tree and invoked from
-`window.DispatchEvent`, outside any update. Both halves fail:
-
-    PANIC when the click handler ran: app: context used after its update has ended
-    stored count after the click handler ran: 0 (expected 1)
-
-`func(ClickEvent) bool` gives the handler no route back into the entity. Capturing is the
-only thing a caller can do and capturing is wrong, so there is currently no correct way to
-write a handler on a view. Every phased handler — key, pointer, wheel, text — has the same
-shape and the same problem.
-
-`ui.Button`'s test passes because it sets a test-local `clicked` and never goes near an
-entity. That is the pattern `AGENTS.md` warns about under "interaction needs a test that
-sets one thing and checks another", and the warning was written before this and did not
-catch it. Whatever you add here needs a test that mutates real entity state through a real
-dispatch and reads it back.
-
-## The decision
-
-Two helpers in `element`. They close over the weak handle and re-enter the update when
-the event fires, so the callback is handed live state and a live context instead of
-captured ones.
+I checked the claim and it holds. All three fit:
 
 ```go
-// Listener adapts a handler that needs its view's state into one the element
-// tree can store. The entity is upgraded and updated at dispatch time.
-func Listener[T, E any](
-    cx *app.Context[T],
-    f func(v *T, e E, cx *app.Context[T]) bool,
-) func(E) bool
-
-// PhasedListener is Listener for the handlers that carry a dispatch phase.
-func PhasedListener[T, E any](
-    cx *app.Context[T],
-    f func(v *T, e E, phase input.DispatchPhase, cx *app.Context[T]) bool,
-) func(E, input.DispatchPhase) bool
+var _ input.KeyEventHandler = element.PhasedListener(cx, ...)
+var _ input.PointerEventHandler = element.PhasedListener(cx, ...)
+var _ input.WheelEventHandler = element.PhasedListener(cx, ...)
+element.NewDiv().OnClick(element.Listener(cx, ...))
 ```
 
-Both take `cx.WeakEntity()` and `cx.App()` at registration, and at dispatch time upgrade,
-`app.UpdateEntity`, call `f`, release. A handler whose view has been dropped upgrades to
-nothing and reports the event unhandled; it must not panic.
+That is four lines and it belongs in the package, not in my scratch directory. It is a
+compile-time assertion, so it costs nothing at run time and fails loudly the day someone
+adds a parameter to one of those handler types.
 
-This is confirmed against GPUI now rather than inferred. `Context::listener` in
-`crates/gpui/src/app/context.rs` is the same body: downgrade at render time, upgrade and
-`update` at dispatch time, and a dropped view is a silent no-op. `docs/audit.md` quotes
-it. I also built the adapter against today's `app` and ran it — the increment persists
-across two dispatches and `cx.Notify()` from inside it reaches an observer, so the redraw
-path is intact. Nothing in `app` has to move first.
+This is the `AGENTS.md` rule about setting one thing and checking another. The listeners
+were tested in isolation; they exist to fit somewhere.
 
-One divergence, deliberate. GPUI's plain handler signature is
-`Fn(&E, &mut Window, &mut App)` — the App is threaded through the callback because the
-borrow checker gives the closure no other way to reach it. Go has no such constraint, so
-the adapter captures `cx.App()` and no signature gains a parameter. If someone later
-proposes matching upstream by passing the app to handlers, this is the reason not to.
+## 2. A missing Release breaks no test
 
-`PhasedListener`'s return type is assignable to `input.KeyEventHandler` and its three
-siblings, so no signature on `Div` changes and neither does `input` or `window`.
+I removed `defer entity.Release()` from both adapters and the whole package still passed.
 
-Two functions rather than one because the phased handlers take two arguments and Go
-cannot abstract over arity. A single `Bind` returning an updater would cover both shapes
-in one function, and I decided against it: it leaves the handler body outside the update,
-so `c.count++` still compiles next to it and still silently does nothing. Putting `v` and
-`cx` in the parameter list is what makes the correct thing the one that is in front of
-you.
+The code is right. The point is that the line most likely to be lost in a future edit is
+unguarded, in the one package that opts into manual reference counting on a per-event
+path. `docs/audit.md` names this as the framework's central lifetime hazard: a missed
+`Release` leaks the entity and every observer registered against it, with no diagnostic.
+An adapter that runs on every click is where that would accumulate fastest.
 
-I also considered taking `Render` out of the update entirely — hand it
-`(self app.Entity[T], cx *app.App)` and let handlers use `self.Update`, which is already
-the framework's correct public idiom and needs no new API at all. It is a cleaner fix to
-the root cause. I rejected it because `Render` would lose its `Context`, and
-`docs/architecture.md` leans on having one there: a view that reads a second entity
-observes it and notifies itself, "explicit and one line". That line needs a `Context`.
+Pin the balance. Register a listener, fire it many times, and assert the entity still
+drops when its last strong handle goes — a leaked upgrade keeps it alive and the assertion
+catches it. Break the `Release` and confirm your test fails.
 
-So `Render` still runs inside an update, and that remains the underlying hazard. These
-helpers are the mitigation at the one place it bites. Say so in the doc comment, so
-nobody reads them as sugar.
+## 3. Div.Prepaint is unblocked
 
-## What the handler still cannot do
+`window` has landed. `PushClip` and `PopClip` are legal in prepaint, hit regions are
+intersected with the prepaint clip stack, and there is a `facet_debug` balance assertion
+on that stack.
 
-GPUI hands its callbacks `&mut Window` alongside the view and the context. Ours get
-`*app.Context[T]` and nothing else, which covers state and `Notify` — I checked that a
-`Notify` from inside the adapter reaches an observer, so a handler can change state and
-get a frame. It does not cover the window. `Frame.RequestFocus` and `Frame.SetCursor` are
-paint-phase methods on an object that does not exist during dispatch, so a handler cannot
-move focus, and "clicking this text field focuses it" has no route.
+So push and pop around children in `Div.Prepaint` exactly as `Div.Paint` already does, and
+update the phase rules in the `Frame` doc comment in the same commit — the comment states
+the guarantee and is part of it.
 
-That is a gap and not a defect in what you are building; the fix is a window-side seam
-and `window` is not being asked for one this round. Do not invent a way round it —
-capturing a `Frame` would be the same class of mistake the listeners exist to fix, since
-a `Frame` is per-frame state and the closure outlives the frame. Build the listeners
-without it, and if the tests you write for them make the absence bite, report that.
-Naming the shape you would want is more useful to me than a workaround.
+The test worth writing is the one that was impossible before: register a hit region inside
+an overflow-hidden container, put the pointer where the clip excludes it, and assert the
+hit misses. A button scrolled out of a `ScrollView` has been invisible and clickable for
+the whole life of this repository.
 
-Focus today moves on pointer-down through `window`'s hit-region path, which is also where
-the blur bug lives — clicking a button blurs the text field beside it, because a button
-registers a hit region and has no focus id. That belongs to `window`. Mentioning it so
-you do not chase it from this side.
+## 4. Carried forward, unchanged
 
-## Also outstanding
+**`TextLayout`.** `ui` is still waiting and it is now the last thing between the text
+field and a caret. `XForIndex`, `IndexForX`, `ClosestIndexForX`, wrapping the shaped line
+so `ui` never learns `text`.
 
-**`TextLayout`.** Carried from the last round, still needed, and `ui` is waiting on it.
-`element.Text` becomes queryable without `ui` learning `text`:
+**`Text` re-shapes for a width that changes nothing.** `ShapeLine` takes no width and
+wraps nothing, so the output is identical at every available width, and
+`t.lastAvailWidth != avail.Width` throws away a correct answer several times per solve.
+Invalidate on content and resolved style.
 
-```go
-type TextLayout struct{ ... }              // element's type, wrapping the shaped line
-func (t *Text) Layout() TextLayout
-func (l TextLayout) XForIndex(byteIndex int) geometry.Pixels
-func (l TextLayout) IndexForX(x geometry.Pixels) (int, bool)
-func (l TextLayout) ClosestIndexForX(x geometry.Pixels) int
-```
+`text` has since landed a line cache that makes the repeat call roughly 190 times cheaper,
+so the absolute cost of the redundant call has collapsed. Do it anyway: the call is still
+wrong, and a cache making a mistake affordable is not the same as not making it.
 
-`text.ShapedLine` already has all three. `ui` stores a `TextLayout` in its state entity
-and queries it during event handling, where there is no `Frame`. Add exactly these three;
-if the text field turns out to need a fourth, that is a finding worth reporting, not a
-method to guess at.
+**Style resolved three times per frame.** Resolve once in `RequestLayout`, carry it on the
+element, layer the pseudo-state refinements onto a copy in `Paint`. Roughly 4% of element
+cost, so it is a tidy-up rather than a wall — the prompt said that last round and it is
+still true.
 
-**`Text` re-shapes for a width that changes nothing.** The measure callback invalidates
-on available width:
+## 5. Then ui and the examples
 
-```go
-if t.shapedLine == nil || t.lastAvailWidth != avail.Width {
-    line, err := f.ShapeLine(t.content, runs)
-```
+You stopped before `ui` and `examples/button` to let me see the seam. That was right and
+the seam is good.
 
-`ShapeLine` does not take a width. It shapes one line with no wrapping, so the output for
-the same content and style is identical at every available width, and the second call
-throws away a correct answer to compute the same one again. Flexbox calls a leaf measure
-several times per solve with different constraints, so this fires on most frames.
+Take them now. `ui.Button` migrates to `Listener` with a test that changes real entity
+state through a dispatch and reads it back, and `examples/button` becomes the thing it has
+always claimed to be. It is one landing with the migration; `prompts/ui.md` covers the
+widget side and whoever holds `ui` writes the cross-stack test in `internal/integration`.
 
-    BenchmarkTextMeasureSameWidth      6.13 ns      0 B/op    0 allocs/op
-    BenchmarkTextMeasureVaryingWidth  37.52 µs  32075 B/op   92 allocs/op
+Report before you start, only so we do not both move `ui` at once.
 
-Drop the width from the invalidation and keep it in `lastAvailWidth` only if something
-else needs it. Invalidate on content and resolved text style, which are the inputs
-`ShapeLine` actually reads.
+## On the shared index
 
-`text` is separately making `ShapeLine` cheap on a repeat call, which is the other half of
-the same number. Do both — a cheap call made too often and an expensive call that should
-be cheap are different bugs, and fixing one hides the other.
-
-Add the benchmark that would have caught it: measure with the width varying and assert
-the shaped line is not rebuilt, not just that the answer is right.
-
-**Style is resolved three times per frame.** `RequestLayout`, `Prepaint` and `Paint` each
-build a 488-byte `style.Style` from the refinement. Resolve once in `RequestLayout`, keep
-it on the element, and layer the hover, active and focus refinements onto a copy in
-`Paint`.
-
-Calibrate this correctly before spending the round on it: `BenchmarkStyleRefineNonEmpty`
-is 51 ns and an element build is about 4 µs, so the three resolutions are roughly 4% of
-element cost, not a wall. It is a tidy-up that happens to be free. The allocation is the
-expensive part and the arena will deal with that separately.
-
-## Coming under you, and one thing to leave alone
-
-`window` is relaxing `PushClip` and `PopClip` to be legal in prepaint as well as paint,
-so that hit regions can be intersected with the clip in force when they are registered.
-Today a button scrolled out of a `ScrollView` is invisible and still clickable.
-
-When that lands, `Div.Prepaint` pushes and pops around its children exactly as
-`Div.Paint` already does, and the phase rules in the `Frame` doc comment change with it.
-Wait for `window` to report; the relaxation has to be under you before you use it.
-
-Do not add `PushLayer`, `PopLayer` or a deferred-paint method to `Frame`, even though
-`docs/audit.md` says popups, menus and tooltips need them and it is true. Two things stop
-it. `element` declares `Frame` and `window` implements it, so the implementer goes first —
-that is the ordering rule in `AGENTS.md` and the one that has broken `main` before. And
-neither of us should add it before there is a caller: `ui` gets a popup, and the method
-arrives with it. An interface method with no caller is a guess, and we have had two.
+You hit `git add` picking up another agent's concurrently staged file twice, caught both
+with `git show --name-only`, and fixed them. That is the check working exactly as
+`AGENTS.md` intends, and it is worth saying that you caught it rather than that it
+happened.
 
 ## Done when
 
     go test ./element ./element/elementtest
     go test -tags facet_debug ./element
 
-pass, including a test that builds a view, dispatches a click through the handler the way
-`window` does, and asserts the entity's state changed. Break the listener and confirm
-that test fails.
-
-`elementtest.Frame` can drive it end to end without importing `platform` or `window`.
-
-Report before touching `ui` or the examples. Migrating them is one landing with this, but
-I want to see the seam before it propagates.
+pass, with the compile-time slot assertions, a test that fails if `Release` is dropped,
+and the prepaint clip test that fails if the clip is ignored.
