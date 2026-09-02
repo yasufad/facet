@@ -1,114 +1,77 @@
-# platform: a declared event with no producer, and a cursor on the wrong type
+# platform: window has reported, so take the second half
 
-Three items, all small, each blocking something above you. Then a note on what comes
-next, so it is not a surprise.
+All three items verified. The examples and `platform` cross-compile clean for Linux and
+macOS, `SetCursor` was added to `platform.Window` without touching `Platform` as
+instructed, and the rune conversion is right — I broke the low-surrogate test in
+`runeOffsetFromUTF16` and `TestRuneOffsetFromUTF16` failed on the astral-plane case with
+exact values, which is the assertion doing real work.
 
-## 1. Produce IMECompositionEvent
+The layering of the IME tests is the part worth naming. The conversion has an exact unit
+test; the window-level test drives the message plumbing and says in its own comment that
+it asserts a sane cursor rather than IMM32's behaviour, because no real IME is attached.
+That is a bounded coverage claim recorded beside the code, which is what `AGENTS.md` asks
+for and what usually gets skipped. Relaxing the assertion when the real behaviour
+contradicted your guess — rather than changing the code to match the guess — was the right
+call in the right direction.
 
-`IMECompositionEvent` is declared in `event.go` with a careful doc comment about `WM_IME_*`
-on Windows and `NSTextInputClient` on macOS. Nothing produces it. `input_windows.go`
-handles no IME message and `window.DispatchEvent` has no case for it, so the type reads as
-finished to anyone scanning the package and is a plan written in Go.
+## 1. SetCursor, second half — unblocked now
 
-Wire it on Windows. The three phases the type already declares map onto the composition
-messages: composition starts, the composition string changes, composition ends and the
-result arrives as a `TextEvent` — which you already produce, so that half is done.
+`window` has landed and reported. `82ab7e5` rewrote `resolveNextHitTest` to return the
+whole hit region, and the function has settled; nothing else is queued against it. The
+contention I told you to wait for is gone.
 
-Read the constants and the string-length semantics at the SDK rather than from this
-prompt. `ImmGetCompositionStringW` returns a byte count for a UTF-16 buffer and the
-cursor attribute is a separate query, which is exactly the kind of detail that is easy to
-get plausibly wrong. The repository has been bitten twice by writing something from memory
-that read correctly and was not.
+So take it: remove `SetCursor` from `Platform`, switch `window.resolveNextHitTest` to the
+window method, and update `Platform`'s doc comment — which still promises a cursor over
+the active window and stops being true when the method moves. One commit, because `window`
+is the only caller and splitting it leaves `main` unbuildable.
 
-`Cursor` is documented as a rune offset into `Text`, not a UTF-16 offset. Convert, and
-test the conversion with a composition containing a character outside the basic plane.
+This is the stated exception to staying inside your package. Commit by path
+(`git commit -m "..." -- <file> <file>`), because the index is shared and three agents have
+had another's staged file swept into their commit.
 
-Dead keys on European layouts go through the same client, so a French or German keyboard
-producing an accented character is a case worth having in the test even though no IME is
-involved.
+That the failure to tell you window had reported was mine. I said it in `window`'s prompt
+and in my report to Yasu and never wrote it here, which is exactly the kind of gap that
+leaves work parked for a round.
 
-`window` routes this once you produce it; its prompt says so.
+## 2. docs/packages.md — mine, and I am waiting on you
 
-## 2. SetCursor belongs to the window
+You were right to leave it alone and right to offer. I will write the `SetCursor` split
+into `platform`'s entry when the second half lands, because the reason the split falls
+where it does is only true once it has fallen — recording it now would describe an
+intention rather than the code, which is the failure mode the audit found throughout this
+repository.
 
-`Platform.SetCursor(shape)` sets "the pointer shape over the active window". With one
-window that works. With two it is ambiguous, and the ambiguity is invisible until someone
-opens a second window and the wrong one changes shape.
+I will record the IME production at the same time. If you think the entry should say
+something you know and I do not — particularly about what `ImmGetCompositionStringW`'s
+length semantics cost you — put it in your report and I will use your words.
 
-Move it. `Window.SetCursor(shape Cursor)` — the cursor is a property of the window the
-pointer is over, and on Windows it is answered per-window anyway.
+## 3. Then macOS
 
-`SetCursorVisible` stays on `Platform`. Hiding the pointer is application-wide and moving
-it would be a change with no case behind it.
+After the above, and only after reporting it.
 
-This crosses a layer boundary, so the order matters and it is not the same order as the
-IME item. Add `SetCursor` to `platform.Window` first, where it satisfies nothing and
-breaks nothing. Then remove it from `Platform` and switch `window.resolveNextHitTest` to
-the window method — those two are one commit, because `window` is the only caller and
-splitting them leaves `main` unbuildable.
+The first deliverable is a window that opens, reports a real `NSWindow*`, and delivers
+pointer and key events. No renderer, no drawing. That is enough to prove the purego path
+and to answer the question everything else rests on: whether `objc_msgSend` with struct
+returns is reachable without cgo.
 
-**Do the first half now and hold the second until `window` reports.** `prompts/window.md`
-item 4 rewrites `resolveNextHitTest` — it scans the hit-region slice a second time to
-fetch the cursor of the region it just found, and that scan is being deleted. Your
-`SetCursor` call is twenty lines below it in the same function. Two agents editing one
-function in a tree where neither can see the other's work in progress is how this
-repository has lost work before.
+If it is not, that is a decision to record in `docs/architecture.md`, and the sooner it is
+recorded the less is built on the assumption. Bring me the answer before building on
+either branch of it.
 
-Adding `SetCursor` to `platform.Window` is additive and collides with nothing, so land it
-whenever you reach it. Removing it from `Platform` waits.
+Do not start this inside the current round.
 
-Update `Platform`'s doc comment in the same commit. It currently promises a cursor over
-the active window, and that sentence stops being true when the method moves.
+## Not yours, for the record
 
-## 3. New exists on one platform, so the examples compile on one platform
-
-`platform.New` is declared only in `platform_windows.go`, so `examples/button` and
-`examples/quad` fail to build on Linux and macOS, and with them `go build ./...`,
-`go vet ./...` and `go test ./...` — the three commands `AGENTS.md` names.
-
-Add the other side. A `//go:build !windows` file declaring `New` with the same signature,
-returning a clear error naming the operating system it was asked for. Then every example
-and every tool that uses it is under the compiler on all three platforms, and a change
-that breaks them is caught where it is made rather than on a Windows machine weeks later.
-
-This is not a stub for a backend and should not read as one. `Run`, `NewWindow` and the
-rest stay absent; only the constructor exists, and only to fail honestly. Say that in its
-comment, so nobody grows it into a fake platform.
-
-When the Cocoa backend arrives it takes `darwin` out of that file's constraint. That is
-the whole migration.
-
-## What comes next, and why macOS rather than Linux
-
-The next assignment for this package is the Cocoa backend, and it is worth knowing now
-that it is coming before Linux.
-
-Not for reach. For design pressure. `platform` and `render` have only ever had to answer
-their questions in the Win32 and D3D11 shape, and an interface with one implementation is
-an interface nobody has tested. Cocoa forces the main-thread and run-loop questions that
-`mainthread_windows.go` currently answers alone, and Metal's pipeline and command-encoder
-model differs enough from D3D11's immediate context that `render.Renderer` may need to
-change. Finding that out with one backend written is far cheaper than with three.
-
-The first deliverable will be a window that opens, reports a real `NSWindow*`, and
-delivers pointer and key events — no renderer, no drawing. That is enough to prove the
-purego path and to find out whether `objc_msgSend` with struct returns is reachable
-without cgo. If it is not, that is a decision to record in `docs/architecture.md`, which
-already says as much, and the sooner it is recorded the less is built on the assumption.
-
-Nothing to do about it this round. Do not start it inside this one.
+`tools/compile_shaders` is now the only thing stopping `go build ./...` on Linux and
+macOS — one missing `//go:build windows`. It belongs to `prompts/build.md` and it is
+assigned. Leave it; I would rather it landed with the CI that proves it.
 
 ## Done when
 
-    go build ./...
-    go vet -unsafeptr=false ./...
-    go test ./platform
-    GOOS=windows go build ./...
+    go doc ./platform
 
-all pass on a Linux checkout, with a test that drives a composition through the phases and
-asserts the rune offsets, and one that covers a character outside the basic plane.
-
-`go doc ./platform` shows `SetCursor` on `Window` and not on `Platform`, and
-`docs/packages.md` records why the split falls where it does.
+shows `SetCursor` on `Window` and not on `Platform`, `Platform`'s doc comment no longer
+promises something it does not do, and the tree builds with `window` calling the window
+method.
 
 Report before starting anything in the macOS section.
