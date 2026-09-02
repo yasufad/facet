@@ -34,6 +34,11 @@ type Div struct {
 	childLayoutIDs []layout.NodeID
 	bounds         geometry.Bounds[geometry.Pixels]
 	phase          drawPhase
+
+	// resolvedStyle is refinement resolved against style.Default(), computed
+	// once in RequestLayout and reused by Prepaint and Paint rather than
+	// rebuilt from the 504-byte Refinement on every phase.
+	resolvedStyle style.Style
 }
 
 // NewDiv creates a new, unstyled Div container element.
@@ -899,6 +904,7 @@ func (d *Div) RequestLayout(f Frame) NodeID {
 
 	st := style.Default()
 	st.Refine(d.refinement)
+	d.resolvedStyle = st
 
 	rem := f.RemSize()
 	layoutStyle := st.ToLayout(rem)
@@ -915,8 +921,7 @@ func (d *Div) Prepaint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	d.phase = phasePrepainted
 	d.bounds = bounds
 
-	st := style.Default()
-	st.Refine(d.refinement)
+	st := d.resolvedStyle
 	if st.Display == style.DisplayNone {
 		return
 	}
@@ -957,8 +962,11 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	d.phase = phasePainted
 	d.bounds = bounds
 
-	st := style.Default()
-	st.Refine(d.refinement)
+	// Layer pseudo-state refinements onto a copy of the resolved style rather
+	// than rebuilding it from the Refinement again; st is a value type, so
+	// this assignment already copies it and st.Refine below only mutates the
+	// copy.
+	st := d.resolvedStyle
 	activeRefinement := d.refinement
 	if d.interactivity.hoverStyle != nil && d.interactivity.hitRegionID != 0 && f.IsHovered(d.interactivity.hitRegionID) {
 		st.Refine(*d.interactivity.hoverStyle)
