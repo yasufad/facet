@@ -47,6 +47,16 @@ breaks nothing. Then remove it from `Platform` and switch `window.resolveNextHit
 the window method — those two are one commit, because `window` is the only caller and
 splitting them leaves `main` unbuildable.
 
+**Do the first half now and hold the second until `window` reports.** `prompts/window.md`
+item 4 rewrites `resolveNextHitTest` — it scans the hit-region slice a second time to
+fetch the cursor of the region it just found, and that scan is being deleted. Your
+`SetCursor` call is twenty lines below it in the same function. Two agents editing one
+function in a tree where neither can see the other's work in progress is how this
+repository has lost work before.
+
+Adding `SetCursor` to `platform.Window` is additive and collides with nothing, so land it
+whenever you reach it. Removing it from `Platform` waits.
+
 Update `Platform`'s doc comment in the same commit. It currently promises a cursor over
 the active window, and that sentence stops being true when the method moves.
 
