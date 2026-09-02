@@ -67,3 +67,14 @@ jobs:
       # around it, the same way the ui and internal/layering failures are below.
       - name: go test (facet_debug)
         run: go test -tags facet_debug ./...
+
+      # -race needs cgo, and therefore a C compiler, which not every agent's local
+      # environment has — this is the one place that verification can happen, so it
+      # is not optional. Only the Linux leg has gcc available by default; everything
+      # else in this tree builds with cgo off deliberately, so CGO_ENABLED is turned
+      # on for this step alone rather than for the job.
+      - name: go test (race)
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          CGO_ENABLED: 1
+        run: go test -race ./...
