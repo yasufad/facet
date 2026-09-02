@@ -301,6 +301,16 @@ nobody can debug, and every framework that skipped this grew a worse version lat
 build tag: `platform` reports which modifiers are held, never which system it is
 running on.
 
+`input` names the event vocabulary for everything above it: `KeyEvent`,
+`PointerEvent`, `TextEvent` and `WheelEvent` are aliases for their `platform`
+counterparts, declared here so that `element` and `ui` — both forbidden `platform`,
+since it also hands out windows, the clipboard, menus and main-thread dispatch —
+can write a handler without importing it. Aliases rather than distinct structs:
+`platform`'s job is to hide a platform's units, not what it measured, and
+`WheelEvent` deliberately keeps the distinction between a trackpad's exact pixel
+delta and a mouse notch's inexact line delta. A re-declaration would risk losing
+that distinction on some future edit; an alias cannot, because it is the same type.
+
 ## element
 
 The Element interface, the three-phase lifecycle, the element tree, and `div`.
