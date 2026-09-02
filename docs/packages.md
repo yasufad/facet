@@ -84,13 +84,31 @@ this has to be arranged deliberately; without it, order-dependent bugs appear in
 run out of five and are close to impossible to reproduce. Hold them in order rather
 than sorting when dispatching — dispatch is a per-frame path and must not allocate.
 
-Goroutine identity costs about six microseconds to read, so it is checked at update
-boundaries and on exported methods, where a handful per frame is affordable. Context
-accessors compare an update generation instead, which is a nanosecond and catches a
-context used after its update ends. The case neither covers cheaply — a context used
-from another goroutine while its update is still running — is caught by a full check
-that a `facet_debug` build turns on at every accessor. Anything claiming a threading
-guarantee has to say which of the three catches it.
+Goroutine identity costs about six microseconds to read, and every `UpdateEntity`
+opens an update boundary, so checking it there cost most of a frame at a thousand
+entities. It is now a `facet_debug`-only check. Release builds keep only the update
+generation compare on `Context` accessors — a nanosecond, and it catches a context
+stored and used after its update has ended.
+
+A release build therefore does not catch a call from the wrong goroutine while an
+update is still in flight. That gap is deliberate: the entity map and the reference
+counts are unsynchronised by design, so cross-goroutine misuse is undefined behaviour
+either way and the check only ever turned a race into a clean panic. Debug and race
+builds keep it. Anything claiming a threading guarantee has to say which of the two
+catches it, and in which build.
+
+The map stores `*T`. `ReadEntity` returns the stored pointer rather than the address
+of a copy, so a write through it is visible to every reader; `UpdateEntity` hands `f`
+that same pointer. Leasing is unchanged and is what makes it safe — the value leaves
+the map for the duration of an update, so a re-entrant update or a concurrent read
+panics rather than racing.
+
+Every assertion on a value taken out of the map panics on failure, naming the entity
+and the type. One of them returned silently instead, and when the map changed from `T`
+to `*T` that assertion stopped matching: `OnRelease` simply never fired, on every
+entity, with no diagnostic. A failed assertion here means the map holds something
+other than what the entity's type says, which is unrecoverable — silence is not an
+option any of them may take.
 
 ## scene
 
