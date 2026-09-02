@@ -75,22 +75,23 @@ func (t Task[R]) Then(async *AsyncApp, f func(r R, async *AsyncApp)) {
 // and platform events. The queue is goroutine-safe because background tasks
 // dispatch their results onto it from other goroutines.
 type ForegroundExecutor struct {
-	mu    sync.Mutex
-	queue []func()
-	wake  chan struct{}
-	done  chan struct{}
+	mu     sync.Mutex
+	queue  []func()
+	wake   chan struct{}
+	closed bool
 }
 
 func newForegroundExecutor() *ForegroundExecutor {
 	return &ForegroundExecutor{
 		wake: make(chan struct{}, 1),
-		done: make(chan struct{}),
 	}
 }
 
 // Pending returns a channel that receives when there is queued foreground work
 // to drain. A platform event loop selects on it to interleave task progress
-// with native events; tests call Drain directly.
+// with native events; tests call Drain directly. The channel closes when the
+// executor is stopped, so a `for range` over it terminates instead of
+// blocking forever.
 func (fg *ForegroundExecutor) Pending() <-chan struct{} {
 	return fg.wake
 }
@@ -117,10 +118,17 @@ func fgSpawn[R any](fg *ForegroundExecutor, f func() R) Task[R] {
 	return Task[R]{result: res, cancel: cancel}
 }
 
+// enqueue appends f to the queue and wakes a waiting Pending() reader. A call
+// after stop is a silent no-op: the closed flag rules out both queueing and
+// sending on the (now closed) wake channel, checked under the same lock stop
+// holds while closing it, so the two never race.
 func (fg *ForegroundExecutor) enqueue(f func()) {
 	fg.mu.Lock()
+	defer fg.mu.Unlock()
+	if fg.closed {
+		return
+	}
 	fg.queue = append(fg.queue, f)
-	fg.mu.Unlock()
 	select {
 	case fg.wake <- struct{}{}:
 	default:
@@ -160,8 +168,18 @@ func (fg *ForegroundExecutor) RunOne() bool {
 	return true
 }
 
+// stop closes wake, so a `for range Pending()` loop (window's dispatch
+// goroutine) terminates instead of holding the platform, App and window alive
+// for the life of the process. It is idempotent: a second Close on the App
+// must not close an already-closed channel and panic.
 func (fg *ForegroundExecutor) stop() {
-	close(fg.done)
+	fg.mu.Lock()
+	defer fg.mu.Unlock()
+	if fg.closed {
+		return
+	}
+	fg.closed = true
+	close(fg.wake)
 }
 
 // BackgroundExecutor runs tasks on a bounded pool of goroutines. Work that
