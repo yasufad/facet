@@ -1,99 +1,115 @@
-# text: the cache memoises the shaping and redoes everything around it
+# text: the line cache hands out its own memory
 
-Nothing above or below you moves for any of this, so it runs in parallel with the rest.
+The measurement is real and the design is right. I reproduced the numbers, and 111 µs to
+585 ns for a repeated `ShapeLine` is the largest single win landed in this repository so
+far. Two things have to change before it goes in, and the first is serious.
 
-## 1. ShapeLine costs 37 µs on a cache hit
+I also broke your LRU to check the test could fail: removing the promotion from `Get`
+turns it FIFO, and `TestByteLRUEvictsOldest` fails on the right line with the right
+message. That is the standard, and it is the first eviction test here that meets it.
+`byteLRU` is correct on the case I expected to catch it, too — a value larger than the
+whole ceiling evicts itself rather than sitting over budget.
 
-The measurement, from `element`'s benchmarks driving `Frame.ShapeLine`:
+## 1. A cached line is aliased, and callers can corrupt it
 
-    BenchmarkTextMeasureSameWidth      6.13 ns      0 B/op    0 allocs/op
-    BenchmarkTextMeasureVaryingWidth  37.52 µs  32075 B/op   92 allocs/op
-
-The first number is `element` short-circuiting on its own cache. The second is what
-`ShapeLine` actually costs, and it costs that even when `shapeCache` hits, because the
-cache sits around the HarfBuzz call and nothing else:
-
-```go
-func (s *System) wrap(text string, runs []StyleRun, maxWidth fixed.Int26_6) ([]ShapedLine, error) {
-    paragraph := []rune(text)
-    runeToByte := make([]int, len(paragraph)+1)
-    outs := make([]shaping.Output, 0, len(runs))
-    ...
-```
-
-Three allocations before any shaping happens, then segmentation, then the line wrapper,
-then building a `ShapedLine`. All of it repeats on every call. `shapeCache` saves the
-shaping and nothing around it.
-
-Cache the `ShapedLine`, not just the `shaping.Output`. Key it on the text and the runs —
-the same things `cacheKey` already captures, one level up. A repeat `ShapeLine` for the
-same string and style should be a map lookup and a copy, not a re-segmentation.
-
-`element` will separately stop asking for a re-shape it does not need; that is on its
-prompt. Both are worth doing, because a cheap call being made too often and an expensive
-call being cheap are different problems and fixing one hides the other.
-
-Say in the package doc what the cache is now keyed at, and what invalidates it.
-`docs/packages.md` currently says "shaped output is cached by run, not by string", which
-stops being the whole truth when there are two levels.
-
-## 2. The cache key allocates on every lookup
+`wrap` returns the cache's own slice:
 
 ```go
-func (in shapeInput) key() cacheKey {
-    return cacheKey{
-        ...
-        language: string(in.language),
-        features: featuresKey(in.features),
-    }
+if lines, ok := s.lineCache.lru.Get(key); ok {
+    return lines, nil
 }
 ```
 
-`string(in.language)` converts on every call, hit or miss. `featuresKey` builds a byte
-slice and converts it. Both run before the map is touched, so a hit pays for them too.
+`ShapedLine.Runs()` hands back `[]ShapedRun`, `ShapedRun.Glyphs` is exported and mutable,
+and every caller of `ShapeLine` for the same text now shares one backing array. Your
+report says "a map lookup and a slice copy". There is no copy.
 
-Intern the language and the feature list once, when the run is resolved, and carry the
-interned value on `shapeInput`. The key then becomes a comparison of values that already
-exist.
+Reproduced through the exported API only — no test hooks, nothing internal:
 
-## 3. Both caches only grow
+```go
+first, _ := sys.ShapeLine(s, run(s))
+before := first.Runs()[0].Glyphs[0].Position
+first.Runs()[0].Glyphs[0].Position = geometry.Point[geometry.Pixels]{X: 999}
 
-`shapeCache.entries` accumulates an entry per distinct string per face per size for the
-life of the process. `Atlas.entries` does the same for coverage masks, and `Clear`
-replaces the map wholesale rather than evicting anything.
+second, _ := sys.ShapeLine(s, run(s))
+// second.Runs()[0].Glyphs[0].Position is {X:999 Y:0}, want {X:0 Y:14.484375}
+```
 
-For a demo this is invisible. For an editor open across a day, with theme changes, font
-size changes and several scripts, it is a slow leak by construction.
+The part that decides it: **that probe passes at HEAD and fails with your change.** Before
+the line cache, `wrap` built a fresh result every call and a caller mutating a glyph hurt
+nobody. The cache introduces the hazard, no test in the package can see it, and the
+consumer is `element`, which walks glyphs every frame to emit sprites and is one
+subpixel-snapping adjustment away from tripping it.
 
-Put a ceiling on both, expressed in bytes rather than entries, with least-recently-used
-eviction. Bytes because a mask for a 10 px glyph and one for a 96 px heading differ by two
-orders of magnitude, and an entry count that is right for one is wrong for the other.
+Decide which of two contracts you are offering and enforce the one you pick:
 
-Make the ceiling settable and give it a default you can defend with a number: measure the
-steady-state footprint of shaping a realistic document and pick from that, rather than
-picking a round number and hoping.
+Copy on the way out. Correct, obvious, and it puts an allocation back on the hot path —
+though a copy of a small glyph slice is nothing beside the 111 µs it replaces. Measure it
+rather than assuming; if a line-cache hit is still under a microsecond, this is the answer.
 
-Eviction has one hazard worth stating. `window` caches GPU tiles keyed by the same face,
-glyph, size and subpixel offset, and holds them independently. Evicting a CPU mask must
-not invalidate a GPU tile that is still correct — the two caches hold different things and
-are allowed to disagree. If you find they cannot, that is a finding and the GPU side is
-`render`'s and `window`'s to fix, not yours.
+Or make the result genuinely immutable and say so. `Runs()` returning a shared slice is
+already a loaded gun, cache or no cache, and unexporting `Glyphs` behind an accessor is a
+larger change than this round — it reaches `element`. Do not start it here.
 
-## Not in scope
+Whichever you choose, the test is the probe above, in `text`, using only exported API. It
+must fail if the protection is removed.
 
-Multi-line text at the element level — wrapping, bidi across lines, selection geometry,
-mixed style runs within a paragraph — is `element` work, not yours. `WrapText` already
-exists here and handles what it needs to.
+## 2. The key allocates on every lookup, which is the bug you just fixed
+
+You did exactly the right thing to `shapeInput.key()` and then rebuilt it one level up:
+
+```go
+key := lineCacheKey{text: text, runs: styleRunsKey(runs), maxWidth: maxWidth}
+if lines, ok := s.lineCache.lru.Get(key); ok {
+```
+
+`styleRunsKey` builds a `[]byte` and converts it to a string before the map is touched, so
+a hit pays for it. That is all three of the allocations and all 272 bytes your own
+benchmark reports on the hit path — the return does not copy, so nothing else is left to
+account for them.
+
+`ShapeLine` is called per text element per frame. Fifty text elements is fifty key builds
+per frame that could be none.
+
+The prompt's instruction was to intern once when the run is resolved and carry the value.
+Same answer here: the caller's `[]StyleRun` is stable across frames, so the key is
+computable when the runs are, not when they are looked up. If interning at that boundary
+turns out to need something from `element`, that is a finding worth reporting rather than
+working around — say what you need and I will decide it.
+
+Target zero allocations on a line-cache hit, and put the number in the report.
+
+## 3. Commit the work
+
+Nothing is committed. `git log` at HEAD is my last commit; every file you describe is
+untracked or modified in the shared working tree.
+
+That is not a detail. Review here is a verdict on what a package committed — I had to
+review `text/` in place and could only do it because nothing else contends that directory.
+It also means your work is one `git checkout` by another agent from being gone, in a tree
+where four other agents are working.
+
+Conventional commits, one file per commit, staged by path. `git add text/lru.go`, never
+`git add -A`.
+
+You were right to revert `docs/packages.md` and leave `prompts/text.md` alone. Both are
+mine, and I will write the entry when this lands.
+
+## 4. Small
+
+`SetMaxBytes(0)` means "hold nothing", not "unbounded" — `evict` runs while
+`size > maxBytes`. That is a defensible choice and an easy one to get wrong from the
+outside. Say it on all three setters.
 
 ## Done when
 
     go test ./text
     go test -tags facet_debug ./text
 
-pass, with a benchmark showing the cost of a repeated `ShapeLine` for the same string, and
-a test that fills a cache past its ceiling and asserts the oldest entry went and a recent
-one stayed. Break the eviction and confirm that test fails; an LRU that never evicts
-passes every test that only checks lookups.
+pass, with the aliasing probe in the package and failing when the protection is removed,
+and with a line-cache hit at zero allocations.
 
-Report the before and after numbers for `ShapeLine`, and the ceiling you chose with the
-measurement behind it.
+Both are committed, one file per commit.
+
+Report the hit-path numbers again. The 190x stands; I want to see what the copy costs and
+what the key stops costing.
