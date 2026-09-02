@@ -18,20 +18,29 @@ import (
 // truncates the rest, so the stack is not walked in full. Even so, the call
 // costs about 6µs (measured 6167 ns/op on an Intel Core Ultra 5 125U). That
 // is too expensive for the per-frame path, where a thousand entities may be
-// touched. Three mechanisms share the work, each placed where it is cheap:
+// touched — every UpdateEntity opens an update boundary, so a 6µs check
+// there alone is most of a 60Hz frame budget at that scale. Two mechanisms
+// share the work, each placed where its cost fits the build it runs in:
 //
-//   - checkUI (this function) runs at update boundaries and on exported App
-//     methods. A frame opens a few update boundaries, so a few 6µs checks
-//     per frame is affordable. This catches direct calls to App methods from
-//     a background goroutine.
+//   - App.checkUI (app_debug.go) runs at update boundaries and on exported
+//     App methods, but only in a facet_debug build. It catches a direct call
+//     to an App method, or a Context accessor still inside its update, from a
+//     goroutine other than the UI goroutine. In a release build (app_check.go)
+//     it is a no-op: the 6µs cost is acceptable in a debug or race build,
+//     where it does not matter, but not on the per-frame release path.
 //   - A generation counter (Context.checkGeneration, an integer compare at
-//     ~1ns) runs at every Context accessor in a release build. It catches a
-//     context stored and used after its update has ended.
-//   - In a facet_debug build, checkGeneration also calls checkUI. This
-//     catches a context used from another goroutine while its update is still
-//     running — the case the generation compare alone cannot see, because the
-//     generation still matches. The 6µs cost is acceptable in a debug or race
-//     build, where it does not matter.
+//     ~1ns) runs at every Context accessor in every build. It catches a
+//     context stored and used after its update has ended — cheaply enough
+//     to stay on in release, where checkUI cannot.
+//
+// A release build therefore has no protection against a direct call to an
+// App method, or a live Context, from the wrong goroutine while an update is
+// still in flight; only escaping a context past its own update is caught.
+// That gap is deliberate: entityMap and refCounts are already unsynchronised
+// by design (see entity_map.go), so cross-goroutine misuse is undefined
+// behaviour with or without this check, and the check only ever turned it
+// into a clean panic instead of a race. Debug and race builds keep the full
+// check.
 var gidPool = sync.Pool{
 	New: func() any {
 		buf := make([]byte, 128)

@@ -45,9 +45,9 @@ type App struct {
 	// every accessor: if the generation has moved on, the context has
 	// escaped its update and must not be used. The check is an integer
 	// compare (~1ns), so it is cheap enough to run at every Context accessor
-	// on the per-frame path. The full goroutine check (checkUI, ~6µs) runs
-	// at update boundaries and on exported App methods, where a few
-	// microseconds a few times per frame is affordable.
+	// on the per-frame path, in every build. The full goroutine check
+	// (checkUI, ~6µs) also runs at update boundaries and on exported App
+	// methods, but only in a facet_debug build; see goroutine.go.
 	generation int64
 
 	fg *ForegroundExecutor
@@ -97,17 +97,6 @@ func (app *App) Close() {
 	app.fg.stop()
 	app.bg.stop()
 	app.rc.markShutdown()
-}
-
-// checkUI panics if the calling goroutine is not the UI goroutine. It is
-// called from every exported entry point that touches entity state, the
-// effect queue or the subscriber sets. The check costs about 6µs
-// (runtime.Stack to read the goroutine header); see goroutine.go for the
-// measurement and the plan for reducing the per-frame cost.
-func (app *App) checkUI() {
-	if goroutineID() != app.uiGoroutine {
-		panic("app: context used from a goroutine other than the UI goroutine")
-	}
 }
 
 // update runs f against the App inside an update boundary: effects raised
@@ -220,7 +209,7 @@ func New[T any](app *App, build func(cx *Context[T]) T) Entity[T] {
 		handle = Entity[T]{id: id, rc: cx.rc}
 		ctx := &Context[T]{app: cx, self: handle.Downgrade(), generation: cx.generation}
 		value := build(ctx)
-		cx.entities.insert(id, value)
+		cx.entities.insert(id, &value)
 	})
 	return handle
 }
@@ -228,35 +217,46 @@ func New[T any](app *App, build func(cx *Context[T]) T) Entity[T] {
 // ReadEntity returns a pointer to the value for handle. It panics if the entity
 // is being updated (a re-entrant update) or has been dropped.
 //
+// The returned pointer aliases the value stored in the entity map, so a write
+// through it is visible to every other reader. It is not aliased with any
+// pointer handed to an UpdateEntity in progress: lease removes the value from
+// the map for the duration of the update, so a concurrent Read of an entity on
+// lease panics rather than racing with the update.
+//
 // It is a top-level function because Go does not permit methods to declare
 // type parameters; Entity.Read wraps it.
 func ReadEntity[T any](app *App, handle Entity[T]) *T {
 	app.checkUI()
 	v := app.entities.read(handle.id)
-	t, ok := v.(T)
+	t, ok := v.(*T)
 	if !ok {
 		panic(fmt.Sprintf("app: entity %d is not of type %T", handle.id, *new(T)))
 	}
-	return &t
+	return t
 }
 
 // UpdateEntity leases the value out, runs f against it with a Context for the
 // entity, and restores it. Effects raised inside f flush once f returns. A
 // re-entrant update of the same entity panics, because the value is on lease.
 //
+// The pointer f receives is the one stored in the entity map, not the address
+// of a copy: a handler that captures it and writes later (for example, an
+// event callback registered during Render and invoked after the update that
+// registered it has returned) writes to the real entity.
+//
 // It is a top-level function because Go does not permit methods to declare
 // type parameters; Entity.Update wraps it.
 func UpdateEntity[T any](app *App, handle Entity[T], f func(v *T, cx *Context[T])) {
 	app.update(func(cx *App) {
 		v := cx.entities.lease(handle.id)
-		t, ok := v.(T)
+		t, ok := v.(*T)
 		if !ok {
 			// Restore before panicking so the map is not left with a hole.
 			cx.entities.endLease(handle.id, v)
 			panic(fmt.Sprintf("app: entity %d is not of type %T", handle.id, *new(T)))
 		}
 		ctx := &Context[T]{app: cx, self: handle.Downgrade(), generation: cx.generation}
-		f(&t, ctx)
+		f(t, ctx)
 		cx.entities.endLease(handle.id, t)
 	})
 }

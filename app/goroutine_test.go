@@ -13,7 +13,18 @@ func reflectTypeOf[Evt any]() reflect.Type {
 	return reflect.TypeOf((*Evt)(nil))
 }
 
+// skipUnlessDebugChecks skips a test that exercises the goroutine-identity
+// check, which is a no-op in a release build. See app_check.go and
+// app_debug.go.
+func skipUnlessDebugChecks(t *testing.T) {
+	t.Helper()
+	if !debugChecks {
+		t.Skip("goroutine-identity check requires -tags facet_debug")
+	}
+}
+
 func TestContextFromWrongGoroutinePanics(t *testing.T) {
+	skipUnlessDebugChecks(t)
 	app := NewApp()
 	defer app.Close()
 
@@ -34,6 +45,7 @@ func TestContextFromWrongGoroutinePanics(t *testing.T) {
 }
 
 func TestFlushFromWrongGoroutinePanics(t *testing.T) {
+	skipUnlessDebugChecks(t)
 	app := NewApp()
 	defer app.Close()
 
@@ -51,6 +63,7 @@ func TestFlushFromWrongGoroutinePanics(t *testing.T) {
 }
 
 func TestNotifyFromWrongGoroutinePanics(t *testing.T) {
+	skipUnlessDebugChecks(t)
 	app := NewApp()
 	defer app.Close()
 
@@ -71,6 +84,7 @@ func TestNotifyFromWrongGoroutinePanics(t *testing.T) {
 }
 
 func TestEmitFromWrongGoroutinePanics(t *testing.T) {
+	skipUnlessDebugChecks(t)
 	app := NewApp()
 	defer app.Close()
 
@@ -91,6 +105,7 @@ func TestEmitFromWrongGoroutinePanics(t *testing.T) {
 }
 
 func TestDeferFromWrongGoroutinePanics(t *testing.T) {
+	skipUnlessDebugChecks(t)
 	app := NewApp()
 	defer app.Close()
 
@@ -108,6 +123,7 @@ func TestDeferFromWrongGoroutinePanics(t *testing.T) {
 }
 
 func TestObserveFromWrongGoroutinePanics(t *testing.T) {
+	skipUnlessDebugChecks(t)
 	app := NewApp()
 	defer app.Close()
 
@@ -128,6 +144,7 @@ func TestObserveFromWrongGoroutinePanics(t *testing.T) {
 }
 
 func TestSubscribeFromWrongGoroutinePanics(t *testing.T) {
+	skipUnlessDebugChecks(t)
 	app := NewApp()
 	defer app.Close()
 
@@ -148,6 +165,7 @@ func TestSubscribeFromWrongGoroutinePanics(t *testing.T) {
 }
 
 func TestOnReleaseFromWrongGoroutinePanics(t *testing.T) {
+	skipUnlessDebugChecks(t)
 	app := NewApp()
 	defer app.Close()
 
@@ -168,6 +186,7 @@ func TestOnReleaseFromWrongGoroutinePanics(t *testing.T) {
 }
 
 func TestReadFromWrongGoroutinePanics(t *testing.T) {
+	skipUnlessDebugChecks(t)
 	app := NewApp()
 	defer app.Close()
 
