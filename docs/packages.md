@@ -216,6 +216,23 @@ apart while they were computed separately, and a request for 640×480 produced a
 625×443 client area. Where a live value exists, read it rather than re-deriving —
 resizing reads the window's current style rather than recomputing from options.
 
+The cursor shape belongs to `Window`, the cursor's visibility to `Platform`. The split
+is not stylistic: a pointer is over exactly one window, and Win32 answers the shape
+per-window anyway, so `Platform.SetCursor` had no way to say which window it meant and
+was silently wrong the moment a second one opened. Hiding the pointer really is
+application-wide, so `SetCursorVisible` stayed. The rule the split follows: a method
+belongs on `Platform` only when no window can be named for it.
+
+IME composition is produced on Windows from `WM_IME_STARTCOMPOSITION`,
+`WM_IME_COMPOSITION` and `WM_IME_ENDCOMPOSITION`, read through IMM32. `WM_CHAR` needs
+no special handling — the IME generates it independently for the finalised text, so
+dead keys on European layouts arrive through the ordinary text path and need no IME at
+all. `IMECompositionEvent.Cursor` is a rune offset into `Text`, converted from the
+UTF-16 code-unit offset IMM32 reports by counting units that are not low surrogates; a
+character outside the basic plane is two units and one rune, and the conversion is
+tested against one. IMM32 reports `0` rather than a sentinel for the cursor of an empty
+composition, which is a legitimate answer rather than an error.
+
 ## render
 
 The `Renderer` interface and the GPU side of the atlases, with a backend per
@@ -496,7 +513,7 @@ in order:
 - Measure seam: `RequestMeasuredLayout` registers a measurement callback against a Taffy leaf node, solved through `layout.ComputeLayoutWithMeasure` and `layout.ComputeLeafLayout`.
 - Glyph rasterisation & texture atlas caching: `RasteriseGlyph` queries `text.Atlas` for coverage masks, uploads them to the GPU via `render.Renderer.Upload`, and caches the resulting `scene.AtlasTile`.
 - Focus lifecycle, tab navigation, and unmount behaviour: Pointer down on a focusable hit region moves keyboard focus to that element's focus ID; clicking empty background blurs focus. Tab and Shift-Tab key events advance and reverse focus along the frame's tab order, wrapping at boundaries. Elements can request focus programmatically via `Frame.RequestFocus(id)`. When an element with active focus is not rendered in the subsequent frame (unmounted, conditionally removed, or scrolled out), focus drops to nothing (`Blur()`) at Step 7 presentation. Stale focus IDs never survive after leaving the tree.
-- Pointer cursor resolution: Cursor shape is resolved in Step 5 (intra-frame hit test) from the hovered hit region's cursor property. The window calls `platform.Platform.SetCursor` once per frame only when the cursor shape changes, avoiding redundant OS syscalls and mouse flicker during continuous motion within the same element.
+- Pointer cursor resolution: Cursor shape is resolved in Step 5 (intra-frame hit test) from the hovered hit region's cursor property. The window calls `platform.Window.SetCursor` once per frame only when the cursor shape changes, avoiding redundant OS syscalls and mouse flicker during continuous motion within the same element.
 - Frame scheduling: `frameScheduled` collapses an event or notification burst into
   exactly one frame turn. Idle cost is 0 GPU draw calls and 0 present calls per second;
   the event loop sleeps.
