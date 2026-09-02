@@ -10,11 +10,16 @@ import (
 	"github.com/yasufad/facet/scene"
 )
 
+// dynamicBuffer is a single GPU vertex buffer shared by every instance kind
+// drawn in a frame. Callers reserve a region with write, which places it
+// after whatever was written earlier in the same frame rather than handing
+// out a fresh buffer per batch.
 type dynamicBuffer struct {
 	device   *comObject
 	context  *comObject
 	buffer   *comObject
 	capacity int
+	offset   int
 }
 
 func newDynamicBuffer(device, context *comObject) *dynamicBuffer {
@@ -24,12 +29,24 @@ func newDynamicBuffer(device, context *comObject) *dynamicBuffer {
 	}
 }
 
-func (b *dynamicBuffer) ensureSize(size int) error {
-	if b.capacity >= size && b.buffer != nil {
-		return nil
+// beginFrame resets the write cursor. The next write in the frame maps with
+// DISCARD, renaming the buffer once; every write after that maps with
+// NO_OVERWRITE at a rolling offset, so a frame with many batches renames the
+// buffer once rather than once per batch.
+func (b *dynamicBuffer) beginFrame() {
+	b.offset = 0
+}
+
+// grow ensures the buffer can hold at least needed bytes, recreating it at a
+// larger capacity if not. It reports whether it recreated the buffer, which
+// forces the caller back to offset zero and a DISCARD map since a brand new
+// buffer has no prior writes to preserve.
+func (b *dynamicBuffer) grow(needed int) (bool, error) {
+	if b.buffer != nil && b.capacity >= needed {
+		return false, nil
 	}
 
-	newCap := size
+	newCap := needed
 	if newCap < 65536 {
 		newCap = 65536
 	}
@@ -52,19 +69,49 @@ func (b *dynamicBuffer) ensureSize(size int) error {
 	// ID3D11Device::CreateBuffer is vtbl index 3
 	r1, _, _ := b.device.call(3, uintptr(unsafe.Pointer(&desc)), 0, uintptr(unsafe.Pointer(&b.buffer)))
 	if int32(r1) < 0 || b.buffer == nil {
-		return fmt.Errorf("create dynamic buffer (%d bytes): hr=0x%08x", newCap, uint32(r1))
+		return false, fmt.Errorf("create dynamic buffer (%d bytes): hr=0x%08x", newCap, uint32(r1))
 	}
 
 	b.capacity = newCap
-	return nil
+	return true, nil
 }
 
-func (b *dynamicBuffer) write(data []byte) error {
-	if len(data) == 0 {
-		return nil
+// write reserves room for count elements of elemSize bytes each at the
+// write cursor and calls fill with a slice over the mapped GPU memory for
+// that region, so the caller writes its instance data straight into
+// GPU-visible memory instead of building an intermediate slice and copying
+// it. It returns the element index the region starts at, for the caller to
+// pass straight through as a start-instance or start-vertex draw parameter.
+//
+// The reserved region always starts at a multiple of elemSize, even though
+// every instance kind shares one buffer and one rolling byte offset. D3D11
+// computes the address a draw call reads from as StartInstanceLocation (or
+// StartVertexLocation) times the stride bound for that draw, so a region
+// left at whatever odd byte offset the previous, differently-sized batch
+// happened to end on would make that multiplication land outside the data
+// this write just wrote — a legal read of the wrong bytes, not an error.
+func (b *dynamicBuffer) write(count, elemSize int, fill func([]byte)) (int, error) {
+	if count <= 0 || elemSize <= 0 {
+		return 0, nil
 	}
-	if err := b.ensureSize(len(data)); err != nil {
-		return err
+	size := count * elemSize
+
+	start := b.offset
+	if r := start % elemSize; r != 0 {
+		start += elemSize - r
+	}
+
+	grew, err := b.grow(start + size)
+	if err != nil {
+		return 0, err
+	}
+	if grew {
+		start = 0
+	}
+
+	mapType := uintptr(d3d11MapWriteNoOverwrite)
+	if start == 0 {
+		mapType = uintptr(d3d11MapWriteDiscard)
 	}
 
 	var mapped d3d11MappedSubresource
@@ -72,20 +119,24 @@ func (b *dynamicBuffer) write(data []byte) error {
 	r1, _, _ := b.context.call(14,
 		uintptr(unsafe.Pointer(b.buffer)),
 		0,
-		uintptr(d3d11MapWriteDiscard),
+		mapType,
 		0,
 		uintptr(unsafe.Pointer(&mapped)),
 	)
 	if int32(r1) < 0 || mapped.PData == nil {
-		return fmt.Errorf("map buffer: hr=0x%08x", uint32(r1))
+		return 0, fmt.Errorf("map buffer: hr=0x%08x", uint32(r1))
 	}
 
-	// Sound because mapped.PData points to the GPU-mapped memory of capacity >= len(data).
-	copy(unsafe.Slice((*byte)(mapped.PData), len(data)), data)
+	// Sound because mapped.PData addresses b.capacity bytes of GPU-mapped
+	// memory and grow guarantees start+size <= b.capacity.
+	region := unsafe.Slice((*byte)(unsafe.Add(mapped.PData, start)), size)
+	fill(region)
 
 	// ID3D11DeviceContext::Unmap is vtbl index 15
 	b.context.call(15, uintptr(unsafe.Pointer(b.buffer)), 0)
-	return nil
+
+	b.offset = start + size
+	return start / elemSize, nil
 }
 
 func (b *dynamicBuffer) release() {
@@ -94,6 +145,7 @@ func (b *dynamicBuffer) release() {
 		b.buffer = nil
 	}
 	b.capacity = 0
+	b.offset = 0
 }
 
 func boundsToFloats(b geometry.Bounds[geometry.ScaledPixels]) [4]float32 {
@@ -112,42 +164,42 @@ func maskToFloats(m scene.ContentMask[geometry.ScaledPixels]) [4]float32 {
 	return boundsToFloats(m.Bounds)
 }
 
+type quadInstance struct {
+	bounds       [4]float32
+	contentMask  [4]float32
+	bgColor      [4]float32
+	borderColor  [4]float32
+	cornerRadii  [4]float32
+	borderWidths [4]float32
+	borderStyle  uint32
+	pad0         uint32
+	pad1         uint32
+	pad2         uint32
+}
+
 func (r *d3d11Renderer) drawQuadBatch(quads []scene.Quad) error {
 	if len(quads) == 0 {
 		return nil
 	}
 
-	type quadInstance struct {
-		bounds       [4]float32
-		contentMask  [4]float32
-		bgColor      [4]float32
-		borderColor  [4]float32
-		cornerRadii  [4]float32
-		borderWidths [4]float32
-		borderStyle  uint32
-		pad0         uint32
-		pad1         uint32
-		pad2         uint32
-	}
-
-	data := make([]quadInstance, len(quads))
-	for i, q := range quads {
-		bg := q.Background.Premultiply()
-		bc := q.BorderColour.Premultiply()
-		data[i] = quadInstance{
-			bounds:       boundsToFloats(q.Bounds),
-			contentMask:  maskToFloats(q.ContentMask),
-			bgColor:      [4]float32{bg.R, bg.G, bg.B, bg.A},
-			borderColor:  [4]float32{bc.R, bc.G, bc.B, bc.A},
-			cornerRadii:  [4]float32{q.CornerRadii.TopLeft.Float32(), q.CornerRadii.TopRight.Float32(), q.CornerRadii.BottomRight.Float32(), q.CornerRadii.BottomLeft.Float32()},
-			borderWidths: [4]float32{q.BorderWidths.Top.Float32(), q.BorderWidths.Right.Float32(), q.BorderWidths.Bottom.Float32(), q.BorderWidths.Left.Float32()},
-			borderStyle:  uint32(q.BorderStyle),
+	const stride = int(unsafe.Sizeof(quadInstance{}))
+	startInstance, err := r.dynamicBuffer.write(len(quads), stride, func(dst []byte) {
+		instances := unsafe.Slice((*quadInstance)(unsafe.Pointer(&dst[0])), len(quads))
+		for i, q := range quads {
+			bg := q.Background.Premultiply()
+			bc := q.BorderColour.Premultiply()
+			instances[i] = quadInstance{
+				bounds:       boundsToFloats(q.Bounds),
+				contentMask:  maskToFloats(q.ContentMask),
+				bgColor:      [4]float32{bg.R, bg.G, bg.B, bg.A},
+				borderColor:  [4]float32{bc.R, bc.G, bc.B, bc.A},
+				cornerRadii:  [4]float32{q.CornerRadii.TopLeft.Float32(), q.CornerRadii.TopRight.Float32(), q.CornerRadii.BottomRight.Float32(), q.CornerRadii.BottomLeft.Float32()},
+				borderWidths: [4]float32{q.BorderWidths.Top.Float32(), q.BorderWidths.Right.Float32(), q.BorderWidths.Bottom.Float32(), q.BorderWidths.Left.Float32()},
+				borderStyle:  uint32(q.BorderStyle),
+			}
 		}
-	}
-
-	// Sound because quadInstance contains only numeric fields with explicit alignment.
-	byteSlice := unsafe.Slice((*byte)(unsafe.Pointer(&data[0])), len(data)*int(unsafe.Sizeof(quadInstance{})))
-	if err := r.dynamicBuffer.write(byteSlice); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
@@ -155,10 +207,24 @@ func (r *d3d11Renderer) drawQuadBatch(quads []scene.Quad) error {
 	r.setShader(&r.pipeline.quadShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.quadShader.stride)
 
-	// DrawInstanced: 6 vertices per quad, len(quads) instances
+	// DrawInstanced: 6 vertices per quad, len(quads) instances, starting at
+	// the instance this batch's region begins at within the shared buffer.
 	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
-	r.context.call(21, 6, uintptr(len(quads)), 0, 0)
+	r.context.call(21, 6, uintptr(len(quads)), 0, uintptr(startInstance))
 	return nil
+}
+
+type shadowInstance struct {
+	bounds     [4]float32
+	radii      [4]float32
+	mask       [4]float32
+	color      [4]float32
+	elemBounds [4]float32
+	elemRadii  [4]float32
+	blurRadius float32
+	inset      uint32
+	pad0       uint32
+	pad1       uint32
 }
 
 func (r *d3d11Renderer) drawShadowBatch(shadows []scene.Shadow) error {
@@ -166,49 +232,46 @@ func (r *d3d11Renderer) drawShadowBatch(shadows []scene.Shadow) error {
 		return nil
 	}
 
-	type shadowInstance struct {
-		bounds     [4]float32
-		radii      [4]float32
-		mask       [4]float32
-		color      [4]float32
-		elemBounds [4]float32
-		elemRadii  [4]float32
-		blurRadius float32
-		inset      uint32
-		pad0       uint32
-		pad1       uint32
-	}
-
-	data := make([]shadowInstance, len(shadows))
-	for i, s := range shadows {
-		c := s.Colour.Premultiply()
-		inset := uint32(0)
-		if s.Inset {
-			inset = 1
+	const stride = int(unsafe.Sizeof(shadowInstance{}))
+	startInstance, err := r.dynamicBuffer.write(len(shadows), stride, func(dst []byte) {
+		instances := unsafe.Slice((*shadowInstance)(unsafe.Pointer(&dst[0])), len(shadows))
+		for i, s := range shadows {
+			c := s.Colour.Premultiply()
+			inset := uint32(0)
+			if s.Inset {
+				inset = 1
+			}
+			instances[i] = shadowInstance{
+				bounds:     boundsToFloats(s.Bounds),
+				radii:      [4]float32{s.CornerRadii.TopLeft.Float32(), s.CornerRadii.TopRight.Float32(), s.CornerRadii.BottomRight.Float32(), s.CornerRadii.BottomLeft.Float32()},
+				mask:       maskToFloats(s.ContentMask),
+				color:      [4]float32{c.R, c.G, c.B, c.A},
+				elemBounds: boundsToFloats(s.ElementBounds),
+				elemRadii:  [4]float32{s.ElementCornerRadii.TopLeft.Float32(), s.ElementCornerRadii.TopRight.Float32(), s.ElementCornerRadii.BottomRight.Float32(), s.ElementCornerRadii.BottomLeft.Float32()},
+				blurRadius: s.BlurRadius.Float32(),
+				inset:      inset,
+			}
 		}
-		data[i] = shadowInstance{
-			bounds:     boundsToFloats(s.Bounds),
-			radii:      [4]float32{s.CornerRadii.TopLeft.Float32(), s.CornerRadii.TopRight.Float32(), s.CornerRadii.BottomRight.Float32(), s.CornerRadii.BottomLeft.Float32()},
-			mask:       maskToFloats(s.ContentMask),
-			color:      [4]float32{c.R, c.G, c.B, c.A},
-			elemBounds: boundsToFloats(s.ElementBounds),
-			elemRadii:  [4]float32{s.ElementCornerRadii.TopLeft.Float32(), s.ElementCornerRadii.TopRight.Float32(), s.ElementCornerRadii.BottomRight.Float32(), s.ElementCornerRadii.BottomLeft.Float32()},
-			blurRadius: s.BlurRadius.Float32(),
-			inset:      inset,
-		}
-	}
-
-	// Sound because shadowInstance is pure numerical data.
-	byteSlice := unsafe.Slice((*byte)(unsafe.Pointer(&data[0])), len(data)*int(unsafe.Sizeof(shadowInstance{})))
-	if err := r.dynamicBuffer.write(byteSlice); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
 	r.setShader(&r.pipeline.shadowShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.shadowShader.stride)
 	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
-	r.context.call(21, 6, uintptr(len(shadows)), 0, 0)
+	r.context.call(21, 6, uintptr(len(shadows)), 0, uintptr(startInstance))
 	return nil
+}
+
+type monoInstance struct {
+	bounds       [4]float32
+	mask         [4]float32
+	color        [4]float32
+	tile         [4]float32
+	transformMat [4]float32
+	transformTx  [2]float32
+	pad0         [2]float32
 }
 
 func (r *d3d11Renderer) drawMonoSpriteBatch(sprites []scene.MonochromeSprite, textureID scene.AtlasTextureID) error {
@@ -221,33 +284,24 @@ func (r *d3d11Renderer) drawMonoSpriteBatch(sprites []scene.MonochromeSprite, te
 		return nil
 	}
 
-	type monoInstance struct {
-		bounds       [4]float32
-		mask         [4]float32
-		color        [4]float32
-		tile         [4]float32
-		transformMat [4]float32
-		transformTx  [2]float32
-		pad0         [2]float32
-	}
-
-	data := make([]monoInstance, len(sprites))
-	for i, sp := range sprites {
-		c := sp.Colour.Premultiply()
-		tb := sp.Tile.Bounds
-		data[i] = monoInstance{
-			bounds:       boundsToFloats(sp.Bounds),
-			mask:         maskToFloats(sp.ContentMask),
-			color:        [4]float32{c.R, c.G, c.B, c.A},
-			tile:         [4]float32{float32(tb.Origin.X), float32(tb.Origin.Y), float32(tb.Origin.X + tb.Size.Width), float32(tb.Origin.Y + tb.Size.Height)},
-			transformMat: [4]float32{sp.Transformation.RotationScale[0][0], sp.Transformation.RotationScale[0][1], sp.Transformation.RotationScale[1][0], sp.Transformation.RotationScale[1][1]},
-			transformTx:  [2]float32{sp.Transformation.Translation[0], sp.Transformation.Translation[1]},
+	const stride = int(unsafe.Sizeof(monoInstance{}))
+	startInstance, err := r.dynamicBuffer.write(len(sprites), stride, func(dst []byte) {
+		instances := unsafe.Slice((*monoInstance)(unsafe.Pointer(&dst[0])), len(sprites))
+		for i, sp := range sprites {
+			r.debugCheckTile(sp.Tile)
+			c := sp.Colour.Premultiply()
+			tb := sp.Tile.Bounds
+			instances[i] = monoInstance{
+				bounds:       boundsToFloats(sp.Bounds),
+				mask:         maskToFloats(sp.ContentMask),
+				color:        [4]float32{c.R, c.G, c.B, c.A},
+				tile:         [4]float32{float32(tb.Origin.X), float32(tb.Origin.Y), float32(tb.Origin.X + tb.Size.Width), float32(tb.Origin.Y + tb.Size.Height)},
+				transformMat: [4]float32{sp.Transformation.RotationScale[0][0], sp.Transformation.RotationScale[0][1], sp.Transformation.RotationScale[1][0], sp.Transformation.RotationScale[1][1]},
+				transformTx:  [2]float32{sp.Transformation.Translation[0], sp.Transformation.Translation[1]},
+			}
 		}
-	}
-
-	// Sound because monoInstance is pure numerical data.
-	byteSlice := unsafe.Slice((*byte)(unsafe.Pointer(&data[0])), len(data)*int(unsafe.Sizeof(monoInstance{})))
-	if err := r.dynamicBuffer.write(byteSlice); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
@@ -257,8 +311,18 @@ func (r *d3d11Renderer) drawMonoSpriteBatch(sprites []scene.MonochromeSprite, te
 	r.setShader(&r.pipeline.monoShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.monoShader.stride)
 	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
-	r.context.call(21, 6, uintptr(len(sprites)), 0, 0)
+	r.context.call(21, 6, uintptr(len(sprites)), 0, uintptr(startInstance))
 	return nil
+}
+
+type polyInstance struct {
+	bounds    [4]float32
+	mask      [4]float32
+	tile      [4]float32
+	radii     [4]float32
+	opacity   float32
+	greyscale uint32
+	pad0      [2]float32
 }
 
 func (r *d3d11Renderer) drawPolySpriteBatch(sprites []scene.PolychromeSprite, textureID scene.AtlasTextureID) error {
@@ -271,36 +335,27 @@ func (r *d3d11Renderer) drawPolySpriteBatch(sprites []scene.PolychromeSprite, te
 		return nil
 	}
 
-	type polyInstance struct {
-		bounds    [4]float32
-		mask      [4]float32
-		tile      [4]float32
-		radii     [4]float32
-		opacity   float32
-		greyscale uint32
-		pad0      [2]float32
-	}
-
-	data := make([]polyInstance, len(sprites))
-	for i, sp := range sprites {
-		tb := sp.Tile.Bounds
-		grey := uint32(0)
-		if sp.Greyscale {
-			grey = 1
+	const stride = int(unsafe.Sizeof(polyInstance{}))
+	startInstance, err := r.dynamicBuffer.write(len(sprites), stride, func(dst []byte) {
+		instances := unsafe.Slice((*polyInstance)(unsafe.Pointer(&dst[0])), len(sprites))
+		for i, sp := range sprites {
+			r.debugCheckTile(sp.Tile)
+			tb := sp.Tile.Bounds
+			grey := uint32(0)
+			if sp.Greyscale {
+				grey = 1
+			}
+			instances[i] = polyInstance{
+				bounds:    boundsToFloats(sp.Bounds),
+				mask:      maskToFloats(sp.ContentMask),
+				tile:      [4]float32{float32(tb.Origin.X), float32(tb.Origin.Y), float32(tb.Origin.X + tb.Size.Width), float32(tb.Origin.Y + tb.Size.Height)},
+				radii:     [4]float32{sp.CornerRadii.TopLeft.Float32(), sp.CornerRadii.TopRight.Float32(), sp.CornerRadii.BottomRight.Float32(), sp.CornerRadii.BottomLeft.Float32()},
+				opacity:   sp.Opacity,
+				greyscale: grey,
+			}
 		}
-		data[i] = polyInstance{
-			bounds:    boundsToFloats(sp.Bounds),
-			mask:      maskToFloats(sp.ContentMask),
-			tile:      [4]float32{float32(tb.Origin.X), float32(tb.Origin.Y), float32(tb.Origin.X + tb.Size.Width), float32(tb.Origin.Y + tb.Size.Height)},
-			radii:     [4]float32{sp.CornerRadii.TopLeft.Float32(), sp.CornerRadii.TopRight.Float32(), sp.CornerRadii.BottomRight.Float32(), sp.CornerRadii.BottomLeft.Float32()},
-			opacity:   sp.Opacity,
-			greyscale: grey,
-		}
-	}
-
-	// Sound because polyInstance is pure numerical data.
-	byteSlice := unsafe.Slice((*byte)(unsafe.Pointer(&data[0])), len(data)*int(unsafe.Sizeof(polyInstance{})))
-	if err := r.dynamicBuffer.write(byteSlice); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
@@ -310,8 +365,15 @@ func (r *d3d11Renderer) drawPolySpriteBatch(sprites []scene.PolychromeSprite, te
 	r.setShader(&r.pipeline.polyShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.polyShader.stride)
 	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
-	r.context.call(21, 6, uintptr(len(sprites)), 0, 0)
+	r.context.call(21, 6, uintptr(len(sprites)), 0, uintptr(startInstance))
 	return nil
+}
+
+type pathVertex struct {
+	pos   [2]float32
+	st    [2]float32
+	mask  [4]float32
+	color [4]float32
 }
 
 func (r *d3d11Renderer) drawPathBatch(paths []scene.Path[geometry.ScaledPixels]) error {
@@ -323,34 +385,29 @@ func (r *d3d11Renderer) drawPathBatch(paths []scene.Path[geometry.ScaledPixels])
 		return nil
 	}
 
-	type pathVertex struct {
-		pos   [2]float32
-		st    [2]float32
-		mask  [4]float32
-		color [4]float32
-	}
-
-	data := make([]pathVertex, 0, totalVerts)
-	for _, p := range paths {
-		c := p.Colour.Premultiply()
-		colorFloats := [4]float32{c.R, c.G, c.B, c.A}
-		for _, v := range p.Vertices {
-			mask := maskToFloats(v.ContentMask)
-			if mask[0] == 0 && mask[1] == 0 && mask[2] == 0 && mask[3] == 0 {
-				mask = maskToFloats(p.ContentMask)
+	const stride = int(unsafe.Sizeof(pathVertex{}))
+	startVertex, err := r.dynamicBuffer.write(totalVerts, stride, func(dst []byte) {
+		verts := unsafe.Slice((*pathVertex)(unsafe.Pointer(&dst[0])), totalVerts)
+		vi := 0
+		for _, p := range paths {
+			c := p.Colour.Premultiply()
+			colorFloats := [4]float32{c.R, c.G, c.B, c.A}
+			for _, v := range p.Vertices {
+				mask := maskToFloats(v.ContentMask)
+				if mask[0] == 0 && mask[1] == 0 && mask[2] == 0 && mask[3] == 0 {
+					mask = maskToFloats(p.ContentMask)
+				}
+				verts[vi] = pathVertex{
+					pos:   [2]float32{v.XYPosition.X.Float32(), v.XYPosition.Y.Float32()},
+					st:    [2]float32{v.STPosition.X, v.STPosition.Y},
+					mask:  mask,
+					color: colorFloats,
+				}
+				vi++
 			}
-			data = append(data, pathVertex{
-				pos:   [2]float32{v.XYPosition.X.Float32(), v.XYPosition.Y.Float32()},
-				st:    [2]float32{v.STPosition.X, v.STPosition.Y},
-				mask:  mask,
-				color: colorFloats,
-			})
 		}
-	}
-
-	// Sound because pathVertex is pure numerical data.
-	byteSlice := unsafe.Slice((*byte)(unsafe.Pointer(&data[0])), len(data)*int(unsafe.Sizeof(pathVertex{})))
-	if err := r.dynamicBuffer.write(byteSlice); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
@@ -358,8 +415,17 @@ func (r *d3d11Renderer) drawPathBatch(paths []scene.Path[geometry.ScaledPixels])
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.pathShader.stride)
 
 	// ID3D11DeviceContext::Draw is vtbl index 13
-	r.context.call(13, uintptr(len(data)), 0)
+	r.context.call(13, uintptr(totalVerts), uintptr(startVertex))
 	return nil
+}
+
+type underlineInstance struct {
+	bounds    [4]float32
+	mask      [4]float32
+	color     [4]float32
+	thickness float32
+	wavy      uint32
+	pad0      [2]float32
 }
 
 func (r *d3d11Renderer) drawUnderlineBatch(underlines []scene.Underline) error {
@@ -367,40 +433,31 @@ func (r *d3d11Renderer) drawUnderlineBatch(underlines []scene.Underline) error {
 		return nil
 	}
 
-	type underlineInstance struct {
-		bounds    [4]float32
-		mask      [4]float32
-		color     [4]float32
-		thickness float32
-		wavy      uint32
-		pad0      [2]float32
-	}
-
-	data := make([]underlineInstance, len(underlines))
-	for i, u := range underlines {
-		c := u.Colour.Premultiply()
-		wavy := uint32(0)
-		if u.Wavy {
-			wavy = 1
+	const stride = int(unsafe.Sizeof(underlineInstance{}))
+	startInstance, err := r.dynamicBuffer.write(len(underlines), stride, func(dst []byte) {
+		instances := unsafe.Slice((*underlineInstance)(unsafe.Pointer(&dst[0])), len(underlines))
+		for i, u := range underlines {
+			c := u.Colour.Premultiply()
+			wavy := uint32(0)
+			if u.Wavy {
+				wavy = 1
+			}
+			instances[i] = underlineInstance{
+				bounds:    boundsToFloats(u.Bounds),
+				mask:      maskToFloats(u.ContentMask),
+				color:     [4]float32{c.R, c.G, c.B, c.A},
+				thickness: u.Thickness.Float32(),
+				wavy:      wavy,
+			}
 		}
-		data[i] = underlineInstance{
-			bounds:    boundsToFloats(u.Bounds),
-			mask:      maskToFloats(u.ContentMask),
-			color:     [4]float32{c.R, c.G, c.B, c.A},
-			thickness: u.Thickness.Float32(),
-			wavy:      wavy,
-		}
-	}
-
-	// Sound because underlineInstance is pure numerical data.
-	byteSlice := unsafe.Slice((*byte)(unsafe.Pointer(&data[0])), len(data)*int(unsafe.Sizeof(underlineInstance{})))
-	if err := r.dynamicBuffer.write(byteSlice); err != nil {
+	})
+	if err != nil {
 		return err
 	}
 
 	r.setShader(&r.pipeline.underlineShader)
 	r.bindVertexBuffer(r.dynamicBuffer.buffer, r.pipeline.underlineShader.stride)
 	// ID3D11DeviceContext::DrawInstanced is vtbl index 21
-	r.context.call(21, 6, uintptr(len(underlines)), 0, 0)
+	r.context.call(21, 6, uintptr(len(underlines)), 0, uintptr(startInstance))
 	return nil
 }
