@@ -27,9 +27,19 @@
 //
 // # Invariants
 //
-//   - Shaped output is cached by run, not by string. The same word in the same
-//     face at the same size is shaped once; the cache key is derived from the
-//     run's text, face, size, direction, script, language and font features.
+//   - Caching happens at two levels. lineCache holds the finished ShapedLine
+//     for a whole ShapeLine or WrapText call, keyed on the input text, the
+//     style runs (font, size, direction, language, features) and the wrap
+//     width; a hit skips segmentation, shaping and line wrapping entirely.
+//     Underneath it, shapeCache holds shaped output per homogeneous sub-run
+//     after segmentation, keyed on the sub-run's text, resolved face, size,
+//     direction, script, language and font features; a hit here still pays
+//     for segmentation and wrapping, but skips the shaper. Both are bounded by
+//     total byte size with least-recently-used eviction, not by entry count,
+//     because a shaped word and a shaped heading differ by orders of
+//     magnitude in weight. Nothing invalidates an entry early: a face, a
+//     resolved glyph and a wrap width are all immutable for as long as they
+//     are valid cache inputs, so an entry is correct until it is evicted.
 //   - A request is for text, not for a font. When a face lacks a glyph for a
 //     rune, a fallback face is selected per rune so that something always
 //     draws; the shaped run records which face each glyph came from.
