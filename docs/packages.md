@@ -234,6 +234,28 @@ So every primitive carries a pixel assertion, and each one fails if its own draw
 path is disabled and no others. The readback copies the back buffer to a staging
 texture and is compiled out of release builds.
 
+One dynamic buffer serves every instance kind, written straight through a mapped
+region rather than into an intermediate slice: `write` reserves a region and hands the
+caller a slice over GPU memory to fill. It maps `DISCARD` on the first write of a
+frame and `NO_OVERWRITE` at a rolling offset thereafter, so the driver renames the
+buffer once per frame rather than once per batch.
+
+Each reservation starts at a multiple of its own element size. Kinds share one buffer
+and one byte offset, and D3D11 computes the address a draw reads from as
+`StartInstanceLocation` times the stride bound for *that* draw — so a region left at
+whatever odd offset a differently-sized batch ended on makes that multiplication land
+outside the data just written. It is a legal read of the wrong bytes and reports no
+error. `TestRenderMultiBatchSameKindInterleaved` pins it by chaining batches through
+overlapping bounds so the scene cannot merge them, and reading back a pixel exclusive
+to each; removing the rounding fails it on two pixels.
+
+`ClearAtlas` invalidates every tile handed out for that kind. `scene.TileID` is
+documented as the allocator's own handle and opaque to the Scene, so the backend packs
+an 8-bit generation into its high byte and bumps it on clear; a stale tile panics under
+`facet_debug` and is unchecked in release. Callers own dropping their references —
+`window`'s glyph cache is the only one today, and it gets away with clearing in the same
+handler, which is a property of that caller and not of the interface.
+
 Invariants: `Renderer` is a layer boundary and changes by explicit decision.
 Backends never see anything above `scene` — no elements, no styles, no entities. A
 new backend is a new subpackage and nothing else.
