@@ -86,6 +86,11 @@ it, and the slice is one entry per interactive element on screen.
 
 Return the region, not its id. The lookups then disappear rather than being optimised.
 
+`resolveNextHitTest` is contested and you have it. `prompts/platform.md` moves `SetCursor`
+from `Platform` onto `platform.Window`, and the call site is the bottom of this same
+function — so that half of its round is held until you report. Say in your report that
+this function has settled, because someone is waiting on the sentence.
+
 The linear scan itself can stay this round. It is O(n) per event against a slice that is
 a few hundred entries in any UI we can currently build, and replacing it with a spatial
 index before the frame is incremental would be tuning the wrong thing.
