@@ -71,9 +71,36 @@ wrong.
 GPUI does not have this problem because the framework re-enters the entity update when
 the event fires, so the handler is handed live state and a live context rather than
 captured ones. Facet copied the element lifecycle and the entity map but not the part
-that joins them. Worth confirming against `crates/gpui` before writing the replacement —
-`_upstream/` is not checked out here, so this is reasoning from the shape of the problem
-rather than from the source.
+that joins them.
+
+Confirmed at the source. `Context::listener` in `crates/gpui/src/app/context.rs` is the
+whole mechanism, and it is an adapter rather than a change to any handler signature:
+
+```rust
+pub fn listener<E: ?Sized>(
+    &self,
+    f: impl Fn(&mut T, &E, &mut Window, &mut Context<T>) + 'static,
+) -> impl Fn(&E, &mut Window, &mut App) + 'static {
+    let view = self.entity().downgrade();
+    move |e: &E, window: &mut Window, cx: &mut App| {
+        view.update(cx, |view, cx| f(view, e, window, cx)).ok();
+    }
+}
+```
+
+The handle is downgraded at render time, upgraded and updated at dispatch time, and a
+dropped view is a silent no-op rather than an error. `Window::listener_for` is the same
+body for callers who hold the entity rather than a context. Dispatch itself runs at the
+app level — `dispatch_event(&mut self, event, cx: &mut App)` — outside any update, which
+is what makes the re-entry legal.
+
+One thing does not carry over, and it is in Facet's favour. GPUI threads `&mut App`
+through every callback because the borrow checker gives the closure no other way to reach
+it. Go has no such constraint: the adapter captures `cx.App()` and `cx.WeakEntity()` at
+registration, so nothing needs adding to the handler signature. Probed directly — the
+adapter compiles against today's `app`, the increment persists across two dispatches, and
+`cx.Notify()` from inside it reaches an observer. That makes step 1 an addition to
+`element` rather than a change to it.
 
 `ui.Button` has the same signature, so the only interactive widget in the library is
 unusable from a view. Its test passes because it closes over a test-local `clicked`
@@ -433,10 +460,21 @@ virtualised lists need to know which item an element was, animations need to kno
 value was interpolating from, layout caching needs to know which node this is the same as,
 and accessibility needs a tree that outlives the frame. All four are the same requirement.
 
-GPUI's answer is an element id combined into a path from the root, with per-element state
-keyed by that path and kept for a frame. Read how `crates/gpui` actually does it before
-committing — the upstream checkout is not fetched here — then take that shape or a better
-one, but take it before the list element rather than during it.
+GPUI's answer, read rather than assumed: `GlobalElementId` is an `Arc<[ElementId]>`, a
+path from the root rather than a single id, and the frame holds `element_states:
+HashMap<(GlobalElementId, TypeId), ElementStateBox>`. `Window::with_element_state` looks
+the entry up in the frame being built, falls back to the rendered frame, and records the
+key in `accessed_element_states`; anything not accessed during a frame is dropped when
+the two frames swap. State therefore lives exactly as long as an element keeps being
+built at the same path, and eviction needs no policy.
+
+Two details matter for what follows. State is reachable in prepaint as well as paint
+(`debug_assert_paint_or_prepaint`), which is what lets a list learn its viewport and then
+decide what to build. And the carry-forward is between the same two frames Facet already
+keeps, so the mechanism lands on `Frame` rather than changing the `Element` interface.
+
+Take that shape or a better one, but take it before the list element rather than during
+it.
 
 ### 5. Expose layers, and add deferred painting
 
