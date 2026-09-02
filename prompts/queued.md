@@ -128,6 +128,31 @@ the other three dispatchers. Decide whether that is the contract and write it do
 make it consistent. It is not a bug until someone writes a container that wants to see
 text reaching a child, and then it is.
 
+## text and element: stop handing out mutable glyphs
+
+`text`'s line cache clones every `[]ShapedLine` it returns, on both the hit and the miss
+path, because `ShapedRun.Glyphs` is an exported mutable slice and a caller who touches one
+glyph would otherwise corrupt the entry every later caller reads. That was a real bug — I
+reproduced it through the exported API alone, and it passed at the commit before the cache
+landed.
+
+The clone is the whole remaining cost of a cache hit: 2,258 ns and 1,552 B, three
+allocations, all of it copying glyphs nobody intends to write to. Optimising around it
+inside `text` is not possible, because the hazard is in the type rather than the cache.
+
+The fix is to stop offering the mutation: unexport `Glyphs` behind an accessor that
+returns a read-only view, so a cached line can be handed out directly. That crosses into
+`element`, which walks glyphs every frame to emit sprites and is the only real consumer,
+so it is one landing across two packages and a `text` API change.
+
+Not now, and the reason is sequencing rather than doubt: `ui` is building a text field
+against `element.TextLayout` right now, and `element` is the package that would have to
+absorb the accessor change. Take it once the text field has landed and we know what a
+caret and a selection actually need from a shaped line — changing the glyph API twice
+would be worse than paying the clone for another round.
+
+`BenchmarkShapeLineLineCacheHit` is what proves it when it happens.
+
 ## style and element: the thirteen properties
 
 After `prompts/element.md` reports. This is one landing across two packages and it needs
