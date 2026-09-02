@@ -57,11 +57,11 @@ func (c *Context[T]) OnRelease(onRelease func(v *T, app *App)) Subscription {
 	c.checkGeneration()
 	id := c.self.id
 	return c.app.onRelease(AnyEntity{id: id}, func(value any, app *App) {
-		t, ok := value.(T)
+		t, ok := value.(*T)
 		if !ok {
 			return
 		}
-		onRelease(&t, app)
+		onRelease(t, app)
 	})
 }
 

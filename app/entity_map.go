@@ -4,8 +4,12 @@ import (
 	"fmt"
 )
 
-// entityMap is the App's storage of entity values, keyed by entityID. It is
-// single-goroutine by design and carries no locking.
+// entityMap is the App's storage of entity values, keyed by entityID. Each
+// stored value is a *T rather than a T: New boxes the value once at
+// construction, and every read or update aliases that same pointer rather
+// than copying in or out of it, so a write through a leased or read pointer
+// is visible everywhere else the entity is reached. It is single-goroutine by
+// design and carries no locking.
 //
 // The lease mechanism moves a value out of the map for the duration of a
 // mutable update, so a re-entrant update of the same entity finds an empty
