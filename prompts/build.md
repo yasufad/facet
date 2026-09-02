@@ -44,6 +44,14 @@ A workflow on every push and every pull request, over the three targets:
     gofmt -l $(go list -f '{{.Dir}}' ./...)
     go test ./...
     go test -tags facet_debug ./...
+    go test -race ./...
+
+`-race` is not optional and it is not decoration. It needs cgo and therefore a C
+compiler, which several agents' environments do not have — `app` fixed a data race on
+`rc.shutdown` this round, wrote the concurrent-shutdown test that exercises it, and could
+not run the detector to confirm it, and neither could I. That verification is owed and CI
+is the only place it can be paid. A Linux runner has gcc; set `CGO_ENABLED=1` for that
+step alone, since everything else in this tree builds with cgo off deliberately.
 
 `gofmt -l` exits zero whether or not it prints anything, which is the trap in every
 version of this check ever written — it has to fail the job when it prints. Scope it
