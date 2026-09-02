@@ -2,6 +2,7 @@ package element
 
 import (
 	"math"
+	"slices"
 
 	"github.com/yasufad/facet/colour"
 	"github.com/yasufad/facet/geometry"
@@ -20,8 +21,11 @@ type Text struct {
 	content    string
 	refinement style.Refinement
 
-	// Cached layout & shaping state
+	// Cached layout & shaping state. shapedFor is the exact input shapedLine
+	// was shaped from; Paint compares against it because the style Text
+	// paints under can differ from the style it shaped under — see Paint.
 	shapedLine *text.ShapedLine
+	shapedFor  []text.StyleRun
 	layoutID   layout.NodeID
 	bounds     geometry.Bounds[geometry.Pixels]
 	phase      drawPhase
@@ -46,6 +50,7 @@ func (t *Text) Content() string {
 func (t *Text) SetContent(content string) *Text {
 	t.content = content
 	t.shapedLine = nil
+	t.shapedFor = nil
 	return t
 }
 
@@ -169,6 +174,53 @@ func (t *Text) LineClamp(lines int) *Text {
 	return t
 }
 
+// textStyleRuns builds the single-run ShapeLine input for content shaped
+// under textStyle. Both RequestLayout and Paint need the exact same
+// construction, since Paint compares its result against what RequestLayout
+// shaped from to decide whether to reshape.
+func textStyleRuns(content string, textStyle style.TextStyle) []text.StyleRun {
+	return []text.StyleRun{
+		{
+			ByteLen: len(content),
+			Font: text.FontRequest{
+				Family:   textStyle.FontFamily,
+				Families: textStyle.FontFallbacks,
+				Weight:   textStyle.FontWeight,
+				Style:    textStyle.FontStyle,
+			},
+			Size:      textStyle.FontSize,
+			Direction: text.LTR,
+			Features:  textStyle.FontFeatures,
+		},
+	}
+}
+
+// styleRunsEqual reports whether a and b would shape identically. StyleRun and
+// FontRequest both carry slices, so neither is comparable with ==; this is
+// deliberately a manual field comparison rather than reflect.DeepEqual, since
+// Paint calls it every frame and AGENTS.md rules reflection out of a per-frame
+// path.
+func styleRunsEqual(a, b []text.StyleRun) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ByteLen != b[i].ByteLen ||
+			a[i].Size != b[i].Size ||
+			a[i].Direction != b[i].Direction ||
+			a[i].Language != b[i].Language ||
+			a[i].Font.Family != b[i].Font.Family ||
+			a[i].Font.Weight != b[i].Font.Weight ||
+			a[i].Font.Style != b[i].Font.Style ||
+			a[i].Font.Stretch != b[i].Font.Stretch ||
+			!slices.Equal(a[i].Font.Families, b[i].Font.Families) ||
+			!slices.Equal(a[i].Features, b[i].Features) {
+			return false
+		}
+	}
+	return true
+}
+
 // RequestLayout resolves text styling, registers a measured layout callback
 // that shapes the text run through Frame.ShapeLine, and adds the leaf node
 // to the layout tree.
@@ -185,34 +237,22 @@ func (t *Text) RequestLayout(f Frame) NodeID {
 	rem := f.RemSize()
 	layoutStyle := st.ToLayout(rem)
 	textStyle := st.Text
-
-	runs := []text.StyleRun{
-		{
-			ByteLen: len(t.content),
-			Font: text.FontRequest{
-				Family:   textStyle.FontFamily,
-				Families: textStyle.FontFallbacks,
-				Weight:   textStyle.FontWeight,
-				Style:    textStyle.FontStyle,
-			},
-			Size:      textStyle.FontSize,
-			Direction: text.LTR,
-			Features:  textStyle.FontFeatures,
-		},
-	}
+	runs := textStyleRuns(t.content, textStyle)
 
 	measure := func(known layout.Size[layout.OptF32], avail layout.Size[layout.AvailableSpace]) geometry.Size[geometry.Pixels] {
-		// ShapeLine shapes one line with no wrapping, so its output for this
-		// content and style is the same at every available width. The solver
-		// calls measure several times per solve with different constraints;
-		// reshaping on each call would repeat the same work for no reason.
-		// Content and style are fixed for the lifetime of this element (they
-		// can only change before RequestLayout, which runs once), so shaping
-		// once and keeping it for every later call is the whole cache.
+		// ShapeLine shapes one line with no wrapping, so its output for a
+		// given content and style is the same at every available width. The
+		// solver calls measure several times per solve with different width
+		// constraints; reshaping on each call would repeat the same work for
+		// no reason. Content is fixed for this element's lifetime, and this
+		// is the first shape of it, so nothing else can have changed since
+		// the call above built runs — shapedLine==nil is the whole cache
+		// this measure closure needs. Paint has to check harder; see there.
 		if t.shapedLine == nil {
 			line, err := f.ShapeLine(t.content, runs)
 			if err == nil {
 				t.shapedLine = &line
+				t.shapedFor = runs
 			}
 		}
 
@@ -265,26 +305,21 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	st.Refine(t.refinement)
 	textStyle := st.Text
 
-	if t.shapedLine == nil {
-		runs := []text.StyleRun{
-			{
-				ByteLen: len(t.content),
-				Font: text.FontRequest{
-					Family:   textStyle.FontFamily,
-					Families: textStyle.FontFallbacks,
-					Weight:   textStyle.FontWeight,
-					Style:    textStyle.FontStyle,
-				},
-				Size:      textStyle.FontSize,
-				Direction: text.LTR,
-				Features:  textStyle.FontFeatures,
-			},
-		}
+	// f.TextStyle() carries whatever pseudo-state refinements the container
+	// merged in between prepaint and paint (docs/packages.md), so the style
+	// painted under is not always the style RequestLayout's measure shaped
+	// under — a container's Hover changing font weight, family or size is a
+	// real, supported case, not a hypothetical one. Reshape whenever the
+	// resolved input differs from what shapedLine was actually shaped from,
+	// not only when nothing has been shaped yet.
+	runs := textStyleRuns(t.content, textStyle)
+	if t.shapedLine == nil || !styleRunsEqual(t.shapedFor, runs) {
 		line, err := f.ShapeLine(t.content, runs)
 		if err != nil {
 			return
 		}
 		t.shapedLine = &line
+		t.shapedFor = runs
 	}
 
 	scale := f.ScaleFactor()

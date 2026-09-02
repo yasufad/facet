@@ -151,6 +151,99 @@ func TestTextDoesNotReshapeOnWidthChange(t *testing.T) {
 	}
 }
 
+// TestTextReshapesWhenPaintTimeStyleChangesFontMetrics pins the paint-time
+// gap docs/audit.md names: f.TextStyle() carries whatever pseudo-state
+// refinements a container merges in between prepaint and paint, so the style
+// Paint shapes under is not always the style RequestLayout's measure shaped
+// under. A container's Hover changing the child's font weight is a real,
+// supported case — Div.Hover accepts any Refinement mutation — and must
+// reshape, not silently keep the layout-time glyphs.
+func TestTextReshapesWhenPaintTimeStyleChangesFontMetrics(t *testing.T) {
+	frame := newFakeFrame()
+
+	label := NewText("A")
+	parent := NewDiv().
+		FontWeight(text.WeightNormal).
+		Hover(func(r *style.Refinement) {
+			r.SetFontWeight(text.WeightBold)
+		}).
+		Child(label)
+
+	frame.phase = phaseLayoutRequested
+	rootID := parent.RequestLayout(frame)
+	frame.solve(rootID, 100, 30)
+	rootBounds := frame.LayoutBounds(rootID)
+
+	frame.phase = phasePrepainted
+	parent.Prepaint(frame, rootBounds)
+
+	frame.phase = phasePainted
+	parent.Paint(frame, rootBounds)
+
+	if frame.shapeLineCalls != 1 {
+		t.Fatalf("shapeLineCalls after first paint = %d, want 1", frame.shapeLineCalls)
+	}
+
+	if len(frame.hitRegions) == 0 {
+		t.Fatal("expected hit region registered on parent")
+	}
+	frame.setHovered(frame.hitRegions[0].id, true)
+
+	parent.phase = phasePrepainted
+	label.phase = phasePrepainted
+	parent.Paint(frame, rootBounds)
+
+	if frame.shapeLineCalls != 2 {
+		t.Fatalf("shapeLineCalls after hover paint = %d, want 2: paint-time font weight change did not reshape", frame.shapeLineCalls)
+	}
+}
+
+// TestTextDoesNotReshapeWhenOnlyColourChanges is the negative control for
+// TestTextReshapesWhenPaintTimeStyleChangesFontMetrics: pseudo-state that
+// changes only colour, which is applied per-sprite and never reaches
+// ShapeLine's input, must not trigger a reshape.
+func TestTextDoesNotReshapeWhenOnlyColourChanges(t *testing.T) {
+	frame := newFakeFrame()
+	red := colour.Rgba{R: 1, G: 0, B: 0, A: 1}
+	blue := colour.Rgba{R: 0, G: 0, B: 1, A: 1}
+
+	label := NewText("A")
+	parent := NewDiv().
+		TextColour(red).
+		Hover(func(r *style.Refinement) {
+			r.SetTextColour(blue)
+		}).
+		Child(label)
+
+	frame.phase = phaseLayoutRequested
+	rootID := parent.RequestLayout(frame)
+	frame.solve(rootID, 100, 30)
+	rootBounds := frame.LayoutBounds(rootID)
+
+	frame.phase = phasePrepainted
+	parent.Prepaint(frame, rootBounds)
+
+	frame.phase = phasePainted
+	parent.Paint(frame, rootBounds)
+
+	if frame.shapeLineCalls != 1 {
+		t.Fatalf("shapeLineCalls after first paint = %d, want 1", frame.shapeLineCalls)
+	}
+
+	if len(frame.hitRegions) == 0 {
+		t.Fatal("expected hit region registered on parent")
+	}
+	frame.setHovered(frame.hitRegions[0].id, true)
+
+	parent.phase = phasePrepainted
+	label.phase = phasePrepainted
+	parent.Paint(frame, rootBounds)
+
+	if frame.shapeLineCalls != 1 {
+		t.Fatalf("shapeLineCalls after colour-only hover paint = %d, want 1: colour-only pseudo-state should not reshape", frame.shapeLineCalls)
+	}
+}
+
 // TestTextPaintCentresGlyphsOnTallerLineHeight pins the half-leading fix: a
 // LineHeight taller than the font's own ascent+descent must split the extra
 // space evenly above and below the glyphs (CSS's rule), not leave it all
