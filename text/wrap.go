@@ -47,17 +47,22 @@ func (s *System) WrapText(text string, runs []StyleRun, maxWidth geometry.Pixels
 // wrap is the shared pipeline: check the line cache, and on miss segment and
 // shape each style run, feed the shaped runs to the line wrapper, and build a
 // ShapedLine per wrapped line.
+//
+// Both returns go through cloneShapedLines, not just the cache hit: the
+// slice built on a miss is also what gets stored in the cache, so returning
+// it unmodified would let this call's caller mutate the very entry the next
+// call reads.
 func (s *System) wrap(text string, runs []StyleRun, maxWidth fixed.Int26_6) ([]ShapedLine, error) {
 	key := lineCacheKey{text: text, runs: styleRunsKey(runs), maxWidth: maxWidth}
 	if lines, ok := s.lineCache.lru.Get(key); ok {
-		return lines, nil
+		return cloneShapedLines(lines), nil
 	}
 	lines, err := s.wrapUncached(text, runs, maxWidth)
 	if err != nil {
 		return nil, err
 	}
 	s.lineCache.lru.Put(key, lines)
-	return lines, nil
+	return cloneShapedLines(lines), nil
 }
 
 // wrapUncached does the actual segmentation, shaping and line wrapping that

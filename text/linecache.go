@@ -95,7 +95,36 @@ func styleRunsKey(runs []StyleRun) string {
 	return string(b)
 }
 
+// cloneShapedLines returns a copy of lines whose glyph slices do not alias
+// lines itself. ShapedRun.Glyphs is exported, and Glyph's fields (Position in
+// particular) are plain mutable values, so a caller that mutates a glyph in
+// a line handed back from a cache hit would otherwise corrupt every other
+// caller sharing that hit — and the cache's own stored copy along with them,
+// since Get and Put would be handing out and taking in the same backing
+// array. wrap calls this on every return, hit or miss, so the slice stored
+// in the cache is never the same one a caller holds.
+//
+// clusters and byByte are not cloned: nothing outside this package can reach
+// them to mutate. XForIndex, IndexForX and ClosestIndexForX only ever return
+// copied geometry.Pixels and int values, never the cluster slice itself.
+func cloneShapedLines(lines []ShapedLine) []ShapedLine {
+	out := make([]ShapedLine, len(lines))
+	for i, l := range lines {
+		out[i] = l
+		if len(l.runs) == 0 {
+			continue
+		}
+		runs := make([]ShapedRun, len(l.runs))
+		for j, r := range l.runs {
+			runs[j] = r
+			runs[j].Glyphs = append([]Glyph(nil), r.Glyphs...)
+		}
+		out[i].runs = runs
+	}
+	return out
+}
+
 // SetLineCacheBytes sets the wrapped-line cache's byte ceiling, evicting
-// immediately if the cache is already over it. The default is
-// defaultLineCacheBytes.
+// immediately if the cache is already over it. Zero means the cache holds
+// nothing, not that it is unbounded. The default is defaultLineCacheBytes.
 func (s *System) SetLineCacheBytes(n int64) { s.lineCache.lru.SetMaxBytes(n) }
