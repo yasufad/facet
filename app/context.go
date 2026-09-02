@@ -56,6 +56,12 @@ func (c *Context[T]) Notify() {
 // OnRelease registers a callback to run when this entity is dropped. It is the
 // place to Release handles the entity owns and to Close subscriptions it
 // holds. The callback receives a pointer to the value and the App.
+//
+// The assertion below reverting to value.(T) is a compile error, not a
+// runtime one: onRelease itself takes *T, and t would no longer be assignable
+// to it. That is a stronger guarantee than ReadEntity and UpdateEntity's
+// matching assertions get, since nothing there forces their local variable's
+// type to agree with anything else in the function.
 func (c *Context[T]) OnRelease(onRelease func(v *T, app *App)) Subscription {
 	c.checkGeneration()
 	id := c.self.id
