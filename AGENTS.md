@@ -179,11 +179,19 @@ cannot be bisected or checked out. Each commit should build.
 Scope is the package. The body explains why when the subject cannot. No file lists
 in the body — the diff already says that.
 
-Stage by path: `git add <file>`. Never `git add -A`, `git add .` or `git commit -a`.
-Other agents have work in progress in the same tree, and a blanket stage commits
-their unfinished files under your subject line. Check `git status` before you
-commit and `git show --name-only` after; a commit should contain exactly the file
-its message describes.
+Commit by path, not by index:
+
+    git commit -m "<message>" -- <file>
+
+This commits exactly that path whatever else is staged, which is the only form that
+is safe here. Staging by path and then committing is not enough: the index is shared,
+so another agent staging a file between your `git add` and your `git commit` puts
+their work in your commit under your subject line. That has now happened to three
+agents in this tree, each caught it with `git show --name-only`, and each had to
+recover with `git reset --soft HEAD~1`. The `--` form removes the window entirely.
+
+Never `git add -A`, `git add .` or `git commit -a`. Still check `git show --name-only`
+after committing; a commit should contain exactly the file its message describes.
 
 ## Leading the work
 
