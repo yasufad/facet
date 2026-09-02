@@ -7,6 +7,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/yasufad/facet/colour"
@@ -352,6 +353,20 @@ func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintpt
 			w.emit(TextEvent{Text: string(r), Time: time.Now()})
 		}
 
+	case w32.WM_IME_STARTCOMPOSITION:
+		w.emitIMEComposition(IMEStart)
+
+	case w32.WM_IME_COMPOSITION:
+		// GCS_COMPSTR is set when the composition string itself changed, as
+		// opposed to other composition attributes (target clause, reading
+		// string) this event also carries and Facet does not surface.
+		if lParam&w32.GCS_COMPSTR != 0 {
+			w.emitIMEComposition(IMEUpdate)
+		}
+
+	case w32.WM_IME_ENDCOMPOSITION:
+		w.emitIMEComposition(IMEEnd)
+
 	case w32.WM_SETFOCUS:
 		w.emit(FocusEvent{Focused: true, Time: time.Now()})
 	case w32.WM_KILLFOCUS:
@@ -383,6 +398,31 @@ func (w *windowsWindow) emit(e Event) {
 	if handler != nil {
 		handler(e)
 	}
+}
+
+// emitIMEComposition reads the current composition string and cursor through
+// IMM32 and emits it as an IMECompositionEvent with the given phase. Called
+// from wndProc for WM_IME_STARTCOMPOSITION, WM_IME_COMPOSITION (when the
+// composition string changed) and WM_IME_ENDCOMPOSITION.
+func (w *windowsWindow) emitIMEComposition(phase IMEPhase) {
+	himc := w32.ImmGetContext(w.hwnd)
+	if himc == 0 {
+		// No IME is attached to this window (no input context). Report the
+		// phase with no text rather than dropping the event, so a start/end
+		// pair the caller expects to bracket every update still arrives.
+		w.emit(IMECompositionEvent{Phase: phase, Cursor: -1, Time: time.Now()})
+		return
+	}
+	defer w32.ImmReleaseContext(w.hwnd, himc)
+
+	units := w32.ImmGetCompositionString(himc, w32.GCS_COMPSTR)
+	cursor := w32.ImmGetCompositionCursor(himc)
+	w.emit(IMECompositionEvent{
+		Phase:  phase,
+		Text:   string(utf16.Decode(units)),
+		Cursor: runeOffsetFromUTF16(units, cursor),
+		Time:   time.Now(),
+	})
 }
 
 // emitPointerDownUp emits a pointer event for a button press or release.
@@ -543,6 +583,15 @@ func (w *windowsWindow) NativeHandle() uintptr {
 // swapchain against the window itself, so this is the same as NativeHandle.
 func (w *windowsWindow) NativeSurface() uintptr {
 	return uintptr(w.hwnd)
+}
+
+// SetCursor sets the pointer shape over this window. The window class
+// registers no cursor of its own (see registerWindowClass), so the shape set
+// here persists until changed again; the caller is expected to call this
+// only while the pointer is actually over this window's client area, which
+// is how window's per-frame hit test already drives it.
+func (w *windowsWindow) SetCursor(shape Cursor) {
+	setCursor(shape)
 }
 
 // Focus makes this window the focused, foreground window.
