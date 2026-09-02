@@ -66,6 +66,7 @@ type stubPlatformWindow struct {
 	scale        float32
 	eventHandler func(platform.Event)
 	cursors      []platform.Cursor
+	state        platform.WindowState
 }
 
 func newStubPlatformWindow(size geometry.Size[geometry.Pixels], scale float32) *stubPlatformWindow {
@@ -87,6 +88,8 @@ func (w *stubPlatformWindow) SetMinSize(size geometry.Size[geometry.Pixels])  {}
 func (w *stubPlatformWindow) SetMaxSize(size geometry.Size[geometry.Pixels])  {}
 func (w *stubPlatformWindow) SetResizable(resizable bool)                     {}
 func (w *stubPlatformWindow) SetAlwaysOnTop(onTop bool)                       {}
+func (w *stubPlatformWindow) State() platform.WindowState                     { return w.state }
+func (w *stubPlatformWindow) SetState(state platform.WindowState)             { w.state = state }
 func (w *stubPlatformWindow) SetBackground(c colour.Rgba)                     {}
 func (w *stubPlatformWindow) ScaleFactor() float32                            { return w.scale }
 func (w *stubPlatformWindow) NativeHandle() uintptr                           { return 0 }
