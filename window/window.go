@@ -113,6 +113,14 @@ type Window struct {
 	frameScheduled bool
 	focused        bool
 	closed         bool
+
+	// pumpStop and pumpDone bound the lifetime of the foreground-executor pump
+	// goroutine started by startForegroundPump. Closing pumpStop asks it to
+	// exit; it closes pumpDone on the way out, so Close can wait for it
+	// rather than leaving the window and its whole object graph reachable
+	// for the life of the process.
+	pumpStop chan struct{}
+	pumpDone chan struct{}
 }
 
 // New creates and initialises a new window bound to the platform and application context.
@@ -156,19 +164,43 @@ func New(p platform.Platform, a *app.App, opts WindowOptions) (*Window, error) {
 
 	pw.SetEventHandler(w.DispatchEvent)
 
-	// Wire foreground executor progress back into platform thread dispatch.
-	if a != nil && a.Foreground() != nil {
-		go func() {
-			for range a.Foreground().Pending() {
+	w.startForegroundPump(p, a)
+
+	return w, nil
+}
+
+// startForegroundPump wires the app's foreground executor progress back into
+// platform thread dispatch: whenever work is queued, it dispatches onto p so
+// the drain and the resulting redraw happen on the platform's UI thread. It
+// runs until either a is nil, has no foreground executor, the executor stops
+// (app shutdown closes Pending()), or the window closes — whichever comes
+// first — closing pumpDone on the way out so Close can wait for it instead of
+// leaving the goroutine (and everything it closes over: w, p, a) reachable
+// for the life of the process.
+func (w *Window) startForegroundPump(p platform.Platform, a *app.App) {
+	if a == nil || a.Foreground() == nil {
+		return
+	}
+	pending := a.Foreground().Pending()
+	w.pumpStop = make(chan struct{})
+	w.pumpDone = make(chan struct{})
+	go func() {
+		defer close(w.pumpDone)
+		for {
+			select {
+			case _, ok := <-pending:
+				if !ok {
+					return
+				}
 				p.Dispatch(func() {
 					a.Foreground().Drain()
 					w.ScheduleFrame()
 				})
+			case <-w.pumpStop:
+				return
 			}
-		}()
-	}
-
-	return w, nil
+		}
+	}()
 }
 
 // NewWithRenderer constructs a Window configured with an explicit platform window and renderer.
@@ -712,11 +744,22 @@ func (w *Window) Renderer() render.Renderer {
 	return w.renderer
 }
 
-// Close releases platform window and renderer resources.
+// Close releases platform window and renderer resources, and ends the
+// foreground pump goroutine started by New, waiting for it to exit before
+// returning. A second call is a no-op: without the guard, it would close an
+// already-closed pumpStop and panic, the same defect just fixed in
+// ForegroundExecutor.stop.
 func (w *Window) Close() error {
+	if w.closed {
+		return nil
+	}
 	w.closed = true
 	w.rootSub.Close()
 	w.rootSub = app.Subscription{}
+	if w.pumpStop != nil {
+		close(w.pumpStop)
+		<-w.pumpDone
+	}
 	if w.renderer != nil {
 		_ = w.renderer.Close()
 	}
