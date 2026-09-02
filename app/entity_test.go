@@ -91,6 +91,29 @@ func TestRefcountCloneRelease(t *testing.T) {
 	c2.Release()
 }
 
+func TestUpdatePointerAliasesStoredValue(t *testing.T) {
+	// The pointer UpdateEntity hands to f is the one stored in the entity map,
+	// not the address of a leased copy. A closure that captures it and writes
+	// after the update that captured it has returned (the shape of an event
+	// handler registered during Render and invoked later from dispatch) must
+	// still land its write, and Read must observe it without an intervening
+	// update.
+	app := NewApp()
+	defer app.Close()
+
+	c := newCounter(t, app, 0)
+	var captured *counter
+	c.Update(app, func(v *counter, cx *Context[counter]) {
+		captured = v
+	})
+
+	captured.count = 42
+	if got := c.Read(app).count; got != 42 {
+		t.Fatalf("got %d, want 42: write through a pointer captured during a prior update was not visible", got)
+	}
+	c.Release()
+}
+
 func TestOnReleaseFiresOnDrop(t *testing.T) {
 	app := NewApp()
 	defer app.Close()
