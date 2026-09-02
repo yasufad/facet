@@ -1,6 +1,7 @@
 package app
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -130,6 +131,37 @@ func TestOnReleaseFiresOnDrop(t *testing.T) {
 	if !fired {
 		t.Fatal("OnRelease callback did not fire when the entity was dropped")
 	}
+}
+
+func TestOnReleasePanicsOnTypeMismatch(t *testing.T) {
+	// If the entity map ever holds something other than what a handle's type
+	// says it holds, that is a programmer error with no recovery - the same
+	// case ReadEntity and UpdateEntity panic on. OnRelease's callback used to
+	// swallow the failed assertion instead (value.(T) against a *T, silently
+	// returning), which is how it went quiet: no panic, no log, just a
+	// callback that never ran. Corrupt the map directly to force the
+	// mismatch and confirm the failure now names its cause.
+	app := NewApp()
+	defer app.Close()
+
+	c := newCounter(t, app, 0)
+	UpdateEntity(app, c, func(v *counter, cx *Context[counter]) {
+		cx.OnRelease(func(v *counter, app *App) {})
+	})
+	app.entities.values[c.EntityID()] = "not a *counter"
+
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("OnRelease callback with a type mismatch did not panic")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "is not of type") {
+			t.Fatalf("panic %v does not name the cause the way ReadEntity and UpdateEntity do", r)
+		}
+	}()
+	c.Release()
+	app.Flush()
 }
 
 func TestOnReleaseCascadesHandleDrop(t *testing.T) {
