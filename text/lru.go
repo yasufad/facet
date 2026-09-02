@@ -71,7 +71,8 @@ func (l *byteLRU[K, V]) Put(k K, v V) {
 }
 
 // SetMaxBytes changes the byte ceiling, evicting immediately if the cache is
-// now over it.
+// now over it. Zero means the cache holds nothing, not that it is unbounded:
+// evict runs while size > maxBytes, and every non-empty entry has size > 0.
 func (l *byteLRU[K, V]) SetMaxBytes(maxBytes int64) {
 	l.maxBytes = maxBytes
 	l.evict()
