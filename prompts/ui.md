@@ -37,7 +37,31 @@ is the round where the framework either works end to end or does not.
 `elementtest` has the dual clip stack, so `go test ./ui` runs, and `input` has
 `ScrollUnit`, `ScrollPixels` and `ScrollLines`.
 
-## Do this first — one import, and the tree goes green
+## Do this first — `main` does not build, and it is your file
+
+```
+ui\button.go:163:9: b.div.Opacity undefined (type *element.Div has no field or method Opacity)
+```
+
+`element` deleted the `Opacity` setter this round because it had no consumer — it set a
+property nothing read, so `Button.Disabled` has been rendering identically to an enabled
+button for as long as it has existed. That deletion was correct and I ordered it.
+
+What I got wrong was the sequencing. I told `element` to delete it and told them
+explicitly not to fix `ui`, which guarantees exactly the broken `main` we now have. The
+rule in `AGENTS.md` covers renames and interface methods; a deletion is the same shape —
+the caller stops calling before the provider removes — and I wrote a prompt that inverted
+it. `ui` and `examples/button` have not built since.
+
+Give `Disabled` a real affordance. It needs a colour, not an opacity: a dimmer background
+and a dimmer foreground, applied through the refinement you already build. That is the fix
+the property was standing in for, and it is the one that will actually be visible.
+
+Land it on its own, first, ahead of everything below. The other seven deletions in
+`element`'s round have no callers outside `element` and `style`, so nothing else here
+breaks — this is the only one.
+
+## Then — one import, and the tree goes green
 
 `internal/layering` is the only failing test in the entire repository, and it has been red
 since before any of this work started. The cause is one line in `ui/scroll_view.go`:
