@@ -82,9 +82,9 @@ jobs:
 
       # facet_debug enables expensive assertions and debug checks across several
       # packages (such as app's goroutine-identity assertions and window's clip-stack
-      # balance check). Pixel readback tests in render/d3d11 and window skip when no
-      # hardware adapter is available, so a GPU-less runner proves the non-readback
-      # assertions only.
+      # balance check). Today, pixel readback tests in render/d3d11 and window need
+      # a real GPU adapter and fail on hosted runners; the run is red for that
+      # reason until render lands the assigned adapter-absence skip.
       - name: go test (facet_debug)
         run: go test -tags facet_debug ./...
 
