@@ -1,15 +1,36 @@
 name: CI
 
+# Triggers are scoped to keep this inside a monthly Actions allowance. An
+# unscoped `push:` alongside `pull_request:` runs the whole matrix twice for
+# every commit on a branch that has a PR open, and once for every commit on
+# every branch that does not — with several agents committing into this
+# repository daily, that was the bulk of the spend.
 on:
   push:
+    branches: [main]
   pull_request:
+
+# Agents land several commits in a row. Without this, each one starts a full
+# matrix and the superseded runs keep going to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest, macos-latest]
+        # macos-latest is deliberately absent, and this is a cost decision with
+        # a technical reason behind it. GitHub bills macOS minutes at 10x and
+        # Windows at 2x, so a three-OS matrix spends roughly 13 minute-
+        # equivalents per wall minute and macOS alone is over three quarters of
+        # it. There is no Cocoa backend yet, so a macOS runner executes exactly
+        # the platform-independent packages Linux already covers; the one thing
+        # it would prove is that darwin compiles, and the Linux leg already
+        # cross-compiles GOOS=darwin below at 1x. Add it back in the round that
+        # adds the backend, when it starts testing something Linux cannot.
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -30,9 +51,8 @@ jobs:
           CGO_ENABLED: 0
         run: |
           case "${{ matrix.os }}" in
-            windows-latest) targets="linux/amd64 darwin/amd64" ;;
-            ubuntu-latest)  targets="windows/amd64 darwin/amd64" ;;
-            macos-latest)   targets="windows/amd64 linux/amd64" ;;
+            windows-latest) targets="linux/amd64 darwin/arm64" ;;
+            ubuntu-latest)  targets="windows/amd64 darwin/arm64" ;;
           esac
           for t in $targets; do
             echo "::group::GOOS=${t%/*} GOARCH=${t#*/}"
