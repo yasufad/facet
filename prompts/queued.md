@@ -153,61 +153,6 @@ would be worse than paying the clone for another round.
 
 `BenchmarkShapeLineLineCacheHit` is what proves it when it happens.
 
-## style and element: the thirteen properties
-
-After `prompts/element.md` reports. This is one landing across two packages and it needs
-the decision below taken per property first, by me, not by whoever implements it.
-
-Thirteen properties have builder methods and no consumer. They compile, they pass through
-the refinement mask correctly, and they change nothing on screen:
-
-    Visibility  Opacity  BoxShadow  TextBackgroundColour  Underline  Strikethrough
-    WhiteSpace  TextOverflow  LineClamp  TextAlign  AllowConcurrentScroll
-    RestrictScrollToAxis  ScrollbarWidth
-
-`ui.Button.Disabled` is already broken by one of them: it communicates disabled state
-through `Opacity(0.5)` and renders identically to an enabled button.
-
-**The first move is deletion, not implementation.** Removing the setters that have no
-consumer converts thirteen silent failures into thirteen compile errors that say what is
-missing, and it is a fraction of the work. A builder method is a promise; the cheapest
-way to stop breaking it is to stop making it.
-
-Then implement, in this order, because they are not equally hard:
-
-`Visibility`, `TextBackgroundColour`, `Underline` and `Strikethrough` are small and
-local. The last three also give `scene.Underline` its first producer, which it has never
-had.
-
-`BoxShadow` gives `scene.Shadow` its first producer. The primitive, the shader and its
-readback assertion all exist and nothing has ever emitted one.
-
-`Opacity` is not small and should not be treated as though it is. CSS opacity is a group
-property: the subtree composites as a unit and then fades. Multiplying each primitive's
-alpha gives a visibly different and wrong result wherever children overlap, so a correct
-implementation needs a layer or an offscreen target, which is the same machinery popups
-need. Decide which semantic is being offered before writing it, and say so on the method.
-
-`WhiteSpace`, `TextOverflow`, `LineClamp` and `TextAlign` all belong to multi-line text
-and should wait for it rather than being faked on a single line.
-
-`ScrollbarWidth` reaches layout already and has no scrollbar to size. It waits for one.
-
-## element: half-leading
-
-After `prompts/element.md`, and before the text field rather than after it.
-
-The baseline goes at `bounds.Origin.Y + ascent`, so when the line box is taller than
-ascent plus descent the whole difference lands below the glyphs. `DefaultTextStyle` ships
-`FontSize: 16` with `LineHeight: 20`, so the default configuration already has leading it
-puts on one side, and an editor's line height of 1.5 pins glyphs to the top of the box.
-
-The rule is CSS's: half the difference above the ascent. `text` reports the metrics
-correctly; the line box belongs to the element.
-
-Do it with the text field, not after. Caret height and position come out of the same
-arithmetic, so getting the leading wrong once means getting the caret wrong twice.
-
 ## window
 
 After `prompts/window.md` reports.
