@@ -3,6 +3,7 @@ package ui
 import (
 	"testing"
 
+	"github.com/yasufad/facet/app"
 	"github.com/yasufad/facet/colour"
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/element/elementtest"
@@ -55,15 +56,30 @@ func TestButtonLifecycleAndScene(t *testing.T) {
 	}
 }
 
-func TestButtonClickDispatch(t *testing.T) {
-	frame := elementtest.NewFrame()
-	clicked := false
+type testButtonView struct {
+	clicks int
+}
 
-	btn := NewButton("Click Me").
-		OnClick(func(event element.ClickEvent) bool {
-			clicked = true
-			return true
-		})
+func TestButtonClickDispatch(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	ent := app.New(a, func(cx *app.Context[testButtonView]) testButtonView {
+		return testButtonView{}
+	})
+	defer ent.Release()
+
+	frame := elementtest.NewFrame()
+
+	var btn *Button
+	app.UpdateEntity(a, ent, func(v *testButtonView, cx *app.Context[testButtonView]) {
+		btn = NewButton("Click Me").
+			OnClick(element.Listener(cx, func(v *testButtonView, event element.ClickEvent, cx *app.Context[testButtonView]) bool {
+				v.clicks++
+				cx.Notify()
+				return true
+			}))
+	})
 
 	rootID := btn.RequestLayout(frame)
 	frame.Solve(rootID, 200, 100)
@@ -73,18 +89,18 @@ func TestButtonClickDispatch(t *testing.T) {
 	btn.Prepaint(frame, bounds)
 
 	centerPt := geometry.Point[geometry.Pixels]{
-		X: bounds.Origin.X + bounds.Size.Width/2,
-		Y: bounds.Origin.Y + bounds.Size.Height/2,
+		X: bounds.Origin.X + bounds.Size.Width / 2,
+		Y: bounds.Origin.Y + bounds.Size.Height / 2,
 	}
 
 	frame.DispatchPointer(elementtest.PointerDown, centerPt, element.MouseButtonLeft, 0)
-	if clicked {
+	if ent.Read(a).clicks != 0 {
 		t.Fatalf("click handler fired prematurely on PointerDown")
 	}
 
 	frame.DispatchPointer(elementtest.PointerUp, centerPt, element.MouseButtonLeft, 0)
-	if !clicked {
-		t.Fatalf("expected click handler to fire on PointerUp")
+	if read := ent.Read(a); read.clicks != 1 {
+		t.Fatalf("expected entity clicks to be 1 after click, got %d", read.clicks)
 	}
 }
 
@@ -232,6 +248,25 @@ func TestButtonDisabled(t *testing.T) {
 
 	if clicked {
 		t.Fatalf("disabled button must not fire click events")
+	}
+
+	frame.SetPhase(elementtest.PhasePaint)
+	btn.Paint(frame, bounds)
+
+	quads := frame.Quads()
+	if len(quads) != 1 {
+		t.Fatalf("expected 1 quad for disabled button, got %d", len(quads))
+	}
+	if quads[0].Background != defaultButtonDisabledBg {
+		t.Errorf("expected disabled background %v, got %v", defaultButtonDisabledBg, quads[0].Background)
+	}
+
+	sprites := frame.MonochromeSprites()
+	if len(sprites) == 0 {
+		t.Fatalf("expected monochrome text sprites for disabled button label")
+	}
+	if sprites[0].Colour != defaultButtonDisabledText {
+		t.Errorf("expected disabled text colour %v, got %v", defaultButtonDisabledText, sprites[0].Colour)
 	}
 }
 
