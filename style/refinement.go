@@ -13,13 +13,12 @@ import (
 type Refinement struct {
 	mask mask
 
-	display              Display
-	position             Position
-	visibility           Visibility
-	overflowX            Overflow
-	overflowY            Overflow
-	scrollbarWidth       geometry.Pixels
-	restrictScrollToAxis bool
+	display        Display
+	position       Position
+	visibility     Visibility
+	overflowX      Overflow
+	overflowY      Overflow
+	scrollbarWidth geometry.Pixels
 
 	insetTop    Length
 	insetRight  Length
@@ -118,9 +117,6 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propScrollbarWidth) {
 			r.scrollbarWidth = other.scrollbarWidth
-		}
-		if other.mask.has(propRestrictScrollToAxis) {
-			r.restrictScrollToAxis = other.restrictScrollToAxis
 		}
 		if other.mask.has(propInsetTop) {
 			r.insetTop = other.insetTop
@@ -331,12 +327,6 @@ func (r *Refinement) SetOverflowY(o Overflow) {
 func (r *Refinement) SetScrollbarWidth(w geometry.Pixels) {
 	r.mask.set(propScrollbarWidth)
 	r.scrollbarWidth = w
-}
-
-// SetRestrictScrollToAxis sets whether scroll is locked to the dominant gesture axis.
-func (r *Refinement) SetRestrictScrollToAxis(restrict bool) {
-	r.mask.set(propRestrictScrollToAxis)
-	r.restrictScrollToAxis = restrict
 }
 
 // SetInset sets all four inset offsets.

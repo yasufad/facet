@@ -13,7 +13,6 @@ const (
 	propOverflowX
 	propOverflowY
 	propScrollbarWidth
-	propRestrictScrollToAxis
 
 	propInsetTop
 	propInsetRight

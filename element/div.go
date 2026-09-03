@@ -328,12 +328,6 @@ func (d *Div) ScrollbarWidth(w geometry.Pixels) *Div {
 	return d
 }
 
-// RestrictScrollToAxis sets whether scroll is locked to the dominant gesture axis.
-func (d *Div) RestrictScrollToAxis(restrict bool) *Div {
-	d.refinement.SetRestrictScrollToAxis(restrict)
-	return d
-}
-
 // --- Insets ---
 
 // Inset sets all four inset offsets.
