@@ -351,9 +351,137 @@ func openDialogResults(fd *w32.IFileOpenDialog) ([]string, error) {
 	return paths, nil
 }
 
-// ShowSaveDialog shows a modal file-save dialog.
+// ShowSaveDialog shows a modal file-save dialog through the Common Item
+// Dialog (IFileSaveDialog). It does not marshal onto the platform thread
+// itself — Show blocks for as long as the dialog is up, and the caller is
+// the one who must not be the platform thread, per the threading note on
+// [Platform.ShowSaveDialog].
+//
+// IFileSaveDialog is a single-threaded-apartment object with the same
+// threading constraints as IFileOpenDialog: CoInitializeEx(COINIT_
+// APARTMENTTHREADED) followed by LockOSThread for the duration.
 func (p *windowsPlatform) ShowSaveDialog(dialog SaveFileDialog) (string, error) {
-	return "", fmt.Errorf("save dialog: not implemented")
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	hr := w32.CoInitializeEx(w32.COINIT_APARTMENTTHREADED)
+	if hr != 0 && hr != 1 { // S_OK, S_FALSE (already initialised on this thread)
+		return "", fmt.Errorf("save dialog: CoInitializeEx: %#x", uint32(hr))
+	}
+	defer w32.CoUninitialize()
+
+	fd, err := newFileSaveDialog(dialog)
+	if err != nil {
+		return "", err
+	}
+	defer fd.Release()
+
+	showHR := fd.Show(0)
+	if w32.IsDialogCancelled(showHR) {
+		return "", nil
+	}
+	if showHR != 0 {
+		return "", fmt.Errorf("save dialog: Show: %#x", uint32(showHR))
+	}
+
+	return saveDialogResult(fd)
+}
+
+// newFileSaveDialog creates and configures an IFileSaveDialog from dialog,
+// without showing it. Split out from ShowSaveDialog so the configuration —
+// the part a wrong FOS flag, a wrong SetFileName call, or a bad SetDefaultExtension
+// would actually break — is reachable by a test that never has to click through
+// a modal window.
+func newFileSaveDialog(dialog SaveFileDialog) (*w32.IFileSaveDialog, error) {
+	var fd *w32.IFileSaveDialog
+	hr := w32.CoCreateInstance(
+		&w32.CLSID_FileSaveDialog,
+		w32.CLSCTX_INPROC_SERVER,
+		&w32.IID_IFileSaveDialog,
+		uintptr(unsafe.Pointer(&fd)),
+	)
+	if hr != 0 {
+		return nil, fmt.Errorf("save dialog: CoCreateInstance: %#x", uint32(hr))
+	}
+
+	// FOS_OVERWRITEPROMPT: prompt before overwriting an existing file.
+	// FOS_FORCEFILESYSTEM: accept only filesystem paths, not shell items.
+	// FOS_PATHMUSTEXIST: the directory component must already exist.
+	fos := uint32(w32.FOS_FORCEFILESYSTEM | w32.FOS_PATHMUSTEXIST | w32.FOS_OVERWRITEPROMPT)
+	if hr := fd.SetOptions(fos); hr != 0 {
+		fd.Release()
+		return nil, fmt.Errorf("save dialog: SetOptions: %#x", uint32(hr))
+	}
+
+	if dialog.Title != "" {
+		if hr := fd.SetTitle(w32.MustStringToUTF16Ptr(dialog.Title)); hr != 0 {
+			fd.Release()
+			return nil, fmt.Errorf("save dialog: SetTitle: %#x", uint32(hr))
+		}
+	}
+
+	if dialog.Directory != "" {
+		folder, hr := w32.SHCreateItemFromParsingName(w32.MustStringToUTF16Ptr(dialog.Directory))
+		if hr != 0 {
+			fd.Release()
+			return nil, fmt.Errorf("save dialog: resolve directory %q: %#x", dialog.Directory, uint32(hr))
+		}
+		setHR := fd.SetFolder(folder)
+		folder.Release()
+		if setHR != 0 {
+			fd.Release()
+			return nil, fmt.Errorf("save dialog: SetFolder: %#x", uint32(setHR))
+		}
+	}
+
+	if dialog.DefaultName != "" {
+		if hr := fd.SetFileName(w32.MustStringToUTF16Ptr(dialog.DefaultName)); hr != 0 {
+			fd.Release()
+			return nil, fmt.Errorf("save dialog: SetFileName: %#x", uint32(hr))
+		}
+	}
+
+	if len(dialog.Filters) > 0 {
+		specs := make([]w32.COMDLG_FILTERSPEC, len(dialog.Filters))
+		for i, f := range dialog.Filters {
+			specs[i] = w32.COMDLG_FILTERSPEC{
+				PszName: w32.MustStringToUTF16Ptr(f.Name),
+				PszSpec: w32.MustStringToUTF16Ptr(filterSpecPattern(f.Extensions)),
+			}
+		}
+		if hr := fd.SetFileTypes(specs); hr != 0 {
+			fd.Release()
+			return nil, fmt.Errorf("save dialog: SetFileTypes: %#x", uint32(hr))
+		}
+
+		// SetDefaultExtension uses the first extension from the first filter
+		// as the auto-appended extension when the user types a name without
+		// one. Empty extension list means "all files" (*.*) — no default.
+		if len(dialog.Filters[0].Extensions) > 0 {
+			ext := dialog.Filters[0].Extensions[0]
+			if hr := fd.SetDefaultExtension(w32.MustStringToUTF16Ptr(ext)); hr != 0 {
+				fd.Release()
+				return nil, fmt.Errorf("save dialog: SetDefaultExtension: %#x", uint32(hr))
+			}
+		}
+	}
+
+	return fd, nil
+}
+
+// saveDialogResult reads the chosen path from a completed save dialog.
+func saveDialogResult(fd *w32.IFileSaveDialog) (string, error) {
+	item, hr := fd.GetResult()
+	if hr != 0 {
+		return "", fmt.Errorf("save dialog: GetResult: %#x", uint32(hr))
+	}
+	defer item.Release()
+
+	path, hr := item.GetDisplayName(w32.SIGDN_FILESYSPATH)
+	if hr != 0 {
+		return "", fmt.Errorf("save dialog: GetDisplayName: %#x", uint32(hr))
+	}
+	return path, nil
 }
 
 // SendNotification displays a system notification.
