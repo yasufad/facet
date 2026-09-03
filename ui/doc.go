@@ -15,4 +15,13 @@
 // Widgets implement element.Element and are ephemeral values rebuilt each frame.
 // Any state that must survive across frames — such as ScrollState for a
 // ScrollView — belongs in an app.Entity[T] held by the view or application.
+//
+// # The Paint-Phase Rule
+//
+// Writing entity state during paint is allowed for recording what the frame
+// measured (such as ScrollView recording viewport and content dimensions, or
+// TextField capturing shaped line layout for caret arithmetic). Notifying from
+// paint (calling cx.Notify()) is strictly forbidden: notifying during paint
+// marks the view dirty and schedules another frame, triggering an infinite
+// frame loop.
 package ui
