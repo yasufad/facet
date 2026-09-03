@@ -123,10 +123,6 @@ parent from the stack, so a parent index is always strictly smaller. The map and
 growing path slice should both be scratch buffers on the tree. This is the pointer-move
 path.
 
-`DispatchText` delivers only to the focused node, with no capture or bubble phase, unlike
-the other three dispatchers. Decide whether that is the contract and write it down, or
-make it consistent. It is not a bug until someone writes a container that wants to see
-text reaching a child, and then it is.
 
 ## text and element: stop handing out mutable glyphs
 
