@@ -367,10 +367,34 @@ package where third-party code is expected: text is the deepest problem in the
 stack, and the established Go libraries for it are better than anything we would
 write.
 
-Invariants: shaped output is cached by run, not by string. What matters is the
-boundary, not the dependency count — `text` exposes shaped lines, glyph runs and
-coverage masks in our own types, so no layer above it knows what it is built on and
-any of it can be replaced without reaching further up.
+Invariants: caching is two levels, and the outer one is what matters. `shapeCache`
+memoises the HarfBuzz call for one homogeneous sub-run; `lineCache` memoises the
+finished `[]ShapedLine`, so a repeat `ShapeLine` skips segmentation and line breaking
+as well as shaping. Caching only the inner level cost 111 µs on a hit and looked like
+a cache.
+
+A returned `[]ShapedLine` is the caller's own copy, on the hit path and the miss path
+both. `ShapedRun.Glyphs` is an exported mutable slice, so handing back the cache's own
+memory let one caller's edit reach every later caller of the same string — reproduced
+through the exported API alone, and it passed at the commit before the line cache
+landed. The miss path copies too, because the slice it returns is the one it just
+stored. That copy is the entire remaining cost of a hit, and it goes away only by
+unexporting `Glyphs`, which is an `element` change and is queued.
+
+The line cache keys on a 64-bit digest of the style runs and then confirms it, comparing
+the runs field by field against a cloned copy stored with the entry. The digest keeps a
+lookup allocation-free; the comparison keeps the guarantee exact. A digest alone would
+have made a collision return the wrong shaping, which errors nowhere and cannot be
+tested for, and this package sits under everything visible.
+
+Both caches and the coverage-mask atlas are bounded by total bytes rather than entry
+count, because a six-glyph word and a 96 px heading mask differ by orders of magnitude
+and an entry ceiling right for one is wrong for the other. `SetMaxBytes(0)` means hold
+nothing, not unbounded.
+
+What matters is the boundary, not the dependency count — `text` exposes shaped lines,
+glyph runs and coverage masks in our own types, so no layer above it knows what it is
+built on and any of it can be replaced without reaching further up.
 
 ## style
 
