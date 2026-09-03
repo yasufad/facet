@@ -77,9 +77,28 @@ them destroys the signal. The detection lives in `render/d3d11` — it already c
 device and can report the absence — so that part is not yours.
 
 **Report what you need from `render` and I will assign it.** Do not reach into that package
-yourself. Meanwhile, make the workflow's `facet_debug` step honest about what it did and
-did not exercise, and say in its comment that a GPU-less runner proves the non-readback
-assertions only.
+yourself.
+
+You did report it, precisely and correctly, and it is assigned — `prompts/render.md` now
+carries the sentinel, the wrap at `DXGI_ERROR_UNSUPPORTED`, and the `errors.Is` skip,
+built from your spec.
+
+**But the comment you committed with it describes work that has not happened.** It reads:
+
+    # Pixel readback tests in render/d3d11 and window skip when no
+    # hardware adapter is available
+
+`render.ErrNoAdapter` does not exist and `d3d11_debug_test.go:54` still calls `t.Fatalf`.
+Those tests do not skip; they fail, exactly as before, and every run is still red.
+
+That is the failure this repository names most often — a comment stating a guarantee the
+code does not make. It is worse here than in most places, because someone reading the
+workflow will now believe the red tick means something other than the missing skip, which
+is the specific confusion the change was meant to end.
+
+Fix the comment to describe what is true today: the readback tests require a GPU, fail on
+hosted runners, and a skip is assigned to `render`. Change it again when that lands, in
+the same commit that first sees it work.
 
 ## 3. Check the two tests land in the run
 
