@@ -14,8 +14,10 @@ var (
 	defaultButtonHoverBg  = colour.Rgba{R: 0.28, G: 0.32, B: 0.38, A: 1.0}
 	defaultButtonActiveBg = colour.Rgba{R: 0.18, G: 0.20, B: 0.24, A: 1.0}
 	defaultButtonBorder   = colour.Rgba{R: 0.35, G: 0.40, B: 0.48, A: 1.0}
-	defaultButtonText     = colour.Rgba{R: 0.95, G: 0.95, B: 0.95, A: 1.0}
-	defaultButtonFocus    = colour.Rgba{R: 0.30, G: 0.55, B: 0.90, A: 1.0}
+	defaultButtonText         = colour.Rgba{R: 0.95, G: 0.95, B: 0.95, A: 1.0}
+	defaultButtonFocus        = colour.Rgba{R: 0.30, G: 0.55, B: 0.90, A: 1.0}
+	defaultButtonDisabledBg   = colour.Rgba{R: 0.14, G: 0.16, B: 0.19, A: 1.0}
+	defaultButtonDisabledText = colour.Rgba{R: 0.50, G: 0.53, B: 0.58, A: 1.0}
 )
 
 // Button is an interactive button widget displaying a single-line label
@@ -120,37 +122,39 @@ func (b *Button) buildTree() {
 		Bg(defaultButtonBg).
 		Cursor(style.CursorPointer)
 
-	// Default hover styling: lighter background
-	b.div.Hover(func(r *style.Refinement) {
-		r.SetBackground(defaultButtonHoverBg)
-	})
-
-	// Default active styling: pressed background
-	b.div.Active(func(r *style.Refinement) {
-		r.SetBackground(defaultButtonActiveBg)
-	})
-
-	// Default focus styling: distinct border ring
-	b.div.Focus(func(r *style.Refinement) {
-		r.SetBorderColour(defaultButtonFocus)
-		r.SetBorderWidth(geometry.Pixels(2))
-	})
-
-	// Apply user overrides on top of defaults
-	if b.hoverStyle != nil {
+	if !b.disabled {
+		// Default hover styling: lighter background
 		b.div.Hover(func(r *style.Refinement) {
-			r.MergeFrom(b.hoverStyle)
+			r.SetBackground(defaultButtonHoverBg)
 		})
-	}
-	if b.activeStyle != nil {
+
+		// Default active styling: pressed background
 		b.div.Active(func(r *style.Refinement) {
-			r.MergeFrom(b.activeStyle)
+			r.SetBackground(defaultButtonActiveBg)
 		})
-	}
-	if b.focusStyle != nil {
+
+		// Default focus styling: distinct border ring
 		b.div.Focus(func(r *style.Refinement) {
-			r.MergeFrom(b.focusStyle)
+			r.SetBorderColour(defaultButtonFocus)
+			r.SetBorderWidth(geometry.Pixels(2))
 		})
+
+		// Apply user overrides on top of defaults
+		if b.hoverStyle != nil {
+			b.div.Hover(func(r *style.Refinement) {
+				r.MergeFrom(b.hoverStyle)
+			})
+		}
+		if b.activeStyle != nil {
+			b.div.Active(func(r *style.Refinement) {
+				r.MergeFrom(b.activeStyle)
+			})
+		}
+		if b.focusStyle != nil {
+			b.div.Focus(func(r *style.Refinement) {
+				r.MergeFrom(b.focusStyle)
+			})
+		}
 	}
 	b.div.Refine(b.refinement)
 
@@ -160,7 +164,8 @@ func (b *Button) buildTree() {
 
 	if b.disabled {
 		b.div.Cursor(style.CursorNotAllowed)
-		b.div.Opacity(0.5)
+		b.div.Bg(defaultButtonDisabledBg)
+		b.div.TextColour(defaultButtonDisabledText)
 	} else if b.onClick != nil {
 		b.div.OnClick(b.onClick)
 	}
