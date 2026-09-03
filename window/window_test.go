@@ -1366,3 +1366,248 @@ func TestCloseEndsForegroundPumpGoroutine(t *testing.T) {
 		t.Fatalf("second Close: %v", err)
 	}
 }
+
+type clickEntityView struct {
+	clicks int
+}
+
+func (c *clickEntityView) Render(cx *app.Context[clickEntityView]) element.Element {
+	// The quad colour reflects the number of clicks:
+	// Frame 1 (clicks = 0): quad with red component 0.0
+	// Frame 2 (clicks = 1): quad with red component 1.0
+	bg := colour.Rgba{R: float32(c.clicks), G: 0, B: 0, A: 1}
+	return element.NewDiv().
+		Width(style.Px(100)).
+		Height(style.Px(50)).
+		Bg(bg).
+		OnClick(element.Listener(cx, func(v *clickEntityView, e element.ClickEvent, cx *app.Context[clickEntityView]) bool {
+			v.clicks++
+			cx.Notify()
+			return true
+		}))
+}
+
+// TestClickMutatesEntityStateAndRendersNextFrame exercises the framework's central
+// reactive path: a view with real entity state whose Div has an element.Listener-wrapped
+// OnClick handler. A synthetic pointer down and up dispatches through DispatchEvent,
+// mutating the entity and driving the next frame through to verify that the entity
+// changed and that the subsequent frame reflects that change in its painted output.
+func TestClickMutatesEntityStateAndRendersNextFrame(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	plat := &stubPlatform{}
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+	w.platform = plat
+
+	ent := app.New(a, func(cx *app.Context[clickEntityView]) clickEntityView {
+		return clickEntityView{}
+	})
+	defer ent.Release()
+
+	v := element.NewView(ent)
+	w.SetRootView(v)
+
+	// Draw frame 1 (initial state).
+	w.Draw()
+
+	if read := ent.Read(a); read.clicks != 0 {
+		t.Fatalf("expected initial clicks 0, got %d", read.clicks)
+	}
+	if len(r.quads) != 1 {
+		t.Fatalf("expected 1 quad in frame 1, got %d", len(r.quads))
+	}
+	if r.quads[0].Background.R != 0 {
+		t.Fatalf("expected initial quad red component 0, got %v", r.quads[0].Background.R)
+	}
+
+	// Dispatch synthetic pointer down and up inside the 100x50 element at (50, 25).
+	downEvt := platform.PointerEvent{
+		Phase:    platform.PointerDown,
+		Position: geometry.Point[geometry.DevicePixels]{X: 50, Y: 25},
+		Button:   platform.PointerLeft,
+		Time:     time.Now(),
+	}
+	upEvt := platform.PointerEvent{
+		Phase:    platform.PointerUp,
+		Position: geometry.Point[geometry.DevicePixels]{X: 50, Y: 25},
+		Button:   platform.PointerLeft,
+		Time:     time.Now(),
+	}
+
+	w.DispatchEvent(downEvt)
+	w.DispatchEvent(upEvt)
+
+	// Assert 1: The entity changed.
+	read := ent.Read(a)
+	if read.clicks != 1 {
+		t.Fatalf("expected entity clicks to be 1 after click, got %d", read.clicks)
+	}
+
+	// Process the scheduled frame turn triggered by cx.Notify().
+	plat.Drain()
+
+	// Assert 2: The next frame reflects the changed entity state in rendered primitives.
+	if len(r.quads) != 1 {
+		t.Fatalf("expected 1 quad in frame 2, got %d", len(r.quads))
+	}
+	if r.quads[0].Background.R != 1.0 {
+		t.Fatalf("expected frame 2 quad to reflect entity state with red component 1.0, got %v", r.quads[0].Background.R)
+	}
+}
+
+type imeTestElement struct {
+	focusA     input.FocusID
+	focusB     input.FocusID
+	onIMENodeA func(platform.IMECompositionEvent) bool
+	onIMENodeB func(platform.IMECompositionEvent) bool
+}
+
+func (el *imeTestElement) RequestLayout(f element.Frame) layout.NodeID {
+	return f.RequestLayout(layout.Style{
+		Size: layout.Size[layout.Dimension]{
+			Width:  layout.DimLength(200),
+			Height: layout.DimLength(100),
+		},
+	}, nil)
+}
+
+func (el *imeTestElement) Prepaint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {
+	w, ok := f.(*Window)
+	if !ok {
+		return
+	}
+
+	// Node A
+	nodeA := f.PushDispatchNode(element.DispatchNode{
+		FocusID: el.focusA,
+		TabStop: true,
+	})
+	if el.onIMENodeA != nil {
+		w.OnIMEComposition(nodeA, el.onIMENodeA)
+	}
+	f.RegisterHitRegion(geometry.Bounds[geometry.Pixels]{
+		Origin: bounds.Origin,
+		Size:   geometry.NewSize[geometry.Pixels](100, 100),
+	}, nodeA)
+	f.PopDispatchNode()
+
+	// Node B
+	nodeB := f.PushDispatchNode(element.DispatchNode{
+		FocusID: el.focusB,
+		TabStop: true,
+	})
+	if el.onIMENodeB != nil {
+		w.OnIMEComposition(nodeB, el.onIMENodeB)
+	}
+	f.RegisterHitRegion(geometry.Bounds[geometry.Pixels]{
+		Origin: geometry.NewPoint[geometry.Pixels](bounds.Origin.X+100, bounds.Origin.Y),
+		Size:   geometry.NewSize[geometry.Pixels](100, 100),
+	}, nodeB)
+	f.PopDispatchNode()
+}
+
+func (el *imeTestElement) Paint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {
+}
+
+// TestIMECompositionDeliversToFocusedNode verifies that IMECompositionEvent instances
+// dispatched through DispatchEvent are routed directly to the currently focused node.
+func TestIMECompositionDeliversToFocusedNode(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	plat := &stubPlatform{}
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+	w.platform = plat
+
+	var receivedA []platform.IMECompositionEvent
+	var receivedB []platform.IMECompositionEvent
+
+	el := &imeTestElement{
+		focusA: 101,
+		focusB: 102,
+		onIMENodeA: func(e platform.IMECompositionEvent) bool {
+			receivedA = append(receivedA, e)
+			return true
+		},
+		onIMENodeB: func(e platform.IMECompositionEvent) bool {
+			receivedB = append(receivedB, e)
+			return true
+		},
+	}
+
+	w.SetRoot(el)
+	w.Draw()
+
+	// 1. Without focus, IME composition events are delivered to neither node.
+	evtUnfocused := platform.IMECompositionEvent{
+		Phase:  platform.IMEStart,
+		Text:   "",
+		Cursor: 0,
+		Time:   time.Now(),
+	}
+	w.DispatchEvent(evtUnfocused)
+	if len(receivedA) != 0 || len(receivedB) != 0 {
+		t.Fatalf("expected no IME events delivered when unfocused, got A: %d, B: %d", len(receivedA), len(receivedB))
+	}
+
+	// 2. Focus Node A: IME composition events arrive at Node A only.
+	w.RequestFocus(101)
+	evtA := platform.IMECompositionEvent{
+		Phase:  platform.IMEUpdate,
+		Text:   "こんにちは",
+		Cursor: 5,
+		Time:   time.Now(),
+	}
+	w.DispatchEvent(evtA)
+
+	if len(receivedA) != 1 {
+		t.Fatalf("expected 1 IME event on Node A, got %d", len(receivedA))
+	}
+	if len(receivedB) != 0 {
+		t.Fatalf("expected 0 IME events on Node B while Node A is focused, got %d", len(receivedB))
+	}
+	if receivedA[0].Phase != platform.IMEUpdate || receivedA[0].Text != "こんにちは" || receivedA[0].Cursor != 5 {
+		t.Errorf("Node A received unexpected event content: %+v", receivedA[0])
+	}
+
+	// 3. Focus Node B: IME composition events arrive at Node B only.
+	w.RequestFocus(102)
+	evtB := platform.IMECompositionEvent{
+		Phase:  platform.IMEUpdate,
+		Text:   "世界",
+		Cursor: 2,
+		Time:   time.Now(),
+	}
+	w.DispatchEvent(evtB)
+
+	if len(receivedA) != 1 {
+		t.Fatalf("expected Node A event count to remain 1, got %d", len(receivedA))
+	}
+	if len(receivedB) != 1 {
+		t.Fatalf("expected 1 IME event on Node B, got %d", len(receivedB))
+	}
+	if receivedB[0].Phase != platform.IMEUpdate || receivedB[0].Text != "世界" || receivedB[0].Cursor != 2 {
+		t.Errorf("Node B received unexpected event content: %+v", receivedB[0])
+	}
+
+	// 4. Blur focus: subsequent events arrive at neither node.
+	w.RequestFocus(0)
+	evtEnd := platform.IMECompositionEvent{
+		Phase:  platform.IMEEnd,
+		Text:   "",
+		Cursor: -1,
+		Time:   time.Now(),
+	}
+	w.DispatchEvent(evtEnd)
+
+	if len(receivedA) != 1 || len(receivedB) != 1 {
+		t.Fatalf("expected event counts to remain unchanged after blur, got A: %d, B: %d", len(receivedA), len(receivedB))
+	}
+}
