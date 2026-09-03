@@ -8,6 +8,7 @@ import (
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/input"
 	"github.com/yasufad/facet/layout"
+	"github.com/yasufad/facet/platform"
 	"github.com/yasufad/facet/scene"
 	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/text"
@@ -42,6 +43,7 @@ type frame struct {
 	focusIDs       map[input.FocusID]bool
 	tabStops       []tabStopEntry
 	tabOrder       []input.FocusID
+	imeListeners   map[input.DispatchNodeID][]func(platform.IMECompositionEvent) bool
 }
 
 func newFrame(keymap *input.Keymap, focusTree *input.FocusTree) *frame {
@@ -52,6 +54,7 @@ func newFrame(keymap *input.Keymap, focusTree *input.FocusTree) *frame {
 		nodeCursors:    make(map[input.DispatchNodeID]style.CursorStyle),
 		nodeFocusIDs:   make(map[input.DispatchNodeID]input.FocusID),
 		focusIDs:       make(map[input.FocusID]bool),
+		imeListeners:   make(map[input.DispatchNodeID][]func(platform.IMECompositionEvent) bool),
 	}
 }
 
@@ -63,6 +66,7 @@ func (f *frame) clear() {
 	clear(f.nodeCursors)
 	clear(f.nodeFocusIDs)
 	clear(f.focusIDs)
+	clear(f.imeListeners)
 	f.tabStops = f.tabStops[:0]
 	f.tabOrder = f.tabOrder[:0]
 }
@@ -91,7 +95,7 @@ func (w *Window) RequestMeasuredLayout(s layout.Style, measure element.MeasureFu
 	}
 	id := w.layoutTree.NewLeaf(s)
 	if measure != nil {
-		w.measureCallbacks[id] = measure
+		w.setMeasureCallback(id, measure)
 	}
 	return id
 }
@@ -101,7 +105,11 @@ func (w *Window) LayoutBounds(id layout.NodeID) geometry.Bounds[geometry.Pixels]
 	if w.phase != phasePrepaint && w.phase != phasePaint {
 		panic(fmt.Sprintf("window: LayoutBounds called in phase %v (expected phasePrepaint or phasePaint)", w.phase))
 	}
-	return w.nodeBounds[id]
+	raw := int(id.Raw())
+	if raw >= 0 && raw < len(w.nodeBounds) {
+		return w.nodeBounds[raw]
+	}
+	return geometry.Bounds[geometry.Pixels]{}
 }
 
 // PushDispatchNode registers an input dispatch node during prepaint.
@@ -155,6 +163,17 @@ func (w *Window) PopDispatchNode() {
 		panic(fmt.Sprintf("window: PopDispatchNode called in phase %v (expected phasePrepaint)", w.phase))
 	}
 	w.next.dispatchTree.PopNode()
+}
+
+// OnIMEComposition registers an IME composition event handler for nodeID during
+// prepaint. This delivers in-progress composition events to the focused node.
+func (w *Window) OnIMEComposition(nodeID input.DispatchNodeID, handler func(platform.IMECompositionEvent) bool) {
+	if w.phase != phasePrepaint {
+		panic(fmt.Sprintf("window: OnIMEComposition called in phase %v (expected phasePrepaint)", w.phase))
+	}
+	if handler != nil {
+		w.next.imeListeners[nodeID] = append(w.next.imeListeners[nodeID], handler)
+	}
 }
 
 // RegisterHitRegion commits a hit region into the in-flight frame, clipped to

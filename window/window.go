@@ -92,8 +92,8 @@ type Window struct {
 	focusTree         *input.FocusTree
 	keymap            *input.Keymap
 	nextHitRegionID   element.HitRegionID
-	nodeBounds        map[layout.NodeID]geometry.Bounds[geometry.Pixels]
-	measureCallbacks  map[layout.NodeID]element.MeasureFunc
+	nodeBounds        []geometry.Bounds[geometry.Pixels]
+	measureCallbacks  []element.MeasureFunc
 	glyphTileCache    map[glyphCacheKey]cachedGlyph
 	textStyleStack    []style.TextStyle
 	currentCursor     platform.Cursor
@@ -235,8 +235,8 @@ func NewWithRenderer(pw platform.Window, r render.Renderer, a *app.App, opts Win
 		size:             opts.Size,
 		remSize:          opts.RemSize,
 		dirty:            true,
-		nodeBounds:       make(map[layout.NodeID]geometry.Bounds[geometry.Pixels]),
-		measureCallbacks: make(map[layout.NodeID]element.MeasureFunc),
+		nodeBounds:       make([]geometry.Bounds[geometry.Pixels], 0, 64),
+		measureCallbacks: make([]element.MeasureFunc, 0, 16),
 		glyphTileCache:   make(map[glyphCacheKey]cachedGlyph),
 		textStyleStack:   []style.TextStyle{style.DefaultTextStyle()},
 	}
@@ -362,7 +362,8 @@ func (w *Window) Draw() {
 		el.Paint(w, rootBounds)
 		w.checkClipStackEmpty()
 	} else {
-		clear(w.nodeBounds)
+		w.nodeBounds = w.nodeBounds[:0]
+		w.measureCallbacks = w.measureCallbacks[:0]
 		w.phase = phaseHitTest
 		w.resolveNextHitTest()
 		w.phase = phasePaint
@@ -397,7 +398,7 @@ func (w *Window) Draw() {
 // computeLayout executes the flexbox algorithm and maps relative node offsets
 // to absolute window coordinates.
 func (w *Window) computeLayout(rootID layout.NodeID) {
-	clear(w.nodeBounds)
+	w.nodeBounds = w.nodeBounds[:0]
 	avail := layout.Size[layout.AvailableSpace]{
 		Width:  layout.Definite(float32(w.size.Width)),
 		Height: layout.Definite(float32(w.size.Height)),
@@ -405,8 +406,12 @@ func (w *Window) computeLayout(rootID layout.NodeID) {
 
 	w.phase = phaseLayoutSolve
 	measureFn := func(inputs layout.LayoutInput, id layout.NodeID, ctx any, style *layout.Style) layout.LayoutOutput {
-		cb, ok := w.measureCallbacks[id]
-		if !ok || cb == nil {
+		raw := int(id.Raw())
+		var cb element.MeasureFunc
+		if raw >= 0 && raw < len(w.measureCallbacks) {
+			cb = w.measureCallbacks[raw]
+		}
+		if cb == nil {
 			return layout.ComputeLeafLayout(inputs, style, nil)
 		}
 		leafMeasure := func(known layout.Size[layout.OptF32], avail layout.Size[layout.AvailableSpace]) layout.Size[float32] {
@@ -421,6 +426,7 @@ func (w *Window) computeLayout(rootID layout.NodeID) {
 
 	w.layoutTree.ComputeLayoutWithMeasure(rootID, avail, measureFn)
 	clear(w.measureCallbacks)
+	w.measureCallbacks = w.measureCallbacks[:0]
 
 	rootLayout := w.layoutTree.Layout(rootID)
 	rootSize := geometry.Size[geometry.Pixels]{
@@ -428,10 +434,10 @@ func (w *Window) computeLayout(rootID layout.NodeID) {
 		Height: geometry.Pixels(rootLayout.Size.Height),
 	}
 	rootOrigin := geometry.Point[geometry.Pixels]{X: 0, Y: 0}
-	w.nodeBounds[rootID] = geometry.Bounds[geometry.Pixels]{
+	w.setNodeBounds(rootID, geometry.Bounds[geometry.Pixels]{
 		Origin: rootOrigin,
 		Size:   rootSize,
-	}
+	})
 
 	w.populateNodeBounds(rootID, rootOrigin)
 }
@@ -448,12 +454,28 @@ func (w *Window) populateNodeBounds(parentID layout.NodeID, parentOrigin geometr
 			Width:  geometry.Pixels(childLayout.Size.Width),
 			Height: geometry.Pixels(childLayout.Size.Height),
 		}
-		w.nodeBounds[childID] = geometry.Bounds[geometry.Pixels]{
+		w.setNodeBounds(childID, geometry.Bounds[geometry.Pixels]{
 			Origin: childOrigin,
 			Size:   childSize,
-		}
+		})
 		w.populateNodeBounds(childID, childOrigin)
 	}
+}
+
+func (w *Window) setMeasureCallback(id layout.NodeID, measure element.MeasureFunc) {
+	raw := int(id.Raw())
+	for len(w.measureCallbacks) <= raw {
+		w.measureCallbacks = append(w.measureCallbacks, nil)
+	}
+	w.measureCallbacks[raw] = measure
+}
+
+func (w *Window) setNodeBounds(id layout.NodeID, b geometry.Bounds[geometry.Pixels]) {
+	raw := int(id.Raw())
+	for len(w.nodeBounds) <= raw {
+		w.nodeBounds = append(w.nodeBounds, geometry.Bounds[geometry.Pixels]{})
+	}
+	w.nodeBounds[raw] = b
 }
 
 // resolveNextHitTest executes Step 5 by resolving the pointer against next.hitRegions.
@@ -659,11 +681,46 @@ func (w *Window) DispatchEvent(event platform.Event) {
 		w.dirty = true
 		w.ScheduleFrame()
 
+	case platform.IMECompositionEvent:
+		w.dispatchIME(e)
+		w.dirty = true
+		w.ScheduleFrame()
+
 	case platform.FocusEvent:
 		w.focused = e.Focused
 		w.dirty = true
 		w.ScheduleFrame()
 	}
+}
+
+func (w *Window) dispatchIME(event platform.IMECompositionEvent) bool {
+	if w.focusTree == nil {
+		return false
+	}
+	focusedID, ok := w.focusTree.Focused()
+	if !ok || focusedID == 0 {
+		return false
+	}
+
+	var targetNode input.DispatchNodeID = -1
+	for nodeID, focusID := range w.rendered.nodeFocusIDs {
+		if focusID == focusedID {
+			targetNode = nodeID
+			break
+		}
+	}
+	if targetNode < 0 {
+		return false
+	}
+
+	if listeners, ok := w.rendered.imeListeners[targetNode]; ok {
+		for _, l := range listeners {
+			if l(event) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // FocusNext moves keyboard focus to the next element in tab order, wrapping around.
