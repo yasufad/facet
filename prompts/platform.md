@@ -1,3 +1,33 @@
+> **Read before starting.** You are picking up one package in a framework several agents
+> build in parallel. `AGENTS.md` loads automatically and is the standard you are held to —
+> read it, and read your package's entry in `docs/packages.md`, before you touch code. This
+> file is only the work outstanding; it does not restate what those two say.
+>
+> The four things that cause the most damage here, in order:
+>
+> 1. **Commit one file per commit, by path:** `git commit -m "..." -- path/to/file.go`.
+>    Never `git add -A`, never `git add .`, never `git commit -a`. The git index is shared
+>    with other agents — staging then committing lets another agent's file land in your
+>    commit. Three agents have had that happen. Check `git show --name-only` after every
+>    commit; it should name exactly the file its message describes. The exception is a
+>    change that is not true in pieces (a rename, or code plus the comment stating its
+>    guarantee) — say so in the message when you use it.
+> 2. **Stay in your package.** If your change needs another package's exported API to move,
+>    stop and report it. Do not edit across the boundary unless this file explicitly says
+>    you may.
+> 3. **Verify at HEAD, not in the working tree.** Other agents have uncommitted files here,
+>    so `go build ./...` in this checkout reports their half-finished work as yours. Use
+>    `git worktree add --detach <scratch>/check HEAD`, run the commands there, remove it.
+> 4. **Break your fix and confirm the test fails.** A test that cannot fail is not a test,
+>    and every package here has passed its own tests while getting something wrong. Watch
+>    for the break silently not applying — check `git diff --stat` before believing a green
+>    run, and for an unused variable turning your break into a build error rather than a
+>    failure.
+>
+> Report back when done rather than expanding scope. Do not edit `docs/`, `README.md`,
+> `AGENTS.md` or `prompts/` — those belong to the reviewing agent, who writes up what your
+> package guarantees once it lands.
+
 # platform: the save dialog, and the gate is still shut
 
 Window state is verified. I broke `stillFullscreen` to trust the flag blindly and
