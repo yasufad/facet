@@ -249,6 +249,92 @@ func TestTextUnderlineColourFallsBackToTextColour(t *testing.T) {
 	}
 }
 
+// TestTextStrikethroughPaintsPrimitiveAboveBaseline gives scene.Underline its
+// second producer: a line through the letters, above the baseline, unlike
+// an underline which sits below it.
+func TestTextStrikethroughPaintsPrimitiveAboveBaseline(t *testing.T) {
+	frame := newFakeFrame()
+	orange := colour.Rgba{R: 1, G: 0.5, A: 1}
+
+	txt := NewText("A").
+		FontSize(16).
+		Strikethrough(style.StrikethroughStyle{Thickness: 1.5, Colour: orange})
+
+	frame.phase = phaseLayoutRequested
+	nodeID := txt.RequestLayout(frame)
+	measured := frame.measureCallbacks[nodeID](layout.Size[layout.OptF32]{}, layout.Size[layout.AvailableSpace]{
+		Width:  layout.MaxContent(),
+		Height: layout.MaxContent(),
+	})
+	bounds := geometry.NewBounds(geometry.NewPoint[geometry.Pixels](0, 0), measured)
+
+	frame.phase = phasePrepainted
+	txt.Prepaint(frame, bounds)
+	frame.phase = phasePainted
+	txt.Paint(frame, bounds)
+
+	if len(frame.underlines) != 1 {
+		t.Fatalf("expected 1 strikethrough line, got %d", len(frame.underlines))
+	}
+	line := frame.underlines[0]
+	if line.Colour != orange {
+		t.Fatalf("strikethrough colour = %v, want %v", line.Colour, orange)
+	}
+	if line.Wavy {
+		t.Fatal("strikethrough must never be wavy")
+	}
+
+	scale := frame.scaleFactor
+	if wantThickness := geometry.Pixels(1.5).Scale(scale); line.Thickness != wantThickness {
+		t.Fatalf("strikethrough thickness = %v, want %v", line.Thickness, wantThickness)
+	}
+
+	lineOriginY := bounds.Origin.Y
+	if extra := bounds.Size.Height - txt.shapedLine.Height(); extra > 0 {
+		lineOriginY += extra / 2
+	}
+	baselineY := lineOriginY + txt.shapedLine.Ascent()
+	wantY := (baselineY - txt.shapedLine.Ascent()*0.25).Scale(scale)
+	if line.Bounds.Origin.Y != wantY {
+		t.Fatalf("strikethrough Y = %v, want %v", line.Bounds.Origin.Y, wantY)
+	}
+	if line.Bounds.Origin.Y >= baselineY.Scale(scale) {
+		t.Fatalf("strikethrough Y = %v should be above the baseline %v", line.Bounds.Origin.Y, baselineY.Scale(scale))
+	}
+}
+
+// TestTextUnderlineAndStrikethroughBothPaint confirms the two decorations
+// coexist as two distinct primitives rather than one overwriting the other,
+// since they share the same construction helper.
+func TestTextUnderlineAndStrikethroughBothPaint(t *testing.T) {
+	frame := newFakeFrame()
+
+	txt := NewText("A").
+		FontSize(16).
+		Underline(style.UnderlineStyle{Thickness: 1}).
+		Strikethrough(style.StrikethroughStyle{Thickness: 1})
+
+	frame.phase = phaseLayoutRequested
+	nodeID := txt.RequestLayout(frame)
+	measured := frame.measureCallbacks[nodeID](layout.Size[layout.OptF32]{}, layout.Size[layout.AvailableSpace]{
+		Width:  layout.MaxContent(),
+		Height: layout.MaxContent(),
+	})
+	bounds := geometry.NewBounds(geometry.NewPoint[geometry.Pixels](0, 0), measured)
+
+	frame.phase = phasePrepainted
+	txt.Prepaint(frame, bounds)
+	frame.phase = phasePainted
+	txt.Paint(frame, bounds)
+
+	if len(frame.underlines) != 2 {
+		t.Fatalf("expected 2 decoration lines (underline + strikethrough), got %d", len(frame.underlines))
+	}
+	if frame.underlines[0].Bounds.Origin.Y == frame.underlines[1].Bounds.Origin.Y {
+		t.Fatalf("expected the underline and strikethrough at different heights, both at %v", frame.underlines[0].Bounds.Origin.Y)
+	}
+}
+
 // TestTextDoesNotReshapeOnWidthChange pins the fix for the redundant reshape
 // docs/audit.md names: ShapeLine shapes one line with no wrapping, so its
 // output for the same content and style is identical at every available

@@ -389,4 +389,13 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 			})
 		}
 	}
+
+	// Strikethrough draws last, over the glyphs: it is a line through the
+	// letters, not one that sits behind them. It runs through the middle of
+	// lowercase glyphs at roughly a quarter of the ascent above the
+	// baseline, rather than at the baseline itself.
+	if s := textStyle.Strikethrough; s != nil {
+		strikeY := baselineY - t.shapedLine.Ascent()*0.25
+		f.InsertUnderline(decorationLine(bounds.Origin.X, strikeY, lineWidth, s.Thickness, decorationColour(s.Colour, textStyle.Colour), false, scale))
+	}
 }
