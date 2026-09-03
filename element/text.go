@@ -325,6 +325,15 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	scale := f.ScaleFactor()
 	lineOrigin := bounds.Origin
 
+	// TextBackgroundColour paints as a quad behind the glyphs, spanning the
+	// element's full box, the same way Div paints its own background.
+	if textStyle.BackgroundColour.A > 0 {
+		f.InsertQuad(scene.Quad{
+			Bounds:     scaleBounds(bounds, scale),
+			Background: textStyle.BackgroundColour,
+		})
+	}
+
 	// A glyph's Position.Y is the baseline's offset from the top of the
 	// line's own tight box (ascent plus descent). When the box painted into
 	// is taller than that — LineHeight set higher than the font's own

@@ -117,6 +117,48 @@ func TestTextEmptyString(t *testing.T) {
 	}
 }
 
+// TestTextBackgroundColourPaintsQuadBehindGlyphs gives TextBackgroundColour
+// its first producer: a quad spanning the element's full box, painted before
+// the glyph sprites so it sits behind them.
+func TestTextBackgroundColourPaintsQuadBehindGlyphs(t *testing.T) {
+	frame := newFakeFrame()
+	yellow := colour.Rgba{R: 1, G: 1, B: 0, A: 1}
+
+	txt := NewText("A").FontSize(16).TextBackgroundColour(yellow)
+
+	frame.phase = phaseLayoutRequested
+	nodeID := txt.RequestLayout(frame)
+	measured := frame.measureCallbacks[nodeID](layout.Size[layout.OptF32]{}, layout.Size[layout.AvailableSpace]{
+		Width:  layout.MaxContent(),
+		Height: layout.MaxContent(),
+	})
+	bounds := geometry.NewBounds(geometry.NewPoint[geometry.Pixels](5, 10), measured)
+
+	frame.phase = phasePrepainted
+	txt.Prepaint(frame, bounds)
+	frame.phase = phasePainted
+	txt.Paint(frame, bounds)
+
+	if len(frame.quads) != 1 {
+		t.Fatalf("expected 1 background quad, got %d", len(frame.quads))
+	}
+	if frame.quads[0].Background != yellow {
+		t.Fatalf("quad background = %v, want %v", frame.quads[0].Background, yellow)
+	}
+	if len(frame.monoSprites) == 0 {
+		t.Fatal("expected glyph sprites in addition to the background quad")
+	}
+
+	scale := frame.scaleFactor
+	wantBounds := geometry.NewBounds(
+		geometry.NewPoint[geometry.ScaledPixels](bounds.Origin.X.Scale(scale), bounds.Origin.Y.Scale(scale)),
+		geometry.NewSize[geometry.ScaledPixels](bounds.Size.Width.Scale(scale), bounds.Size.Height.Scale(scale)),
+	)
+	if frame.quads[0].Bounds != wantBounds {
+		t.Fatalf("quad bounds = %v, want %v", frame.quads[0].Bounds, wantBounds)
+	}
+}
+
 // TestTextDoesNotReshapeOnWidthChange pins the fix for the redundant reshape
 // docs/audit.md names: ShapeLine shapes one line with no wrapping, so its
 // output for the same content and style is identical at every available
