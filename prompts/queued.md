@@ -149,15 +149,6 @@ would be worse than paying the clone for another round.
 
 `BenchmarkShapeLineLineCacheHit` is what proves it when it happens.
 
-## window
-
-After `prompts/window.md` reports.
-
-`staticView` and `fnView` both return an empty `app.Subscription` from `Observe`, so
-`SetRoot` and `SetRootFn` attach nothing and a window configured through either never
-repaints in response to entity state. It looks reactive because every input event sets
-`dirty` directly. Neither doc comment mentions it. Either wire them or say plainly that
-they are for static content.
 
 
 ## render: the atlas free list, with a number behind it
