@@ -80,11 +80,11 @@ jobs:
       - name: go test
         run: go test ./...
 
-      # render/d3d11's facet_debug tests, and window's under the same tag, create a
-      # real D3D11 device (D3D_DRIVER_TYPE_HARDWARE) and read pixels back from it —
-      # they need an actual GPU adapter. A GitHub-hosted runner has none, so these
-      # fail rather than skip; that is left visible on purpose instead of building
-      # around it, the same way the ui and internal/layering failures are below.
+      # facet_debug enables expensive assertions and debug checks across several
+      # packages (such as app's goroutine-identity assertions and window's clip-stack
+      # balance check). Pixel readback tests in render/d3d11 and window skip when no
+      # hardware adapter is available, so a GPU-less runner proves the non-readback
+      # assertions only.
       - name: go test (facet_debug)
         run: go test -tags facet_debug ./...
 
