@@ -29,8 +29,8 @@ func TestEmptyRefinement(t *testing.T) {
 	if base.Display != expected.Display {
 		t.Errorf("Display = %v, want %v", base.Display, expected.Display)
 	}
-	if base.Opacity != expected.Opacity {
-		t.Errorf("Opacity = %v, want %v", base.Opacity, expected.Opacity)
+	if base.FlexShrink != expected.FlexShrink {
+		t.Errorf("FlexShrink = %v, want %v", base.FlexShrink, expected.FlexShrink)
 	}
 	if base.Background != expected.Background {
 		t.Errorf("Background = %v, want %v", base.Background, expected.Background)
@@ -42,28 +42,28 @@ func TestEmptyRefinement(t *testing.T) {
 	// Refining a zero-initialised Style{} with an empty refinement must leave it zeroed.
 	var zeroStyle Style
 	zeroStyle.Refine(empty)
-	if zeroStyle.Opacity != 0 {
+	if zeroStyle.FlexShrink != 0 {
 		t.Errorf("zeroStyle.Refine(empty) = %#v, want zero Style", zeroStyle)
 	}
 }
 
 func TestZeroValueOverride(t *testing.T) {
-	// Base style has Opacity = 1.0. A refinement setting Opacity = 0.0 must
-	// override the base, distinguishing zero-value from unset.
+	// Base style has FlexShrink = 1.0. A refinement setting FlexShrink = 0.0
+	// must override the base, distinguishing zero-value from unset.
 	base := Default()
-	if base.Opacity != 1.0 {
-		t.Fatalf("Default().Opacity = %v, want 1.0", base.Opacity)
+	if base.FlexShrink != 1.0 {
+		t.Fatalf("Default().FlexShrink = %v, want 1.0", base.FlexShrink)
 	}
 
 	var r Refinement
-	r.SetOpacity(0.0)
+	r.SetFlexShrink(0.0)
 	if r.IsEmpty() {
-		t.Fatalf("Refinement.SetOpacity(0.0).IsEmpty() = true, want false")
+		t.Fatalf("Refinement.SetFlexShrink(0.0).IsEmpty() = true, want false")
 	}
 
 	base.Refine(r)
-	if base.Opacity != 0.0 {
-		t.Errorf("after Refine(Opacity(0.0)), Opacity = %v, want 0.0", base.Opacity)
+	if base.FlexShrink != 0.0 {
+		t.Errorf("after Refine(FlexShrink(0.0)), FlexShrink = %v, want 0.0", base.FlexShrink)
 	}
 }
 
@@ -97,7 +97,7 @@ func TestOmittedFieldPreservation(t *testing.T) {
 	blue := colour.Rgb(0x0000ff)
 
 	base := Default()
-	base.Opacity = 0.75
+	base.FlexShrink = 0.75
 	base.FlexGrow = 3.0
 	base.Background = red
 
@@ -105,8 +105,8 @@ func TestOmittedFieldPreservation(t *testing.T) {
 	r.SetBackground(blue)
 	base.Refine(r)
 
-	if base.Opacity != 0.75 {
-		t.Errorf("Opacity = %v, want 0.75", base.Opacity)
+	if base.FlexShrink != 0.75 {
+		t.Errorf("FlexShrink = %v, want 0.75", base.FlexShrink)
 	}
 	if base.FlexGrow != 3.0 {
 		t.Errorf("FlexGrow = %v, want 3.0", base.FlexGrow)
@@ -121,15 +121,15 @@ func TestRefinementMergeFrom(t *testing.T) {
 	green := colour.Rgb(0x00ff00)
 
 	var r1 Refinement
-	r1.SetOpacity(0.5)
+	r1.SetFlexShrink(0.5)
 	r1.SetFlexGrow(2.0)
 	r1.SetBackground(red)
 
 	var r2 Refinement
-	r2.SetOpacity(0.0)
+	r2.SetFlexShrink(0.0)
 	r2.SetBackground(green)
 
-	// r1 merged with r2: r2 overrides Opacity (to 0.0) and Background (to green),
+	// r1 merged with r2: r2 overrides FlexShrink (to 0.0) and Background (to green),
 	// while FlexGrow remains 2.0 from r1.
 	merged := r1
 	merged.MergeFrom(&r2)
@@ -137,8 +137,8 @@ func TestRefinementMergeFrom(t *testing.T) {
 	base := Default()
 	base.Refine(merged)
 
-	if base.Opacity != 0.0 {
-		t.Errorf("Opacity = %v, want 0.0 (overridden by r2)", base.Opacity)
+	if base.FlexShrink != 0.0 {
+		t.Errorf("FlexShrink = %v, want 0.0 (overridden by r2)", base.FlexShrink)
 	}
 	if base.Background != green {
 		t.Errorf("Background = %v, want %v (overridden by r2)", base.Background, green)
@@ -147,15 +147,15 @@ func TestRefinementMergeFrom(t *testing.T) {
 		t.Errorf("FlexGrow = %v, want 2.0 (retained from r1)", base.FlexGrow)
 	}
 
-	// Inverse merge: r2 merged with r1: r1 overrides Opacity (to 0.5) and
+	// Inverse merge: r2 merged with r1: r1 overrides FlexShrink (to 0.5) and
 	// Background (to red), FlexGrow is set to 2.0.
 	invMerged := r2
 	invMerged.MergeFrom(&r1)
 	invBase := Default()
 	invBase.Refine(invMerged)
 
-	if invBase.Opacity != 0.5 {
-		t.Errorf("inverse Opacity = %v, want 0.5 (overridden by r1)", invBase.Opacity)
+	if invBase.FlexShrink != 0.5 {
+		t.Errorf("inverse FlexShrink = %v, want 0.5 (overridden by r1)", invBase.FlexShrink)
 	}
 	if invBase.Background != red {
 		t.Errorf("inverse Background = %v, want %v (overridden by r1)", invBase.Background, red)
@@ -186,7 +186,7 @@ func TestHighWordProperty(t *testing.T) {
 
 	// MergeFrom into a non-empty receiver.
 	var r1 Refinement
-	r1.SetOpacity(0.5)
+	r1.SetFlexShrink(0.5)
 
 	var r2 Refinement
 	r2.SetFlexGrow(2.5)
@@ -199,8 +199,8 @@ func TestHighWordProperty(t *testing.T) {
 	if r1.fontFamily != "Fira Code" {
 		t.Errorf("MergeFrom skipped high-word FontFamily = %v, want Fira Code", r1.fontFamily)
 	}
-	if r1.opacity != 0.5 {
-		t.Errorf("MergeFrom clobbered low-word Opacity = %v, want 0.5", r1.opacity)
+	if r1.flexShrink != 0.5 {
+		t.Errorf("MergeFrom clobbered low-word FlexShrink = %v, want 0.5", r1.flexShrink)
 	}
 }
 
@@ -358,7 +358,6 @@ func TestDistinctPropertyIndices(t *testing.T) {
 		{"propFlexBasis", propFlexBasis},
 		{"propFlexShrink", propFlexShrink},
 		{"propBackground", propBackground},
-		{"propOpacity", propOpacity},
 		{"propBoxShadow", propBoxShadow},
 		{"propMouseCursor", propMouseCursor},
 		{"propFlexGrow", propFlexGrow},

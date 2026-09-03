@@ -20,7 +20,7 @@ type Sink struct {
 func BenchmarkControlCopy(b *testing.B) {
 	var src Refinement
 	src.display = DisplayFlex
-	src.opacity = 0.5
+	src.flexShrink = 0.5
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -31,15 +31,15 @@ func BenchmarkControlCopy(b *testing.B) {
 	}
 }
 
-// BenchmarkSetOpacity measures setting a single scalar float property on *Refinement.
-func BenchmarkSetOpacity(b *testing.B) {
+// BenchmarkSetFlexShrink measures setting a single scalar float property on *Refinement.
+func BenchmarkSetFlexShrink(b *testing.B) {
 	var r Refinement
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		r.SetOpacity(0.5)
+		r.SetFlexShrink(0.5)
 	}
 	benchSink.r = r
 }
@@ -69,7 +69,7 @@ func BenchmarkSetSequence4(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		r.SetDisplay(DisplayFlex)
 		r.SetBackground(c)
-		r.SetOpacity(0.8)
+		r.SetFlexShrink(0.8)
 		r.SetFlexGrow(1.0)
 	}
 	benchSink.r = r
@@ -93,7 +93,7 @@ func BenchmarkStyleRefineNonEmpty(b *testing.B) {
 	base := Default()
 	blue := colour.Rgb(0x0000ff)
 	var r Refinement
-	r.SetOpacity(0.5)
+	r.SetFlexShrink(0.5)
 	r.SetBackground(blue)
 	r.SetFlexGrow(2.0)
 	r.SetPadding(Px(8))
@@ -114,12 +114,12 @@ func BenchmarkRefinementMergeFrom(b *testing.B) {
 	yellow := colour.Rgb(0xffff00)
 
 	var r1 Refinement
-	r1.SetOpacity(0.5)
+	r1.SetFlexShrink(0.5)
 	r1.SetBackground(blue)
 	r1.SetPadding(Px(8))
 
 	var r2 Refinement
-	r2.SetOpacity(0.0)
+	r2.SetFlexShrink(0.0)
 	r2.SetBackground(yellow)
 	r2.SetFlexGrow(1.0)
 	r2.SetWidth(Px(100))

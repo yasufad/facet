@@ -66,7 +66,6 @@ const (
 	propFlexShrink
 
 	propBackground
-	propOpacity
 	propBoxShadow
 	propMouseCursor
 )

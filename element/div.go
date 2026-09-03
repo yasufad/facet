@@ -750,12 +750,6 @@ func (d *Div) BgHsla(c colour.Hsla) *Div {
 	return d
 }
 
-// Opacity sets the opacity of the div in [0, 1].
-func (d *Div) Opacity(o float32) *Div {
-	d.refinement.SetOpacity(o)
-	return d
-}
-
 // BoxShadow sets box shadows on the element.
 func (d *Div) BoxShadow(shadows []style.BoxShadow) *Div {
 	d.refinement.SetBoxShadow(shadows)

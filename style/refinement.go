@@ -72,7 +72,6 @@ type Refinement struct {
 	flexShrink    float32
 
 	background  colour.Rgba
-	opacity     float32
 	boxShadow   []BoxShadow
 	mouseCursor CursorStyle
 
@@ -250,9 +249,6 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propBackground) {
 			r.background = other.background
-		}
-		if other.mask.has(propOpacity) {
-			r.opacity = other.opacity
 		}
 		if other.mask.has(propBoxShadow) {
 			r.boxShadow = other.boxShadow
@@ -687,12 +683,6 @@ func (r *Refinement) SetBackground(c colour.Rgba) {
 // SetBackgroundHsla sets the background fill colour from an Hsla value.
 func (r *Refinement) SetBackgroundHsla(c colour.Hsla) {
 	r.SetBackground(c.Rgba())
-}
-
-// SetOpacity sets the opacity in [0, 1].
-func (r *Refinement) SetOpacity(opacity float32) {
-	r.mask.set(propOpacity)
-	r.opacity = opacity
 }
 
 // SetBoxShadow sets the box shadow slice.

@@ -98,9 +98,6 @@ type Style struct {
 	// Background is the fill colour of the element.
 	Background colour.Rgba
 
-	// Opacity is the element opacity in [0, 1].
-	Opacity float32
-
 	// BoxShadow holds drop and inset shadows.
 	BoxShadow []BoxShadow
 
@@ -143,7 +140,6 @@ func Default() Style {
 		FlexGrow:              0.0,
 		FlexShrink:            1.0,
 		Background:            colour.Rgba{},
-		Opacity:               1.0,
 		BoxShadow:             nil,
 		MouseCursor:           CursorDefault,
 		Text:                  DefaultTextStyle(),
@@ -299,9 +295,6 @@ func (s *Style) Refine(r Refinement) {
 		}
 		if r.mask.has(propBackground) {
 			s.Background = r.background
-		}
-		if r.mask.has(propOpacity) {
-			s.Opacity = r.opacity
 		}
 		if r.mask.has(propBoxShadow) {
 			s.BoxShadow = r.boxShadow
