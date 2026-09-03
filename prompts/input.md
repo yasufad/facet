@@ -1,14 +1,3 @@
-> **Read before starting.** You are picking up one package in a framework several agents
-> build in parallel. `AGENTS.md` loads automatically and is the standard you are held to —
-> read it, and read `input`'s entry in `docs/packages.md`, before you touch code.
->
-> Commit one file per commit, by path: `git commit -m "..." -- path/to/file.go`. Never
-> `git add -A` or `git commit -a` — the index is shared with other agents and staging then
-> committing lets their file land in your commit. Check `git show --name-only` after each
-> one. Stay inside `input`. Verify at HEAD in a detached worktree, not in this working
-> tree, which holds other agents' unfinished files. Do not edit `docs/`, `README.md` or
-> `prompts/`.
-
 # input: alias the whole vocabulary, not the part someone has tripped over
 
 This is the third round of the same gap, and the first two were both my fault for scoping
