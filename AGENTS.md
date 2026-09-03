@@ -96,6 +96,12 @@ invariants it holds. Read your package's entry before you start.
   breaks nothing, and the declaration follows once it is already satisfied. Declaring
   first stops the implementing package compiling until it catches up. If the method
   signature names a new type, that type is its own commit before either.
+- A deletion is a rename with no destination, and it runs the same way: the caller
+  stops calling before the provider removes. `element` deleted `Div.Opacity` because
+  nothing read the property, which was right, and `ui/button.go` had been calling it —
+  so `ui` and `examples/button` stopped building. The instruction to delete it without
+  first moving `ui` was mine, and it inverted this rule while the rule was already
+  written down two lines above.
 - Data goes the other way. A field the lower package *reads* on a type the upper
   package owns has to be declared before it is read. One change can contain both
   directions — `RequestFocus` on `Frame` needed `window` first, while
