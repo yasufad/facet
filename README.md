@@ -23,7 +23,7 @@ decisions come in; the packages below marked reopened each have an assignment in
 | `app`      | done                    |
 | `layout`   | done                    |
 | `scene`    | done                    |
-| `text`     | reopened                |
+| `text`     | done                    |
 | `input`    | done                    |
 | `style`    | done                    |
 | `platform` | Windows, reopened       |
