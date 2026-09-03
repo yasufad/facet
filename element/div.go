@@ -985,6 +985,13 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		return
 	}
 
+	// visibility:hidden keeps the subtree's layout (its siblings do not
+	// reflow around it) but paints nothing, for it or its children — the
+	// difference from Display: none is exactly that reserved space.
+	if st.Visibility == style.VisibilityHidden {
+		return
+	}
+
 	if st.Background.A > 0 || st.BorderColour.A > 0 {
 		scale := f.ScaleFactor()
 		scaledBounds := geometry.Bounds[geometry.ScaledPixels]{

@@ -299,6 +299,48 @@ func TestViewRenderBridge(t *testing.T) {
 	}
 }
 
+// TestDivVisibilityHiddenPaintsNothingButKeepsLayout confirms Visibility's
+// first real consumer: a hidden div and its children emit no primitives, but
+// layout is unaffected — its sibling's bounds do not change, unlike
+// Display: none.
+func TestDivVisibilityHiddenPaintsNothingButKeepsLayout(t *testing.T) {
+	frame := newFakeFrame()
+	red := colour.Rgba{R: 1, G: 0, B: 0, A: 1}
+	blue := colour.Rgba{R: 0, G: 0, B: 1, A: 1}
+
+	hiddenChild := NewDiv().Bg(red)
+	hidden := NewDiv().
+		Width(style.Px(50)).
+		Height(style.Px(50)).
+		Bg(red).
+		Visibility(style.VisibilityHidden).
+		Child(hiddenChild)
+	sibling := NewDiv().Width(style.Px(50)).Height(style.Px(50)).Bg(blue)
+
+	frame.phase = phaseLayoutRequested
+	rootID := NewDiv().Flex().Children(hidden, sibling).RequestLayout(frame)
+	frame.solve(rootID, 100, 50)
+
+	frame.phase = phasePrepainted
+	hidden.Prepaint(frame, frame.LayoutBounds(hidden.layoutID))
+	sibling.Prepaint(frame, frame.LayoutBounds(sibling.layoutID))
+
+	frame.phase = phasePainted
+	hidden.Paint(frame, frame.LayoutBounds(hidden.layoutID))
+	sibling.Paint(frame, frame.LayoutBounds(sibling.layoutID))
+
+	if len(frame.quads) != 1 {
+		t.Fatalf("expected 1 quad (the visible sibling only), got %d", len(frame.quads))
+	}
+	if frame.quads[0].Background != blue {
+		t.Fatalf("expected the surviving quad to be the sibling's blue, got %v", frame.quads[0].Background)
+	}
+
+	if sibWidth := frame.LayoutBounds(sibling.layoutID).Size.Width; sibWidth != 50 {
+		t.Fatalf("expected the sibling's width unaffected by the hidden div's visibility, got %v", sibWidth)
+	}
+}
+
 func TestDivOverflowClipping(t *testing.T) {
 	frame := newFakeFrame()
 	child := NewDiv().
