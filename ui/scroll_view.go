@@ -5,7 +5,6 @@ import (
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/input"
-	"github.com/yasufad/facet/platform"
 	"github.com/yasufad/facet/style"
 )
 
@@ -173,12 +172,12 @@ func (s *ScrollView) buildTree() {
 
 	s.viewport.Refine(s.refinement)
 
-	s.viewport.OnScrollWheel(func(event platform.WheelEvent, phase input.DispatchPhase) bool {
+	s.viewport.OnScrollWheel(func(event input.WheelEvent, phase input.DispatchPhase) bool {
 		if phase != input.Bubble {
 			return false
 		}
 		var deltaY geometry.Pixels
-		if event.Delta.Unit == platform.ScrollPixels {
+		if event.Delta.Unit == input.ScrollPixels {
 			deltaY = geometry.Pixels(event.Delta.DeltaY)
 		} else {
 			lh := s.lineHeight
