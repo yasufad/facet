@@ -40,11 +40,20 @@ appears, check the same thing.
 CI would have said so on the first push after the deletion — except the workflow only runs
 on `main` and on pull requests now, and these commits are landing directly.
 
-That is worth a look rather than a change. Does the current trigger actually catch a broken
-`main`, given how work reaches it here? If commits land on `main` directly then yes, the
-push trigger fires and this would have been caught. If they land some other way, the
-scoping I did to save Actions minutes has a hole in it, and I would rather know than
-assume. Report what you find; do not widen the triggers without saying why.
+**Answered, and the triggers are sound.** You established that `origin/main` is 52 commits
+behind local `main`, that the last run was `65d4677` twelve hours ago, and that the
+`Opacity` deletion is commit 27 of those 52. GitHub has had no webhook to act on. The
+scoping has no hole; the repository simply has not been pushed.
+
+The part worth keeping is the batch-push detail: **a push of many commits triggers one run
+for the tip, not one per commit.** That changes the arithmetic behind the whole cost
+question. Holding commits and pushing them together is not a compromise against CI, it is
+cheaper than pushing each one *and* still catches a broken tip. It is the equilibrium, not
+a tradeoff.
+
+Record it as a comment in `ci.yml` beside the trigger block, since the next person to look
+at the cost of this workflow will otherwise re-derive it — or, more likely, assume the
+opposite and widen the triggers to "get more coverage".
 
 ## Not yours
 
