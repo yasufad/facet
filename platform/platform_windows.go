@@ -4,7 +4,10 @@ package platform
 
 import (
 	"fmt"
+	"runtime"
+	"strings"
 	"sync"
+	"unsafe"
 
 	"github.com/yasufad/facet/third_party/mainthread"
 	"github.com/yasufad/facet/third_party/w32"
@@ -183,9 +186,169 @@ func (p *windowsPlatform) ShowMessageDialog(dialog MessageDialog) (DialogResult,
 	return 0, fmt.Errorf("message dialog: not implemented")
 }
 
-// ShowOpenDialog shows a modal file-open dialog.
+// ShowOpenDialog shows a modal file-open dialog through the Common Item
+// Dialog (IFileOpenDialog). It does not marshal onto the platform thread
+// itself — Show blocks for as long as the dialog is up, and the caller is
+// the one who must not be the platform thread, per the threading note on
+// [Platform.ShowOpenDialog].
+//
+// IFileOpenDialog is a single-threaded-apartment object: it must be created
+// and driven from the same OS thread, which CoInitializeEx(COINIT_
+// APARTMENTTHREADED) establishes. LockOSThread pins the calling goroutine to
+// that thread for the duration; nothing here assumes it is the platform
+// thread's OS thread, only that it stays put.
 func (p *windowsPlatform) ShowOpenDialog(dialog OpenFileDialog) ([]string, error) {
-	return nil, fmt.Errorf("open dialog: not implemented")
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+
+	hr := w32.CoInitializeEx(w32.COINIT_APARTMENTTHREADED)
+	if hr != 0 && hr != 1 { // S_OK, S_FALSE (already initialised on this thread)
+		return nil, fmt.Errorf("open dialog: CoInitializeEx: %#x", uint32(hr))
+	}
+	defer w32.CoUninitialize()
+
+	fd, err := newFileOpenDialog(dialog)
+	if err != nil {
+		return nil, err
+	}
+	defer fd.Release()
+
+	showHR := fd.Show(0)
+	if w32.IsDialogCancelled(showHR) {
+		return nil, nil
+	}
+	if showHR != 0 {
+		return nil, fmt.Errorf("open dialog: Show: %#x", uint32(showHR))
+	}
+
+	if dialog.Multiple {
+		return openDialogResults(fd)
+	}
+	return openDialogResult(fd)
+}
+
+// newFileOpenDialog creates and configures a Common Item Dialog from dialog,
+// without showing it. Split out from ShowOpenDialog so the configuration —
+// the part a wrong FOS flag or a malformed filter pattern would actually
+// break — is reachable by a test that never has to click through a modal
+// window.
+func newFileOpenDialog(dialog OpenFileDialog) (*w32.IFileOpenDialog, error) {
+	var fd *w32.IFileOpenDialog
+	hr := w32.CoCreateInstance(
+		&w32.CLSID_FileOpenDialog,
+		w32.CLSCTX_INPROC_SERVER,
+		&w32.IID_IFileOpenDialog,
+		uintptr(unsafe.Pointer(&fd)),
+	)
+	if hr != 0 {
+		return nil, fmt.Errorf("open dialog: CoCreateInstance: %#x", uint32(hr))
+	}
+
+	fos := uint32(w32.FOS_FORCEFILESYSTEM | w32.FOS_PATHMUSTEXIST | w32.FOS_FILEMUSTEXIST)
+	if dialog.Multiple {
+		fos |= w32.FOS_ALLOWMULTISELECT
+	}
+	if hr := fd.SetOptions(fos); hr != 0 {
+		fd.Release()
+		return nil, fmt.Errorf("open dialog: SetOptions: %#x", uint32(hr))
+	}
+
+	if dialog.Title != "" {
+		if hr := fd.SetTitle(w32.MustStringToUTF16Ptr(dialog.Title)); hr != 0 {
+			fd.Release()
+			return nil, fmt.Errorf("open dialog: SetTitle: %#x", uint32(hr))
+		}
+	}
+
+	if dialog.Directory != "" {
+		folder, hr := w32.SHCreateItemFromParsingName(w32.MustStringToUTF16Ptr(dialog.Directory))
+		if hr != 0 {
+			fd.Release()
+			return nil, fmt.Errorf("open dialog: resolve directory %q: %#x", dialog.Directory, uint32(hr))
+		}
+		setHR := fd.SetFolder(folder)
+		folder.Release()
+		if setHR != 0 {
+			fd.Release()
+			return nil, fmt.Errorf("open dialog: SetFolder: %#x", uint32(setHR))
+		}
+	}
+
+	if len(dialog.Filters) > 0 {
+		specs := make([]w32.COMDLG_FILTERSPEC, len(dialog.Filters))
+		for i, f := range dialog.Filters {
+			specs[i] = w32.COMDLG_FILTERSPEC{
+				PszName: w32.MustStringToUTF16Ptr(f.Name),
+				PszSpec: w32.MustStringToUTF16Ptr(filterSpecPattern(f.Extensions)),
+			}
+		}
+		if hr := fd.SetFileTypes(specs); hr != 0 {
+			fd.Release()
+			return nil, fmt.Errorf("open dialog: SetFileTypes: %#x", uint32(hr))
+		}
+	}
+
+	return fd, nil
+}
+
+// filterSpecPattern joins extensions ("txt", "md") into the
+// semicolon-separated pattern list ("*.txt;*.md") IFileDialog::SetFileTypes
+// takes. No extensions means no restriction.
+func filterSpecPattern(extensions []string) string {
+	if len(extensions) == 0 {
+		return "*.*"
+	}
+	patterns := make([]string, len(extensions))
+	for i, ext := range extensions {
+		patterns[i] = "*." + ext
+	}
+	return strings.Join(patterns, ";")
+}
+
+// openDialogResult reads the single chosen item from a dialog shown without
+// FOS_ALLOWMULTISELECT.
+func openDialogResult(fd *w32.IFileOpenDialog) ([]string, error) {
+	item, hr := fd.GetResult()
+	if hr != 0 {
+		return nil, fmt.Errorf("open dialog: GetResult: %#x", uint32(hr))
+	}
+	defer item.Release()
+
+	path, hr := item.GetDisplayName(w32.SIGDN_FILESYSPATH)
+	if hr != 0 {
+		return nil, fmt.Errorf("open dialog: GetDisplayName: %#x", uint32(hr))
+	}
+	return []string{path}, nil
+}
+
+// openDialogResults reads every chosen item from a dialog shown with
+// FOS_ALLOWMULTISELECT.
+func openDialogResults(fd *w32.IFileOpenDialog) ([]string, error) {
+	items, hr := fd.GetResults()
+	if hr != 0 {
+		return nil, fmt.Errorf("open dialog: GetResults: %#x", uint32(hr))
+	}
+	defer items.Release()
+
+	count, hr := items.GetCount()
+	if hr != 0 {
+		return nil, fmt.Errorf("open dialog: GetCount: %#x", uint32(hr))
+	}
+
+	paths := make([]string, 0, count)
+	for i := uint32(0); i < count; i++ {
+		item, hr := items.GetItemAt(i)
+		if hr != 0 {
+			return nil, fmt.Errorf("open dialog: GetItemAt(%d): %#x", i, uint32(hr))
+		}
+		path, hr := item.GetDisplayName(w32.SIGDN_FILESYSPATH)
+		item.Release()
+		if hr != 0 {
+			return nil, fmt.Errorf("open dialog: GetDisplayName(%d): %#x", i, uint32(hr))
+		}
+		paths = append(paths, path)
+	}
+	return paths, nil
 }
 
 // ShowSaveDialog shows a modal file-save dialog.
