@@ -159,6 +159,96 @@ func TestTextBackgroundColourPaintsQuadBehindGlyphs(t *testing.T) {
 	}
 }
 
+// TestTextUnderlinePaintsPrimitive gives scene.Underline one of its first two
+// producers in the project's history (Strikethrough is the other): a line
+// within the descent, below the baseline, spanning the shaped line's width.
+func TestTextUnderlinePaintsPrimitive(t *testing.T) {
+	frame := newFakeFrame()
+	blue := colour.Rgba{B: 1, A: 1}
+
+	txt := NewText("A").
+		FontSize(16).
+		Underline(style.UnderlineStyle{Thickness: 2, Colour: blue, Wavy: true})
+
+	frame.phase = phaseLayoutRequested
+	nodeID := txt.RequestLayout(frame)
+	measured := frame.measureCallbacks[nodeID](layout.Size[layout.OptF32]{}, layout.Size[layout.AvailableSpace]{
+		Width:  layout.MaxContent(),
+		Height: layout.MaxContent(),
+	})
+	bounds := geometry.NewBounds(geometry.NewPoint[geometry.Pixels](0, 0), measured)
+
+	frame.phase = phasePrepainted
+	txt.Prepaint(frame, bounds)
+	frame.phase = phasePainted
+	txt.Paint(frame, bounds)
+
+	if len(frame.underlines) != 1 {
+		t.Fatalf("expected 1 underline, got %d", len(frame.underlines))
+	}
+	u := frame.underlines[0]
+	if u.Colour != blue {
+		t.Fatalf("underline colour = %v, want %v", u.Colour, blue)
+	}
+	if !u.Wavy {
+		t.Fatal("expected wavy underline")
+	}
+
+	scale := frame.scaleFactor
+	if wantThickness := geometry.Pixels(2).Scale(scale); u.Thickness != wantThickness {
+		t.Fatalf("underline thickness = %v, want %v", u.Thickness, wantThickness)
+	}
+
+	// Reproduce the half-leading shift TestTextPaintCentresGlyphsOnTallerLineHeight
+	// pins: LineHeight defaults to 20 (DefaultTextStyle), which is usually
+	// taller than the shaped line's own ascent+descent, so the baseline is
+	// not simply at the box's top edge plus ascent.
+	lineOriginY := bounds.Origin.Y
+	if extra := bounds.Size.Height - txt.shapedLine.Height(); extra > 0 {
+		lineOriginY += extra / 2
+	}
+	baselineY := lineOriginY + txt.shapedLine.Ascent()
+	wantY := (baselineY + txt.shapedLine.Descent()*0.618).Scale(scale)
+	if u.Bounds.Origin.Y != wantY {
+		t.Fatalf("underline Y = %v, want %v", u.Bounds.Origin.Y, wantY)
+	}
+	if u.Bounds.Origin.Y <= baselineY.Scale(scale) {
+		t.Fatalf("underline Y = %v should be below the baseline %v", u.Bounds.Origin.Y, baselineY.Scale(scale))
+	}
+}
+
+// TestTextUnderlineColourFallsBackToTextColour confirms an unset underline
+// colour defaults to the text colour, per style.UnderlineStyle's doc comment.
+func TestTextUnderlineColourFallsBackToTextColour(t *testing.T) {
+	frame := newFakeFrame()
+	green := colour.Rgba{G: 1, A: 1}
+
+	txt := NewText("A").
+		FontSize(16).
+		TextColour(green).
+		Underline(style.UnderlineStyle{Thickness: 1})
+
+	frame.phase = phaseLayoutRequested
+	nodeID := txt.RequestLayout(frame)
+	measured := frame.measureCallbacks[nodeID](layout.Size[layout.OptF32]{}, layout.Size[layout.AvailableSpace]{
+		Width:  layout.MaxContent(),
+		Height: layout.MaxContent(),
+	})
+	bounds := geometry.NewBounds(geometry.NewPoint[geometry.Pixels](0, 0), measured)
+
+	frame.phase = phasePrepainted
+	txt.Prepaint(frame, bounds)
+	frame.phase = phasePainted
+	txt.Paint(frame, bounds)
+
+	if len(frame.underlines) != 1 {
+		t.Fatalf("expected 1 underline, got %d", len(frame.underlines))
+	}
+	if frame.underlines[0].Colour != green {
+		t.Fatalf("underline colour = %v, want text colour %v", frame.underlines[0].Colour, green)
+	}
+}
+
 // TestTextDoesNotReshapeOnWidthChange pins the fix for the redundant reshape
 // docs/audit.md names: ShapeLine shapes one line with no wrapping, so its
 // output for the same content and style is identical at every available

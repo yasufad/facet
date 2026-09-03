@@ -346,6 +346,17 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		lineOrigin.Y += extra / 2
 	}
 
+	baselineY := lineOrigin.Y + t.shapedLine.Ascent()
+	lineWidth := t.shapedLine.Width()
+
+	// An underline sits within the descent, below the baseline. 0.618 is the
+	// golden-ratio placement GPUI's text_system/line.rs uses for the same
+	// line, rather than splitting the descent evenly.
+	if u := textStyle.Underline; u != nil {
+		underlineY := baselineY + t.shapedLine.Descent()*0.618
+		f.InsertUnderline(decorationLine(bounds.Origin.X, underlineY, lineWidth, u.Thickness, decorationColour(u.Colour, textStyle.Colour), u.Wavy, scale))
+	}
+
 	for _, run := range t.shapedLine.Runs() {
 		for _, g := range run.Glyphs {
 			penPos := lineOrigin.Add(g.Position)
