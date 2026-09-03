@@ -1,47 +1,51 @@
-# build: the comment says the tests skip, and they do not
+# build: watching, not building
 
-Your verification of the trigger and matrix changes closes those out — one run per event,
-superseded runs cancelled, cross-compilation still covering `darwin/arm64` from both legs.
-Nothing further there.
+The comment is fixed and reads correctly — it says the readback tests need a real adapter,
+that they fail on hosted runners, that the run is red for that reason, and that a skip is
+assigned. Nothing about the workflow is outstanding.
 
-Your spec for `render` was precise and is assigned. `prompts/render.md` carries it as you
-wrote it: the sentinel, the wrap at `DXGI_ERROR_UNSUPPORTED`, `errors.Is` in
-`setupTestWindow`, and the downstream `window` case. Naming the exact `hr` and the exact
-call site is why it could be assigned without a round of clarification.
+`render` has that skip now. `prompts/render.md` carries your spec as you wrote it: the
+sentinel, the wrap at `DXGI_ERROR_UNSUPPORTED`, and `errors.Is` in `setupTestWindow`.
+Naming the exact `hr` and the exact call site is why it went out without a clarifying
+round.
 
-## The one thing to fix
+This round is three things to watch and one to check, not to build.
 
-`4f0ba7d` says:
+## 1. When render lands the sentinel
 
-    # Pixel readback tests in render/d3d11 and window skip when no
-    # hardware adapter is available, so a GPU-less runner proves the
-    # non-readback assertions only.
+Confirm the `facet_debug` step actually goes green on the Linux leg. That is the first
+moment this workflow produces a signal anyone can act on, and it is worth watching rather
+than assuming — a skip that silently matches every error would also go green, and would be
+worse than the red.
 
-`render.ErrNoAdapter` does not exist. `render/d3d11/d3d11_debug_test.go:54` still calls
-`t.Fatalf`. The tests fail exactly as they did before, and every run is still red.
+Then change the comment again, in that commit, to say the readback assertions skip without
+an adapter. Not before.
 
-The second half of that sentence is what a GPU-less runner will prove *once the skip
-lands*. The first half is not true yet, and together they read as a description of the
-current workflow.
+## 2. When window and ui land their tests
 
-This matters more than a stale comment usually does. The permanent red was the problem you
-were sent to fix; a reader who takes this comment at face value will conclude the red means
-something else and go looking in the wrong place. That is the confusion the change was
-meant to end, now written into the file.
+`window` has landed `TestClickMutatesEntityStateAndRendersNextFrame`. Confirm it ran in
+CI, not just locally — you established `go test ./...` reaches recursively, so it should,
+but "should" is what this whole workflow exists to replace.
 
-Say what is true today: the readback tests need a real adapter, they fail on hosted
-runners, the run is red for that reason, and a skip is assigned to `render`. Change it
-again in the commit that first sees the skip working — not the commit that expects it to.
+`internal/integration` still does not exist. It is assigned to whoever holds `ui`. When it
+appears, check the same thing.
 
-## Then
+## 3. The one thing to check now
 
-When `render` reports the sentinel, confirm the `facet_debug` step actually goes green on
-the Linux leg. That is the moment the workflow starts being readable, and it is worth
-watching rather than assuming.
+`main` does not build:
 
-`window`'s click-to-state test and `internal/integration` both still need to appear. You
-established that `go test ./...` reaches them recursively, so nothing in the workflow has
-to change — but check they ran, once they exist. A test in a package CI never reaches is
-worse than no test, because the tick implies it passed.
+    ui\button.go:163:9: b.div.Opacity undefined
 
-`internal/layering` should stay red until `ui` swaps one import. Leave it.
+`element` deleted the setter, `ui` has not caught up, and that has been true for a while.
+CI would have said so on the first push after the deletion — except the workflow only runs
+on `main` and on pull requests now, and these commits are landing directly.
+
+That is worth a look rather than a change. Does the current trigger actually catch a broken
+`main`, given how work reaches it here? If commits land on `main` directly then yes, the
+push trigger fires and this would have been caught. If they land some other way, the
+scoping I did to save Actions minutes has a hole in it, and I would rather know than
+assume. Report what you find; do not widen the triggers without saying why.
+
+## Not yours
+
+`internal/layering` stays red until `ui` swaps one import. Leave it.
