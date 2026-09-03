@@ -341,6 +341,110 @@ func TestDivVisibilityHiddenPaintsNothingButKeepsLayout(t *testing.T) {
 	}
 }
 
+// TestDivBoxShadowDropPaintsBeforeBackground gives scene.Shadow its first
+// producer in the project's history. render's readback territory is where
+// pixel correctness gets proven; this is the insert-level half — it asserts
+// a drop shadow reaches the scene, dilated by blur+spread and translated by
+// its offset per scene.Shadow's documented contract, and painted before the
+// element's own background quad so the fill draws on top of it.
+func TestDivBoxShadowDropPaintsBeforeBackground(t *testing.T) {
+	frame := newFakeFrame()
+	black := colour.Rgba{A: 1}
+	red := colour.Rgba{R: 1, A: 1}
+
+	d := NewDiv().
+		Width(style.Px(100)).
+		Height(style.Px(100)).
+		Bg(red).
+		BoxShadow([]style.BoxShadow{style.Shadow(2, 4, 6, 1, black)})
+
+	frame.phase = phaseLayoutRequested
+	rootID := d.RequestLayout(frame)
+	frame.solve(rootID, 100, 100)
+	rootBounds := frame.LayoutBounds(rootID)
+
+	frame.phase = phasePrepainted
+	d.Prepaint(frame, rootBounds)
+	frame.phase = phasePainted
+	d.Paint(frame, rootBounds)
+
+	if len(frame.shadows) != 1 {
+		t.Fatalf("expected 1 shadow, got %d", len(frame.shadows))
+	}
+	if len(frame.quads) != 1 {
+		t.Fatalf("expected 1 quad, got %d", len(frame.quads))
+	}
+
+	sh := frame.shadows[0]
+	if sh.Inset {
+		t.Fatal("expected a non-inset (drop) shadow")
+	}
+	if sh.Colour != black {
+		t.Fatalf("shadow colour = %v, want %v", sh.Colour, black)
+	}
+
+	// scale is 2.0: offset (2,4) and dilation by blur+spread (7) both scale.
+	wantBounds := geometry.NewBounds(
+		geometry.NewPoint[geometry.ScaledPixels](2*2-7*2, 4*2-7*2),
+		geometry.NewSize[geometry.ScaledPixels](100*2+14*2, 100*2+14*2),
+	)
+	if sh.Bounds != wantBounds {
+		t.Fatalf("shadow bounds = %v, want %v", sh.Bounds, wantBounds)
+	}
+
+	wantElementBounds := geometry.NewBounds(
+		geometry.NewPoint[geometry.ScaledPixels](0, 0),
+		geometry.NewSize[geometry.ScaledPixels](200, 200),
+	)
+	if sh.ElementBounds != wantElementBounds {
+		t.Fatalf("shadow element bounds = %v, want %v", sh.ElementBounds, wantElementBounds)
+	}
+}
+
+// TestDivBoxShadowInsetPaintsAfterBackground is the inset counterpart:
+// bounds shrink rather than grow, and the shadow is recorded after the
+// background quad so it layers on top of the fill.
+func TestDivBoxShadowInsetPaintsAfterBackground(t *testing.T) {
+	frame := newFakeFrame()
+	black := colour.Rgba{A: 1}
+	red := colour.Rgba{R: 1, A: 1}
+
+	inset := style.Shadow(0, 0, 4, 2, black)
+	inset.Inset = true
+	d := NewDiv().
+		Width(style.Px(100)).
+		Height(style.Px(100)).
+		Bg(red).
+		BoxShadow([]style.BoxShadow{inset})
+
+	frame.phase = phaseLayoutRequested
+	rootID := d.RequestLayout(frame)
+	frame.solve(rootID, 100, 100)
+	rootBounds := frame.LayoutBounds(rootID)
+
+	frame.phase = phasePrepainted
+	d.Prepaint(frame, rootBounds)
+	frame.phase = phasePainted
+	d.Paint(frame, rootBounds)
+
+	if len(frame.shadows) != 1 {
+		t.Fatalf("expected 1 shadow, got %d", len(frame.shadows))
+	}
+	sh := frame.shadows[0]
+	if !sh.Inset {
+		t.Fatal("expected an inset shadow")
+	}
+
+	// scale is 2.0: bounds shrink by blur+spread (6) on the logical side.
+	wantBounds := geometry.NewBounds(
+		geometry.NewPoint[geometry.ScaledPixels](6*2, 6*2),
+		geometry.NewSize[geometry.ScaledPixels](100*2-12*2, 100*2-12*2),
+	)
+	if sh.Bounds != wantBounds {
+		t.Fatalf("shadow bounds = %v, want %v", sh.Bounds, wantBounds)
+	}
+}
+
 func TestDivOverflowClipping(t *testing.T) {
 	frame := newFakeFrame()
 	child := NewDiv().

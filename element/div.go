@@ -992,28 +992,24 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		return
 	}
 
-	if st.Background.A > 0 || st.BorderColour.A > 0 {
-		scale := f.ScaleFactor()
-		scaledBounds := geometry.Bounds[geometry.ScaledPixels]{
-			Origin: geometry.Point[geometry.ScaledPixels]{
-				X: bounds.Origin.X.Scale(scale),
-				Y: bounds.Origin.Y.Scale(scale),
-			},
-			Size: geometry.Size[geometry.ScaledPixels]{
-				Width:  bounds.Size.Width.Scale(scale),
-				Height: bounds.Size.Height.Scale(scale),
-			},
+	scale := f.ScaleFactor()
+
+	// Drop shadows paint behind the element, so before its background quad;
+	// inset shadows layer on top of the fill, so after it. GPUI's window
+	// keeps the same split for the same reason (paint_drop_shadows /
+	// paint_inset_shadows).
+	for _, sh := range st.BoxShadow {
+		if !sh.Inset {
+			f.InsertShadow(boxShadowPrimitive(bounds, st.CornerRadii, sh, scale))
 		}
+	}
+
+	if st.Background.A > 0 || st.BorderColour.A > 0 {
 		q := scene.Quad{
-			Bounds:       scaledBounds,
+			Bounds:       scaleBounds(bounds, scale),
 			Background:   st.Background,
 			BorderColour: st.BorderColour,
-			CornerRadii: geometry.Corners[geometry.ScaledPixels]{
-				TopLeft:     st.CornerRadii.TopLeft.Scale(scale),
-				TopRight:    st.CornerRadii.TopRight.Scale(scale),
-				BottomRight: st.CornerRadii.BottomRight.Scale(scale),
-				BottomLeft:  st.CornerRadii.BottomLeft.Scale(scale),
-			},
+			CornerRadii:  scaleCorners(st.CornerRadii, scale),
 			BorderWidths: geometry.Edges[geometry.ScaledPixels]{
 				Top:    st.BorderWidths.Top.Scale(scale),
 				Right:  st.BorderWidths.Right.Scale(scale),
@@ -1023,6 +1019,12 @@ func (d *Div) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 			BorderStyle: scene.BorderStyle(st.BorderStyle),
 		}
 		f.InsertQuad(q)
+	}
+
+	for _, sh := range st.BoxShadow {
+		if sh.Inset {
+			f.InsertShadow(boxShadowPrimitive(bounds, st.CornerRadii, sh, scale))
+		}
 	}
 
 	clips := st.Overflow.X != style.OverflowVisible || st.Overflow.Y != style.OverflowVisible
