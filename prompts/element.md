@@ -1,86 +1,94 @@
-# element: elementtest still blocks ui, and one comment claims more than it can
+# element: thirteen promises, eight of them to be withdrawn
 
-Three good landings. `TextLayout` is the shape asked for and the zero-value guard is real —
-I stripped it and the test panicked. The half-leading test comparing sprite position at
-natural against taller line height is the right construction, because it does not depend
-on which font backs the system, and this repository has had font-dependent assertions
-before. The `Div` resolve-once is correct including the part that is easy to get wrong:
-`style.Style` has exactly one slice field and `Refine` assigns it wholesale rather than
-appending, so the copy your comment relies on really is a copy. I checked.
+Last round is closed. I verified all three by breaking them and said so; the resends
+crossed with my reply. Nothing from that round is outstanding.
 
-## 1. elementtest, still — and this is the blocker
+This round is the thirteen style properties with builder methods and no consumer. They
+compile, they pass through the refinement mask correctly, and they change nothing on
+screen. I said the decision was mine to take per property before anyone implemented, so
+here it is.
 
-`go test ./ui` still panics at HEAD:
+I confirmed the premise first rather than trusting the audit: `element` emits exactly two
+scene primitives, `InsertQuad` and `InsertMonochromeSprite`. `Shadow`, `Underline`,
+`PolychromeSprite` and `Path` have no producer anywhere above `scene` — the D3D11 backend
+draws all four, the shaders are compiled and embedded, and the readback assertions
+exercise them against synthetic scenes that no element has ever generated. `Visibility`
+and `Opacity` are read nowhere in `div.go` or `text.go`.
 
-    panic: elementtest: PushClip called outside paint phase
-        element/elementtest/frame.go:559
+## Delete these eight
 
-I pushed this into your prompt after you had already started, so you plausibly never saw
-it. It is unchanged and it is the highest-value thing in the tree right now, because `ui`
-cannot run a single widget test until it lands, and `ui` is the last package between this
-framework and `examples/button` working.
+    Opacity  WhiteSpace  TextOverflow  LineClamp  TextAlign
+    AllowConcurrentScroll  RestrictScrollToAxis  ScrollbarWidth
 
-`Div.Prepaint` pushes a clip. You taught `element/fake_frame_test.go` the dual-stack
-semantics and left `element/elementtest/frame.go` — the exported double — enforcing the
-old paint-only rule. `PushClip` and `PopClip` both, lines 559 and 581.
+A builder method is a promise. Removing one turns a silent failure into a compile error
+that says what is missing, and that is worth more than the setter was.
 
-Give it the two stacks the real `Frame` has, and add the test that would have caught it:
-prepaint a clipping `Div` through `elementtest.Frame` and assert the registered hit region
-is clipped. Break the phase rule and confirm it fails.
+Four of them — `WhiteSpace`, `TextOverflow`, `LineClamp`, `TextAlign` — are multi-line
+text properties and `Text` is one line with one style run. Faking them on a single line
+would produce something that looks implemented. They return with multi-line text.
 
-`go test ./element ./element/elementtest` passing is not evidence here — nothing inside
-`elementtest` drives a clipping `Div` through prepaint, which is why the break landed in
-`ui` instead. Run `go test ./ui` before you report.
+`AllowConcurrentScroll`, `RestrictScrollToAxis` and `ScrollbarWidth` describe a scrolling
+implementation that does not read them and a scrollbar that does not exist. They return
+with the widget.
 
-## 2. The width comment is right about content and wrong about style
+`Opacity` is the one to be careful about, and it goes for a different reason. CSS opacity
+is a group property: the subtree composites as a unit and then fades. Multiplying each
+primitive's alpha gives a visibly different and wrong result anywhere children overlap, so
+a correct implementation needs an offscreen target or a layer — the same machinery popups
+need and the same decision I have not taken. Shipping the per-primitive version would be
+worse than shipping nothing, because it works on the cases people test and fails on the
+cases they ship.
 
-Dropping `lastAvailWidth` is correct and the test is good — five widths, one `ShapeLine`
-call, and it fails with five when the old check comes back.
+Note the consequence out loud: `ui.Button.Disabled` communicates disabled state through
+`Opacity(0.5)` today and renders identically to an enabled button. Deleting the setter
+turns that into a compile error in `ui`, which is the point. `ui` will need a colour, and
+that is already in its queued work — do not fix `ui` yourself.
 
-The justification you wrote into the code is not:
+## Implement these five
 
-    // Content and style are fixed for the lifetime of this element (they
-    // can only change before RequestLayout, which runs once), so shaping
-    // once and keeping it for every later call is the whole cache.
+    Visibility  TextBackgroundColour  Underline  Strikethrough  BoxShadow
 
-Content, yes. Style, no. `Text.Paint` re-reads `f.TextStyle()`, and that value carries the
-pseudo-state refinements a container merges in before children paint — `docs/packages.md`
-says so explicitly, and hover is resolved at step 5, between prepaint and paint. So the
-style the element paints under is not always the style it shaped under.
+`Visibility` is the cheapest real behaviour in the list: skip painting the subtree, keep
+its layout. Do it first.
 
-`Paint` then shapes only `if t.shapedLine == nil`, which is never true by that point, so it
-computes `textStyle` and drops it on the floor. Hover a container that changes font size,
-family, weight or features, and the glyphs keep the layout-time shaping. Colour still
-updates, because that is per-sprite — so it looks half-working, which is worse than
-looking broken.
+`TextBackgroundColour` is a quad behind the text's bounds, which you already know how to
+emit.
 
-You inherited that guard rather than writing it; the commit only touched the measure path.
-What is new is the comment asserting it is safe, and a comment that states a guarantee is
-part of it.
+`Underline` and `Strikethrough` give `scene.Underline` its first producer in the history
+of this project. `BoxShadow` gives `scene.Shadow` its first. That is the part of this
+round worth caring about: four primitives, four shaders and four readback assertions have
+been carried for months on the strength of tests that build scenes by hand. Until an
+element emits one, nothing proves the path from a style property to a pixel actually
+joins up.
 
-Two things to settle, and I want your reading before I decide the second:
+So for those three, the test that matters is not that the primitive was inserted. It is
+that a `Div` with the style set produces the right pixels through the real renderer. That
+crosses into `render`'s readback territory, which you cannot drive from `element` — so
+insert-level assertions here, and say in your report that the pixel half is unproven.
+I will decide where that test lives; it may be the second thing `internal/integration`
+earns.
 
-Fix the comment now, whatever else happens. Say that content is fixed and style is not,
-and name the paint-time merge as the reason.
+## On crossing into style
 
-Then say what the invalidation should be. Re-shaping in paint when the resolved text style
-differs from the one shaped under is the obvious answer and it costs a comparison plus, on
-a real hover, one `ShapeLine` — which `text` has made roughly 190 times cheaper since this
-was written. The alternative is to declare that pseudo-state may not change font metrics,
-only colour, and enforce it. That is a narrower framework and a defensible one. It is a
-contract question rather than a bug fix, so tell me which you would take and why.
+The setters live in `style` and the fluent chain lives here, so a deletion is not true in
+pieces — the refinement mutator and the builder method go together or the tree does not
+build.
 
-## 3. What is left
+`style` has no agent and no open prompt, so **you may touch it for this**, one property
+per commit, each commit deleting or implementing exactly one property across both files.
+That is the stated exception and this is what it is for. Do not make any other change in
+`style` while you are in there.
 
-Nothing else from the last round. `PushLayer`, `PopLayer` and deferred paint stay with
-`window`, and `ui.Button` and `examples/button` stay with `ui` — you were right not to
-touch them, and the confusion was mine.
+Update `docs/packages.md`? No — that is mine. Tell me which properties landed and I will
+write it, including the count of primitives with producers, because that number has been
+wrong in that file since it was written.
 
 ## Done when
 
-    go test ./ui
+Eight setters are gone and `go build ./...` names every caller that relied on them.
 
-runs. That is the measure this round, not `go test ./element`.
+Five are implemented, with `scene.Underline` and `scene.Shadow` each emitted by a real
+element for the first time.
 
-Plus the `elementtest` prepaint-clip test failing when the phase rule is reverted, the
-width comment telling the truth, and your answer on the style-invalidation question.
+`go test ./element ./element/elementtest` and the `facet_debug` run pass, and each
+implemented property has a test that fails when its own emission is removed.
