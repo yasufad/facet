@@ -394,6 +394,20 @@ value means nothing set and is correct.
 
 Keymaps, actions, the focus tree, and dispatch from a raw event to a handler.
 
+Text and IME composition go to the focused node alone, with no capture or bubble phase.
+Key, pointer and wheel events keep both phases. That asymmetry is the contract, not an
+accident of which dispatcher was written first.
+
+The reason is what the events are. A key chord or a pointer press is raw hardware, and a
+container legitimately intercepts or inherits one — a scroll view, a modal backdrop, a
+drag container all need to see interactions their children ignored. A `TextEvent` or an
+`IMECompositionEvent` is not raw: it is committed text, or an in-flight composition
+session, produced by the platform's own input-method state machine and addressed to the
+active text client. Letting an intermediate container swallow a composition update
+mid-stream would desynchronise us from that state machine, which is how candidate lists
+and composition underlines corrupt. GPUI routes to a focused input handler for the same
+reason.
+
 Invariants: takes raw events from `platform` and resolves them against a context
 stack. Knows about focus, not about geometry beyond hit-test results handed to it.
 Tab order belongs to `element`, which knows tree order; a focus hierarchy is not the
