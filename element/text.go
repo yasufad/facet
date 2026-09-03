@@ -150,12 +150,6 @@ func (t *Text) ClearStrikethrough() *Text {
 	return t
 }
 
-// WhiteSpace sets whitespace wrapping behaviour.
-func (t *Text) WhiteSpace(w style.WhiteSpace) *Text {
-	t.refinement.SetWhiteSpace(w)
-	return t
-}
-
 // TextOverflow sets text overflow truncation behaviour.
 func (t *Text) TextOverflow(to style.TextOverflow) *Text {
 	t.refinement.SetTextOverflow(to)

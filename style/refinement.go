@@ -87,7 +87,6 @@ type Refinement struct {
 	textBackgroundColour colour.Rgba
 	underline            *UnderlineStyle
 	strikethrough        *StrikethroughStyle
-	whiteSpace           WhiteSpace
 	textOverflow         TextOverflow
 	textAlign            TextAlign
 	lineClamp            int
@@ -293,9 +292,6 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propStrikethrough) {
 			r.strikethrough = other.strikethrough
-		}
-		if other.mask.has(propWhiteSpace) {
-			r.whiteSpace = other.whiteSpace
 		}
 		if other.mask.has(propTextOverflow) {
 			r.textOverflow = other.textOverflow
@@ -785,12 +781,6 @@ func (r *Refinement) SetStrikethrough(s StrikethroughStyle) {
 func (r *Refinement) ClearStrikethrough() {
 	r.mask.set(propStrikethrough)
 	r.strikethrough = nil
-}
-
-// SetWhiteSpace sets whitespace wrapping behaviour.
-func (r *Refinement) SetWhiteSpace(w WhiteSpace) {
-	r.mask.set(propWhiteSpace)
-	r.whiteSpace = w
 }
 
 // SetTextOverflow sets overflow text truncation behaviour.

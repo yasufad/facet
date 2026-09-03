@@ -150,16 +150,6 @@ const (
 	CursorResizeRow
 )
 
-// WhiteSpace controls how whitespace inside an element is handled.
-type WhiteSpace uint8
-
-const (
-	// WhiteSpaceNormal allows text to wrap normally.
-	WhiteSpaceNormal WhiteSpace = iota
-	// WhiteSpaceNowrap prevents text from wrapping.
-	WhiteSpaceNowrap
-)
-
 // TextOverflow controls how overflowing text is truncated.
 type TextOverflow uint8
 

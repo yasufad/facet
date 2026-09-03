@@ -854,12 +854,6 @@ func (d *Div) ClearStrikethrough() *Div {
 	return d
 }
 
-// WhiteSpace sets whitespace wrapping behaviour.
-func (d *Div) WhiteSpace(w style.WhiteSpace) *Div {
-	d.refinement.SetWhiteSpace(w)
-	return d
-}
-
 // TextOverflow sets text overflow truncation behaviour.
 func (d *Div) TextOverflow(to style.TextOverflow) *Div {
 	d.refinement.SetTextOverflow(to)

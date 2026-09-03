@@ -84,7 +84,6 @@ const (
 	propTextBackgroundColour
 	propUnderline
 	propStrikethrough
-	propWhiteSpace
 	propTextOverflow
 	propTextAlign
 	propLineClamp
