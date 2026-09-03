@@ -198,8 +198,7 @@ func TestFluentBuilderToLayout(t *testing.T) {
 		FlexWrap(style.FlexWrapWrap).
 		FlexBasis(style.Px(80)).
 		FlexGrow(1.5).
-		FlexShrink(0.5).
-		TextAlign(style.TextAlignCentre)
+		FlexShrink(0.5)
 
 	frame.phase = phaseLayoutRequested
 	id := d.RequestLayout(frame)
@@ -244,9 +243,6 @@ func TestFluentBuilderToLayout(t *testing.T) {
 	}
 	if st.FlexShrink != 0.5 {
 		t.Errorf("FlexShrink = %v, want 0.5", st.FlexShrink)
-	}
-	if st.TextAlign != layout.TextAlignCentre {
-		t.Errorf("TextAlign = %v, want TextAlignCentre", st.TextAlign)
 	}
 }
 

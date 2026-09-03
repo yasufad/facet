@@ -340,9 +340,6 @@ func (s *Style) Refine(r Refinement) {
 		if r.mask.has(propStrikethrough) {
 			s.Text.Strikethrough = r.strikethrough
 		}
-		if r.mask.has(propTextAlign) {
-			s.Text.TextAlign = r.textAlign
-		}
 	}
 }
 
@@ -429,8 +426,6 @@ func (s Style) ToLayout(remSize geometry.Pixels) layout.Style {
 		a := s.JustifyContent.toLayout()
 		l.JustifyContent = &a
 	}
-
-	l.TextAlign = s.Text.TextAlign.toLayout()
 
 	l.FlexDirection = s.FlexDirection.toLayout()
 	l.FlexWrap = s.FlexWrap.toLayout()

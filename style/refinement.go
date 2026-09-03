@@ -87,7 +87,6 @@ type Refinement struct {
 	textBackgroundColour colour.Rgba
 	underline            *UnderlineStyle
 	strikethrough        *StrikethroughStyle
-	textAlign            TextAlign
 }
 
 // IsEmpty reports whether no properties have been set in this refinement.
@@ -290,9 +289,6 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propStrikethrough) {
 			r.strikethrough = other.strikethrough
-		}
-		if other.mask.has(propTextAlign) {
-			r.textAlign = other.textAlign
 		}
 	}
 }
@@ -773,10 +769,4 @@ func (r *Refinement) SetStrikethrough(s StrikethroughStyle) {
 func (r *Refinement) ClearStrikethrough() {
 	r.mask.set(propStrikethrough)
 	r.strikethrough = nil
-}
-
-// SetTextAlign sets horizontal text alignment.
-func (r *Refinement) SetTextAlign(a TextAlign) {
-	r.mask.set(propTextAlign)
-	r.textAlign = a
 }

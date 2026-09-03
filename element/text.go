@@ -150,12 +150,6 @@ func (t *Text) ClearStrikethrough() *Text {
 	return t
 }
 
-// TextAlign sets text alignment.
-func (t *Text) TextAlign(a style.TextAlign) *Text {
-	t.refinement.SetTextAlign(a)
-	return t
-}
-
 // textStyleRuns builds the single-run ShapeLine input for content shaped
 // under textStyle. Both RequestLayout and Paint need the exact same
 // construction, since Paint compares its result against what RequestLayout

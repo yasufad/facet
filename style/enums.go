@@ -150,18 +150,6 @@ const (
 	CursorResizeRow
 )
 
-// TextAlign specifies horizontal alignment of text lines.
-type TextAlign uint8
-
-const (
-	// TextAlignLeft aligns text to the left.
-	TextAlignLeft TextAlign = iota
-	// TextAlignCentre centres text horizontally.
-	TextAlignCentre
-	// TextAlignRight aligns text to the right.
-	TextAlignRight
-)
-
 // Conversion helpers to layout enums
 
 func (d Display) toLayout() layout.Display {
@@ -274,18 +262,5 @@ func (a AlignContent) toLayout() layout.AlignContent {
 		return layout.AlignContentSpaceAround
 	default:
 		return layout.AlignContentStretch
-	}
-}
-
-func (t TextAlign) toLayout() layout.TextAlign {
-	switch t {
-	case TextAlignLeft:
-		return layout.TextAlignLeft
-	case TextAlignCentre:
-		return layout.TextAlignCentre
-	case TextAlignRight:
-		return layout.TextAlignRight
-	default:
-		return layout.TextAlignAuto
 	}
 }

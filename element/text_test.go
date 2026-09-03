@@ -542,8 +542,7 @@ func TestTextStyling(t *testing.T) {
 		TextBackgroundColour(bg).
 		TextBackgroundColourHsla(bgHsla).
 		Underline(style.UnderlineStyle{Thickness: 1}).
-		Strikethrough(style.StrikethroughStyle{Thickness: 1}).
-		TextAlign(style.TextAlignCentre)
+		Strikethrough(style.StrikethroughStyle{Thickness: 1})
 
 	txt.ClearUnderline()
 	txt.ClearStrikethrough()

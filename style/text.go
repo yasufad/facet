@@ -61,9 +61,6 @@ type TextStyle struct {
 
 	// Strikethrough configures strikethrough styling.
 	Strikethrough *StrikethroughStyle
-
-	// TextAlign controls horizontal text alignment.
-	TextAlign TextAlign
 }
 
 // DefaultTextStyle returns the default text styling.
@@ -75,6 +72,5 @@ func DefaultTextStyle() TextStyle {
 		LineHeight: 20,
 		FontWeight: text.WeightNormal,
 		FontStyle:  text.StyleNormal,
-		TextAlign:  TextAlignLeft,
 	}
 }
