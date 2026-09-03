@@ -33,27 +33,28 @@
 Your last prompt said you were blocked on two packages. Both have reported since, and this
 is the round where the framework either works end to end or does not.
 
-Read the two blockers below before starting — one of them still stops your tests running,
-and it is not yours to fix.
+**You are blocked on nothing.** Both things this prompt used to wait on have landed:
+`elementtest` has the dual clip stack, so `go test ./ui` runs, and `input` has
+`ScrollUnit`, `ScrollPixels` and `ScrollLines`.
 
-## Still blocked, briefly, on two things not yours
+## Do this first — one import, and the tree goes green
 
-`go test ./ui` panics at HEAD:
+`internal/layering` is the only failing test in the entire repository, and it has been red
+since before any of this work started. The cause is one line in `ui/scroll_view.go`:
 
-    panic: elementtest: PushClip called outside paint phase
+```go
+if event.Delta.Unit == platform.ScrollPixels {
+```
 
-`element` taught `Div.Prepaint` to push a clip and left the exported double enforcing the
-old paint-only rule. It is assigned and it is that agent's first item this round. You
-cannot run a widget test until it lands.
+`input` now names that vocabulary. Swap `platform.ScrollPixels` for `input.ScrollPixels`,
+drop the `platform` import, and `go test ./internal/layering` passes for the first time.
 
-`internal/layering` is still red because `ui/scroll_view.go` reads
-`event.Delta.Unit == platform.ScrollPixels`. `input` aliased the four event types but not
-the scroll unit vocabulary, which is a gap I created by scoping that prompt from its
-handler signatures rather than from your call site. It is reopened and assigned. When
-`input.ScrollUnit`, `input.ScrollPixels` and `input.ScrollLines` exist, drop the
-`platform` import — that one edit turns the layering test green for the first time.
+That gap was mine: I scoped `input`'s prompt from its own handler signatures instead of
+from this call site, so the first round aliased the four event types and missed the scroll
+unit. It cost you a round of being blocked.
 
-Start on the rest while you wait; neither blocks the Button work.
+It is a two-minute change and it clears the last red test. Land it on its own before
+anything else here.
 
 ## What is now available to you
 
