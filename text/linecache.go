@@ -2,6 +2,7 @@ package text
 
 import (
 	"hash/maphash"
+	"slices"
 	"unsafe"
 
 	"golang.org/x/image/math/fixed"
@@ -26,17 +27,21 @@ const defaultLineCacheBytes = 4 << 20
 // runsHash is a 64-bit digest, not the runs' serialised bytes: ShapeLine is
 // called per text element per frame, so building and converting a []byte
 // into a string on every lookup — a hit included — is exactly the allocation
-// the shape cache's own key was fixed to stop paying, one level up. Two
-// distinct run sets that hash to the same 64-bit digest would silently share
-// a cache entry and return the wrong shaped lines for one of them; at 64
-// bits with a random per-process seed that risk is on the order of a
-// hardware bit-flip, which is judged an acceptable trade for a cache, not
-// swept under a refactor — flagged here because it changes the key's
-// guarantee from exact equality to overwhelmingly-likely equality.
+// the shape cache's own key was fixed to stop paying, one level up. The hash
+// keeps map lookup allocation-free; to eliminate the risk of a digest collision
+// silently returning wrong glyphs, each cache entry stores a copy of the runs
+// it was built from and confirms them field by field on a hit before returning.
 type lineCacheKey struct {
 	text     string
 	runsHash uint64
 	maxWidth fixed.Int26_6
+}
+
+// lineCacheEntry stores the shaped lines along with a cloned copy of the style
+// runs used to build them, used to confirm a cache hit against hash collision.
+type lineCacheEntry struct {
+	runs  []StyleRun
+	lines []ShapedLine
 }
 
 // lineCache memoises the fully wrapped result of wrap, so a repeated
@@ -49,12 +54,19 @@ type lineCacheKey struct {
 // time, and is why lineCache is embedded in System by value rather than
 // held behind a pointer to a fresh cache per call.
 type lineCache struct {
-	lru  *byteLRU[lineCacheKey, []ShapedLine]
+	lru  *byteLRU[lineCacheKey, lineCacheEntry]
 	hash maphash.Hash
 }
 
 func newLineCache() lineCache {
-	return lineCache{lru: newByteLRU[lineCacheKey, []ShapedLine](defaultLineCacheBytes, sizeOfShapedLines)}
+	return lineCache{lru: newByteLRU[lineCacheKey, lineCacheEntry](defaultLineCacheBytes, sizeOfLineCacheEntry)}
+}
+
+// sizeOfLineCacheEntry estimates the byte weight of a wrapped result and its
+// stored style runs for the cache's eviction accounting.
+func sizeOfLineCacheEntry(e lineCacheEntry) int64 {
+	const runSize = int64(unsafe.Sizeof(StyleRun{}))
+	return sizeOfShapedLines(e.lines) + int64(len(e.runs))*runSize
 }
 
 // sizeOfShapedLines estimates the byte weight of a wrapped result for the
@@ -150,6 +162,74 @@ func cloneShapedLines(lines []ShapedLine) []ShapedLine {
 		out[i].runs = runs
 	}
 	return out
+}
+
+// get returns the cached shaped lines for key if present and confirmed by an
+// exact field-by-field comparison against the entry's stored style runs. If the
+// digest matched but the runs differ (a hash collision), get returns nil,
+// false so the caller treats it as a miss and shapes afresh.
+func (c *lineCache) get(key lineCacheKey, runs []StyleRun) ([]ShapedLine, bool) {
+	if entry, ok := c.lru.Get(key); ok && styleRunsEqual(runs, entry.runs) {
+		return entry.lines, true
+	}
+	return nil, false
+}
+
+// put stores lines and a cloned copy of runs under key. runs is cloned so a
+// caller that mutates its own slice afterwards cannot corrupt the confirmation
+// data of an entry already in the cache.
+func (c *lineCache) put(key lineCacheKey, runs []StyleRun, lines []ShapedLine) {
+	c.lru.Put(key, lineCacheEntry{
+		runs:  cloneStyleRuns(runs),
+		lines: lines,
+	})
+}
+
+// cloneStyleRuns returns a copy of runs whose slice fields (Font.Families and
+// Features) do not alias runs itself. Stored in lineCacheEntry to confirm a hit
+// against hash collision; must not alias caller-owned memory because a caller
+// mutating a run after calling ShapeLine or WrapText would otherwise corrupt
+// the cache entry's confirmation data.
+func cloneStyleRuns(runs []StyleRun) []StyleRun {
+	if runs == nil {
+		return nil
+	}
+	out := make([]StyleRun, len(runs))
+	for i, r := range runs {
+		out[i] = r
+		if len(r.Font.Families) > 0 {
+			out[i].Font.Families = slices.Clone(r.Font.Families)
+		}
+		if len(r.Features) > 0 {
+			out[i].Features = slices.Clone(r.Features)
+		}
+	}
+	return out
+}
+
+// styleRunsEqual reports whether a and b describe identical styling across all
+// runs. StyleRun and FontRequest both carry slices (Families and Features), so
+// neither is comparable with ==; this is a manual field-by-field comparison
+// with slices.Equal on the slice fields.
+func styleRunsEqual(a, b []StyleRun) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].ByteLen != b[i].ByteLen ||
+			a[i].Size != b[i].Size ||
+			a[i].Direction != b[i].Direction ||
+			a[i].Language != b[i].Language ||
+			a[i].Font.Family != b[i].Font.Family ||
+			a[i].Font.Weight != b[i].Font.Weight ||
+			a[i].Font.Style != b[i].Font.Style ||
+			a[i].Font.Stretch != b[i].Font.Stretch ||
+			!slices.Equal(a[i].Font.Families, b[i].Font.Families) ||
+			!slices.Equal(a[i].Features, b[i].Features) {
+			return false
+		}
+	}
+	return true
 }
 
 // SetLineCacheBytes sets the wrapped-line cache's byte ceiling, evicting

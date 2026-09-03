@@ -54,14 +54,14 @@ func (s *System) WrapText(text string, runs []StyleRun, maxWidth geometry.Pixels
 // call reads.
 func (s *System) wrap(text string, runs []StyleRun, maxWidth fixed.Int26_6) ([]ShapedLine, error) {
 	key := lineCacheKey{text: text, runsHash: s.lineCache.hashRuns(runs), maxWidth: maxWidth}
-	if lines, ok := s.lineCache.lru.Get(key); ok {
+	if lines, ok := s.lineCache.get(key, runs); ok {
 		return cloneShapedLines(lines), nil
 	}
 	lines, err := s.wrapUncached(text, runs, maxWidth)
 	if err != nil {
 		return nil, err
 	}
-	s.lineCache.lru.Put(key, lines)
+	s.lineCache.put(key, runs, lines)
 	return cloneShapedLines(lines), nil
 }
 
