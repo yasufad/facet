@@ -307,3 +307,55 @@ func TestScrollStateClamping(t *testing.T) {
 		t.Errorf("expected offset clamped to 0, got %v", st.Offset())
 	}
 }
+
+func TestScrollViewPaintDoesNotNotifyOrScheduleFrame(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	state := app.New(a, func(cx *app.Context[ScrollState]) ScrollState {
+		return NewScrollState()
+	})
+	defer state.Release()
+
+	// Observe state entity: if Paint calls cx.Notify(), this observer fires.
+	notifications := 0
+	sub := a.Observe(state.AnyEntity(), func(app *app.App) bool {
+		notifications++
+		return true
+	})
+	defer sub.Close()
+
+	tallContent := element.NewDiv().
+		Width(style.Px(200)).
+		Height(style.Px(500))
+
+	sv := NewScrollView(a, state).
+		Child(tallContent)
+
+	frame := elementtest.NewFrame()
+	rootID := sv.RequestLayout(frame)
+	frame.Solve(rootID, 200, 150)
+
+	bounds := frame.LayoutBounds(rootID)
+	frame.SetPhase(elementtest.PhasePrepaint)
+	sv.Prepaint(frame, bounds)
+
+	frame.SetPhase(elementtest.PhasePaint)
+	sv.Paint(frame, bounds)
+
+	// Flush any queued reactive effects.
+	a.Flush()
+
+	// Assert 1: metrics were indeed written to entity state during paint.
+	st := state.Read(a)
+	if st.viewportHeight != 150 || st.contentHeight != 500 {
+		t.Fatalf("expected metrics recorded in paint: viewport=150, content=500, got viewport=%v, content=%v",
+			st.viewportHeight, st.contentHeight)
+	}
+
+	// Assert 2: paint did not notify (frame count / notifications after paint is 0).
+	if notifications != 0 {
+		t.Fatalf("ScrollView.Paint notified entity state (%d notifications); paint-phase notify triggers infinite frame loops",
+			notifications)
+	}
+}
