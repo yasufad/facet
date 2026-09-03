@@ -10,10 +10,10 @@ import (
 
 // Default button theme colours.
 var (
-	defaultButtonBg       = colour.Rgba{R: 0.22, G: 0.25, B: 0.30, A: 1.0}
-	defaultButtonHoverBg  = colour.Rgba{R: 0.28, G: 0.32, B: 0.38, A: 1.0}
-	defaultButtonActiveBg = colour.Rgba{R: 0.18, G: 0.20, B: 0.24, A: 1.0}
-	defaultButtonBorder   = colour.Rgba{R: 0.35, G: 0.40, B: 0.48, A: 1.0}
+	defaultButtonBg           = colour.Rgba{R: 0.22, G: 0.25, B: 0.30, A: 1.0}
+	defaultButtonHoverBg      = colour.Rgba{R: 0.28, G: 0.32, B: 0.38, A: 1.0}
+	defaultButtonActiveBg     = colour.Rgba{R: 0.18, G: 0.20, B: 0.24, A: 1.0}
+	defaultButtonBorder       = colour.Rgba{R: 0.35, G: 0.40, B: 0.48, A: 1.0}
 	defaultButtonText         = colour.Rgba{R: 0.95, G: 0.95, B: 0.95, A: 1.0}
 	defaultButtonFocus        = colour.Rgba{R: 0.30, G: 0.55, B: 0.90, A: 1.0}
 	defaultButtonDisabledBg   = colour.Rgba{R: 0.14, G: 0.16, B: 0.19, A: 1.0}
