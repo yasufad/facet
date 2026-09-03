@@ -79,6 +79,42 @@ w32/
       which Facet does not vendor. OLE drag-and-drop is out of scope
       until a platform assignment needs it.
 
+      Also added procCoTaskMemFree and its wrapper, to free the strings
+      IShellItem.GetDisplayName returns (see shobjidl.go) — Wails'
+      webview dialogs never hand back a COM-allocated string to free.
+
+    shell32.go
+      Added procSHCreateItemFromParsingName and its wrapper. Wails'
+      webview shows its own file pickers; Facet's ShowOpenDialog needs
+      it to resolve an initial-directory path to the IShellItem
+      IFileDialog::SetFolder takes.
+
+    shobjidl.go
+      Not from Wails at all — added whole. The Common Item Dialog
+      (IFileOpenDialog, IShellItem, IShellItemArray) has no counterpart
+      in Wails v3's w32 package, because its webview shows file pickers
+      through its own dialog integration; Facet has no webview.
+
+      The vtable layout and GUIDs are not from memory. Both the
+      Microsoft Learn API reference pages for IFileDialog and
+      IFileOpenDialog list methods alphabetically, not in declaration
+      order, so they cannot be read off as a vtable — using them that
+      way would have been exactly the kind of plausible-looking, wrong
+      detail this file exists to guard against. The layout and GUIDs
+      here were checked against two independent, shipping
+      implementations instead: SDL3's
+      src/dialog/windows/SDL_windowsdialog.c, and Wine's
+      include/shobjidl.idl (the uuid attributes on IShellItem and
+      IFileOpenDialog, and the FileOpenDialog coclass). Both agree on
+      every field, order and GUID. platform's
+      TestNewFileOpenDialogConfigures and
+      TestNewFileOpenDialogSingleSelect then exercised the result
+      against a real CoCreateInstance and a GetOptions round-trip,
+      which is independent evidence again: a wrong vtable slot here
+      reads as a legal call to the wrong method, not a crash, so
+      passing tests against real Windows COM is what the static
+      cross-check with SDL and Wine cannot provide by itself.
+
 mainthread/
   Source
     v3/pkg/application/mainthread_windows.go and mainthread.go in
