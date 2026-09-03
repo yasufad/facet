@@ -26,9 +26,6 @@ type Style struct {
 	// ScrollbarWidth is the space reserved for scrollbars.
 	ScrollbarWidth geometry.Pixels
 
-	// AllowConcurrentScroll allows both axes to scroll concurrently.
-	AllowConcurrentScroll bool
-
 	// RestrictScrollToAxis locks scrolling to the initial gesture axis.
 	RestrictScrollToAxis bool
 
@@ -111,38 +108,37 @@ type Style struct {
 // Default returns the default style.
 func Default() Style {
 	return Style{
-		Display:               DisplayFlex,
-		Position:              PositionRelative,
-		Visibility:            VisibilityVisible,
-		Overflow:              NewPoint(OverflowVisible, OverflowVisible),
-		ScrollbarWidth:        0,
-		AllowConcurrentScroll: false,
-		RestrictScrollToAxis:  false,
-		Inset:                 NewEdges(Auto(), Auto(), Auto(), Auto()),
-		Margin:                NewEdges(Px(0), Px(0), Px(0), Px(0)),
-		Padding:               NewEdges(Px(0), Px(0), Px(0), Px(0)),
-		BorderWidths:          geometry.NewEdges(geometry.Pixels(0), 0, 0, 0),
-		BorderColour:          colour.Rgba{},
-		BorderStyle:           BorderStyleSolid,
-		CornerRadii:           geometry.NewCorners(geometry.Pixels(0), 0, 0, 0),
-		Size:                  NewSize(Auto(), Auto()),
-		MinSize:               NewSize(Auto(), Auto()),
-		MaxSize:               NewSize(Auto(), Auto()),
-		AspectRatio:           nil,
-		Gap:                   NewSize(Px(0), Px(0)),
-		AlignItems:            nil,
-		AlignSelf:             nil,
-		AlignContent:          nil,
-		JustifyContent:        nil,
-		FlexDirection:         FlexDirectionRow,
-		FlexWrap:              FlexWrapNoWrap,
-		FlexBasis:             Auto(),
-		FlexGrow:              0.0,
-		FlexShrink:            1.0,
-		Background:            colour.Rgba{},
-		BoxShadow:             nil,
-		MouseCursor:           CursorDefault,
-		Text:                  DefaultTextStyle(),
+		Display:              DisplayFlex,
+		Position:             PositionRelative,
+		Visibility:           VisibilityVisible,
+		Overflow:             NewPoint(OverflowVisible, OverflowVisible),
+		ScrollbarWidth:       0,
+		RestrictScrollToAxis: false,
+		Inset:                NewEdges(Auto(), Auto(), Auto(), Auto()),
+		Margin:               NewEdges(Px(0), Px(0), Px(0), Px(0)),
+		Padding:              NewEdges(Px(0), Px(0), Px(0), Px(0)),
+		BorderWidths:         geometry.NewEdges(geometry.Pixels(0), 0, 0, 0),
+		BorderColour:         colour.Rgba{},
+		BorderStyle:          BorderStyleSolid,
+		CornerRadii:          geometry.NewCorners(geometry.Pixels(0), 0, 0, 0),
+		Size:                 NewSize(Auto(), Auto()),
+		MinSize:              NewSize(Auto(), Auto()),
+		MaxSize:              NewSize(Auto(), Auto()),
+		AspectRatio:          nil,
+		Gap:                  NewSize(Px(0), Px(0)),
+		AlignItems:           nil,
+		AlignSelf:            nil,
+		AlignContent:         nil,
+		JustifyContent:       nil,
+		FlexDirection:        FlexDirectionRow,
+		FlexWrap:             FlexWrapNoWrap,
+		FlexBasis:            Auto(),
+		FlexGrow:             0.0,
+		FlexShrink:           1.0,
+		Background:           colour.Rgba{},
+		BoxShadow:            nil,
+		MouseCursor:          CursorDefault,
+		Text:                 DefaultTextStyle(),
 	}
 }
 
@@ -169,9 +165,6 @@ func (s *Style) Refine(r Refinement) {
 		}
 		if r.mask.has(propScrollbarWidth) {
 			s.ScrollbarWidth = r.scrollbarWidth
-		}
-		if r.mask.has(propAllowConcurrentScroll) {
-			s.AllowConcurrentScroll = r.allowConcurrentScroll
 		}
 		if r.mask.has(propRestrictScrollToAxis) {
 			s.RestrictScrollToAxis = r.restrictScrollToAxis

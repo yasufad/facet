@@ -328,12 +328,6 @@ func (d *Div) ScrollbarWidth(w geometry.Pixels) *Div {
 	return d
 }
 
-// AllowConcurrentScroll sets whether both axes can scroll concurrently.
-func (d *Div) AllowConcurrentScroll(allow bool) *Div {
-	d.refinement.SetAllowConcurrentScroll(allow)
-	return d
-}
-
 // RestrictScrollToAxis sets whether scroll is locked to the dominant gesture axis.
 func (d *Div) RestrictScrollToAxis(restrict bool) *Div {
 	d.refinement.SetRestrictScrollToAxis(restrict)

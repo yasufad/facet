@@ -163,7 +163,6 @@ func TestFluentBuilderToLayout(t *testing.T) {
 		Visible().
 		Overflow(style.OverflowScroll).
 		ScrollbarWidth(12).
-		AllowConcurrentScroll(true).
 		RestrictScrollToAxis(true).
 		InsetTop(style.Px(10)).
 		InsetRight(style.Px(20)).

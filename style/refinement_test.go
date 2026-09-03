@@ -300,7 +300,6 @@ func TestDistinctPropertyIndices(t *testing.T) {
 		{"propOverflowX", propOverflowX},
 		{"propOverflowY", propOverflowY},
 		{"propScrollbarWidth", propScrollbarWidth},
-		{"propAllowConcurrentScroll", propAllowConcurrentScroll},
 		{"propRestrictScrollToAxis", propRestrictScrollToAxis},
 		{"propInsetTop", propInsetTop},
 		{"propInsetRight", propInsetRight},

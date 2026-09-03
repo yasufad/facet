@@ -13,7 +13,6 @@ const (
 	propOverflowX
 	propOverflowY
 	propScrollbarWidth
-	propAllowConcurrentScroll
 	propRestrictScrollToAxis
 
 	propInsetTop

@@ -13,14 +13,13 @@ import (
 type Refinement struct {
 	mask mask
 
-	display               Display
-	position              Position
-	visibility            Visibility
-	overflowX             Overflow
-	overflowY             Overflow
-	scrollbarWidth        geometry.Pixels
-	allowConcurrentScroll bool
-	restrictScrollToAxis  bool
+	display              Display
+	position             Position
+	visibility           Visibility
+	overflowX            Overflow
+	overflowY            Overflow
+	scrollbarWidth       geometry.Pixels
+	restrictScrollToAxis bool
 
 	insetTop    Length
 	insetRight  Length
@@ -119,9 +118,6 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propScrollbarWidth) {
 			r.scrollbarWidth = other.scrollbarWidth
-		}
-		if other.mask.has(propAllowConcurrentScroll) {
-			r.allowConcurrentScroll = other.allowConcurrentScroll
 		}
 		if other.mask.has(propRestrictScrollToAxis) {
 			r.restrictScrollToAxis = other.restrictScrollToAxis
@@ -335,12 +331,6 @@ func (r *Refinement) SetOverflowY(o Overflow) {
 func (r *Refinement) SetScrollbarWidth(w geometry.Pixels) {
 	r.mask.set(propScrollbarWidth)
 	r.scrollbarWidth = w
-}
-
-// SetAllowConcurrentScroll sets whether both axes can scroll concurrently.
-func (r *Refinement) SetAllowConcurrentScroll(allow bool) {
-	r.mask.set(propAllowConcurrentScroll)
-	r.allowConcurrentScroll = allow
 }
 
 // SetRestrictScrollToAxis sets whether scroll is locked to the dominant gesture axis.
