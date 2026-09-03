@@ -35,12 +35,12 @@ func (c *CounterView) Render(cx *app.Context[CounterView]) element.Element {
 				FontSize(geometry.Pixels(22)).
 				TextColour(colour.Rgba{R: 0.9, G: 0.9, B: 0.95, A: 1.0}),
 			ui.NewButton("Click Me").
-				OnClick(func(event element.ClickEvent) bool {
+				OnClick(element.Listener(cx, func(c *CounterView, event element.ClickEvent, cx *app.Context[CounterView]) bool {
 					c.count++
 					fmt.Printf("Button clicked! Count: %d\n", c.count)
 					cx.Notify()
 					return true
-				}),
+				})),
 		)
 }
 
