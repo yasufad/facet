@@ -243,6 +243,36 @@ apart while they were computed separately, and a request for 640×480 produced a
 625×443 client area. Where a live value exists, read it rather than re-deriving —
 resizing reads the window's current style rather than recomputing from options.
 
+A window is in exactly one `WindowState` at a time — normal, minimised, maximised or
+fullscreen — because the OS cannot represent the combinations four independent booleans
+would allow, and ordering between four setters would matter silently.
+
+Three of those are the OS's own answer and cannot drift: `IsIconic` and `IsZoomed` read
+what the user, the window manager, alt-tab and snap actually did. Fullscreen is not a
+Win32 state at all — it is a borderless window sized to the monitor — so it is ours to
+remember, and a remembered flag can lie. It is therefore reported only when the flag is
+set *and* the window still carries the style and bounds we applied on entry; when they
+disagree the flag is cleared. The flag is intent, the geometry corroborates it, and a
+window that left fullscreen by some other route stops being reported as fullscreen rather
+than lying quietly. Wails' `IsWindowFullScreen` infers the state from geometry alone,
+which reports any window a user dragged to cover the monitor as fullscreen; we do not use
+it.
+
+Minimising never touches that bookkeeping, and nothing has to be stored to make restore
+work. Windows leaves `rcNormalPosition` alone when it minimises — `SW_SHOWMINIMIZED` is
+overlaid, not substituted — so a fullscreen window comes back fullscreen for free, even
+when restored by a raw `ShowWindow` that never went through `SetState`.
+`WPF_RESTORETOMAXIMIZED` is not that mechanism and was mistaken for it here: the SDK says
+it forces a restore to maximised "regardless of whether it was maximized before", which is
+an override of the default behaviour rather than the thing producing it.
+
+Where the official documentation lists a COM interface's methods alphabetically, as
+Microsoft Learn does for `IFileDialog`, it cannot be used to lay out a vtable — and a
+wrong slot is a legal call to the wrong method, not a crash. Cross-check the order and the
+GUIDs against two independent shipping implementations that must already be right; SDL and
+Wine's IDL served for the file dialogs. Then test against a real `CoCreateInstance` round
+trip, because two sources agreeing is still not the same as the call working.
+
 The cursor shape belongs to `Window`, the cursor's visibility to `Platform`. The split
 is not stylistic: a pointer is over exactly one window, and Win32 answers the shape
 per-window anyway, so `Platform.SetCursor` had no way to say which window it meant and
