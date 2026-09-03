@@ -4,6 +4,11 @@
 // https://github.com/wailsapp/wails
 //
 // MIT License -- see NOTICE for the full text.
+//
+// Modified from the original: added procSHCreateItemFromParsingName and its
+// wrapper. Wails' webview shows its own file pickers; Facet's ShowOpenDialog
+// needs it to resolve an initial-directory path to the IShellItem
+// IFileDialog::SetFolder takes.
 
 /*
  * Copyright (C) 2019 Tad Vizbaras. All Rights Reserved.
@@ -208,20 +213,35 @@ var (
 var (
 	modshell32 = syscall.NewLazyDLL("shell32.dll")
 
-	procSHBrowseForFolder      = modshell32.NewProc("SHBrowseForFolderW")
-	procSHGetPathFromIDList    = modshell32.NewProc("SHGetPathFromIDListW")
-	procDragAcceptFiles        = modshell32.NewProc("DragAcceptFiles")
-	procDragQueryFile          = modshell32.NewProc("DragQueryFileW")
-	procDragQueryPoint         = modshell32.NewProc("DragQueryPoint")
-	procDragFinish             = modshell32.NewProc("DragFinish")
-	procShellExecute           = modshell32.NewProc("ShellExecuteW")
-	procExtractIcon            = modshell32.NewProc("ExtractIconW")
-	procGetSpecialFolderPath   = modshell32.NewProc("SHGetSpecialFolderPathW")
-	procShellNotifyIcon        = modshell32.NewProc("Shell_NotifyIconW")
-	procShellNotifyIconGetRect = modshell32.NewProc("Shell_NotifyIconGetRect")
-	procSHGetKnownFolderPath   = modshell32.NewProc("SHGetKnownFolderPath")
-	procSHAppBarMessage        = modshell32.NewProc("SHAppBarMessage")
+	procSHBrowseForFolder           = modshell32.NewProc("SHBrowseForFolderW")
+	procSHGetPathFromIDList         = modshell32.NewProc("SHGetPathFromIDListW")
+	procDragAcceptFiles             = modshell32.NewProc("DragAcceptFiles")
+	procDragQueryFile               = modshell32.NewProc("DragQueryFileW")
+	procDragQueryPoint              = modshell32.NewProc("DragQueryPoint")
+	procDragFinish                  = modshell32.NewProc("DragFinish")
+	procShellExecute                = modshell32.NewProc("ShellExecuteW")
+	procExtractIcon                 = modshell32.NewProc("ExtractIconW")
+	procGetSpecialFolderPath        = modshell32.NewProc("SHGetSpecialFolderPathW")
+	procShellNotifyIcon             = modshell32.NewProc("Shell_NotifyIconW")
+	procShellNotifyIconGetRect      = modshell32.NewProc("Shell_NotifyIconGetRect")
+	procSHGetKnownFolderPath        = modshell32.NewProc("SHGetKnownFolderPath")
+	procSHAppBarMessage             = modshell32.NewProc("SHAppBarMessage")
+	procSHCreateItemFromParsingName = modshell32.NewProc("SHCreateItemFromParsingName")
 )
+
+// SHCreateItemFromParsingName resolves path to an IShellItem, for
+// IFileDialog::SetFolder. pbc (a bind context) is passed as 0 here; Facet
+// has no use for one.
+func SHCreateItemFromParsingName(path *uint16) (*IShellItem, HRESULT) {
+	var item *IShellItem
+	r, _, _ := procSHCreateItemFromParsingName.Call(
+		uintptr(unsafe.Pointer(path)),
+		0,
+		uintptr(unsafe.Pointer(&IID_IShellItem)),
+		uintptr(unsafe.Pointer(&item)),
+	)
+	return item, HRESULT(r)
+}
 
 type APPBARDATA struct {
 	CbSize           uint32
