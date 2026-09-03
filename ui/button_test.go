@@ -89,8 +89,8 @@ func TestButtonClickDispatch(t *testing.T) {
 	btn.Prepaint(frame, bounds)
 
 	centerPt := geometry.Point[geometry.Pixels]{
-		X: bounds.Origin.X + bounds.Size.Width / 2,
-		Y: bounds.Origin.Y + bounds.Size.Height / 2,
+		X: bounds.Origin.X + bounds.Size.Width/2,
+		Y: bounds.Origin.Y + bounds.Size.Height/2,
 	}
 
 	frame.DispatchPointer(elementtest.PointerDown, centerPt, element.MouseButtonLeft, 0)
