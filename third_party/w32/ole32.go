@@ -9,6 +9,10 @@
 // along with the combridge import. They depended on Wails' webview2 COM
 // bridge, which Facet does not vendor. OLE drag-and-drop is out of scope
 // until a platform assignment needs it.
+//
+// Also added procCoTaskMemFree and its wrapper, to free the strings
+// IShellItem.GetDisplayName returns (see shobjidl.go) -- Wails' webview
+// dialogs never hand back a COM-allocated string to free.
 
 /*
  * Copyright (C) 2019 Tad Vizbaras. All Rights Reserved.
@@ -30,7 +34,14 @@ var (
 	procCoUninitialize        = modole32.NewProc("CoUninitialize")
 	procCoCreateInstance      = modole32.NewProc("CoCreateInstance")
 	procCreateStreamOnHGlobal = modole32.NewProc("CreateStreamOnHGlobal")
+	procCoTaskMemFree         = modole32.NewProc("CoTaskMemFree")
 )
+
+// CoTaskMemFree releases memory the OS allocated with the COM task
+// allocator -- the string IShellItem.GetDisplayName returns, notably.
+func CoTaskMemFree(p unsafe.Pointer) {
+	procCoTaskMemFree.Call(uintptr(p))
+}
 
 func CoInitializeEx(coInit uintptr) HRESULT {
 	ret, _, _ := procCoInitializeEx.Call(
