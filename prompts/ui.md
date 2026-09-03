@@ -28,141 +28,79 @@
 > `AGENTS.md` or `prompts/` — those belong to the reviewing agent, who writes up what your
 > package guarantees once it lands.
 
-# ui: the last package between this framework and a working example
+# ui: the tree is green, and one test agrees with its own bug
 
-Everything you were waiting on has landed. Nothing here is blocked, and two of the items
-below are the only red things left in the repository.
+Everything in the last prompt landed. `go build`, `go vet`, `gofmt` and `go test ./...`
+are all clean at HEAD — the whole tree, for the first time in this project's life.
+`internal/layering` had been red since before any of this work started.
 
-## 1. `main` does not build, and it is your file
+I broke `element.Listener` and
+`TestButtonClickInWindowMutatesEntityAndRendersNextFrame` failed. A `ui.Button`, clicked
+in a real window, mutating entity state, with the next frame rendering it. That path is
+what `docs/audit.md` opens by saying could not work, and it is now executed by a test that
+fails when it stops working.
 
-```
-ui\button.go:163:9: b.div.Opacity undefined (type *element.Div has no field or method Opacity)
-```
+The `Disabled` affordance is the right fix rather than the minimum one — guarding the
+hover, active and focus pseudo-states when disabled is the part that would have been left
+out.
 
-`element` deleted the `Opacity` setter because it had no consumer — it set a property
-nothing read, so `Button.Disabled` has rendered identically to an enabled button for as
-long as it has existed. The deletion was right and I ordered it.
+## The one finding
 
-The sequencing was mine and it was wrong. I told `element` to delete it and told them
-explicitly not to fix `ui`, which guarantees the broken `main` we have. `AGENTS.md` covers
-renames and interface methods; a deletion is the same shape — the caller stops calling
-before the provider removes — and I inverted it two lines below where the rule is written.
+`TestTextFieldClickToPlaceCaret` cannot fail on its own subject.
 
-Give `Disabled` a real affordance. A dimmer background and a dimmer foreground through the
-refinement you already build. That is what the opacity was standing in for and it is the
-version that will actually be visible.
+I replaced **both** `ClosestIndexForX` call sites with a hardcoded `0`. The drag test
+failed. `TestTextFieldClickToPlaceCaret` passed.
 
-Land it on its own, first.
+Its assertion is `expected cursor near 0`, so it clicks at the left edge — the one
+position where a caret that always lands at 0 and a correct one agree. It is the same
+shape as `window`'s capture test dragging into empty space, and that one took two rounds
+to find.
 
-## 2. One import, and the last failing test goes green
+Click in the middle of "Testing Caret Placement" and assert the index the click maps to.
+Then break `ClosestIndexForX` and confirm it fails. The drag test already discriminates,
+so keep it; this is the sibling that makes the pair meaningful.
 
-```go
-if event.Delta.Unit == platform.ScrollPixels {
-```
+Everything else in `TextField` survived breaking. Typing, backspace and delete, arrow keys
+and selection, disabled, and drag selection all fail when their own mechanism is removed.
 
-`input` now has `ScrollUnit`, `ScrollPixels` and `ScrollLines`. Swap them, drop the
-`platform` import from `ui/scroll_view.go`, and `internal/layering` passes for the first
-time since before this work started.
+## The element identity decision, which I owe you
 
-That gap was also mine — I scoped `input`'s first prompt from its own handler signatures
-rather than from your call site, so it aliased the four event types and missed the scroll
-unit. It cost you a round of being blocked.
+Your forecast is what settled it, and your fourth point — that a virtual list must report a
+content extent Taffy cannot derive from children it never built — is the constraint I had
+not considered.
 
-## What is available to you now
+I read `crates/gpui` against it. Two things came back:
 
-**`element.Listener` and `element.PhasedListener`.** A handler reaches its view's state:
+`Element::request_layout` **receives** `global_id`. Identity is available in all three
+phases; only `Window::with_element_state`, the frame-keyed store, is prepaint-and-paint.
+So identity being unavailable during layout was never the obstacle.
 
-```go
-element.Listener(cx, func(v *T, e element.ClickEvent, cx *app.Context[T]) bool { ... })
-```
+And `list.rs` ignores the id it is given in `request_layout`, because its viewport lives
+in a `ListState` handle — an entity, not frame-keyed element state.
 
-`PhasedListener`'s return assigns straight to `input.KeyEventHandler` and its siblings.
+That is the answer, and it is smaller than either of us expected. **A widget's viewport
+belongs in the widget's own entity, which is where `ScrollView` already keeps it.** You do
+not need retained element state in `RequestLayout`; you need last frame's measured
+viewport, and `ScrollState` is already exactly that. The virtual list reads its own entity
+before building children, the same way `ScrollView` reads its metrics today.
 
-**`element.TextLayout`** — `XForIndex`, `IndexForX`, `ClosestIndexForX`, queryable with no
-`Frame` in scope, which is what lets caret arithmetic run during event handling. Half
-leading landed with it, so a taller line height centres its glyphs and the caret comes out
-of the same numbers.
+So the identity decision reduces to what is genuinely element-shaped, and I am taking it:
+path-based `Frame.PushElementId`/`PopElementId`, state keyed by that path, carried between
+the two frames `window` already keeps, pruned when a frame does not touch it. That is
+GPUI's shape and it is confirmed from source. It goes to `element` and `window` when
+something needs it — and on this reading, the list does not.
 
-**Five style properties that now do something**: `Visibility`, `TextBackgroundColour`,
-`Underline`, `Strikethrough`, `BoxShadow`. The last three are the first producers
-`scene.Shadow` and `scene.Underline` have ever had. `BoxShadow` is worth knowing about for
-`Button` — a real elevation is available where it was not before.
+**What you do need is your point four**, and it is the real work: a way to declare a
+content extent without children producing it. Propose the shape. A container property is
+one answer and spacer `Div`s are another, and the difference matters to `layout`, so bring
+me the trade rather than picking one. That is the next architectural decision and it is
+yours to open.
 
-**Pointer capture** in `window`: press inside an element and moves and the release route to
-it wherever the pointer goes, with `IsActive` tracking containment separately. Drag
-selection is in scope.
+## Then
 
-**Hit regions are clipped**, so a widget scrolled out of a `ScrollView` is no longer
-clickable.
+Paint-phase rule: your context-splitting proposal is the strongest of the three — an
+update that hands no `Context` cannot notify, and that is a mechanism rather than a rule.
+It is an `app` change, so it is not yours. I am holding it until the virtual list settles,
+because if frame metrics move onto `Frame` the whole question dissolves.
 
-## 3. Button, and the example
-
-`ui.Button` still takes `func(event element.ClickEvent) bool`, and its test still sets a
-test-local `clicked` without touching an entity — the pattern `AGENTS.md` warns about, and
-the reason the framework's central defect survived as long as it did.
-
-Migrate it to the listener seam, with a test that changes real entity state through a real
-dispatch and reads it back. Break the listener and confirm it fails.
-
-Then `examples/button`. It is written the way the framework intends and has never run. It
-is what `docs/audit.md` opens with.
-
-## 4. The integration test
-
-One test in `internal/integration`, which exists for this and nothing else: `window` may
-not import `ui` and `ui` may not import `window`, so no package can test a widget clicked
-in a real window.
-
-`window` has already written the shape you need —
-`TestClickMutatesEntityStateAndRendersNextFrame` in `window/window_test.go:1395` builds a
-view with entity state, drives a frame, dispatches a synthetic down and up, and asserts
-both the entity changed and the next frame reflects it. Yours is that with a `ui.Button` in
-the middle. Read it rather than starting from nothing.
-
-Keep it to one test. The value is that the path executes at all.
-
-## 5. The text field
-
-Typing, a caret, arrow keys, backspace and delete, click to place the caret. Selection is
-in scope now that capture has landed.
-
-The caret and the selection quad are both `Div`s, as decided. Nothing new is needed below
-you. Clipboard and caret blink stay out.
-
-## 6. The paint-phase rule, still yours
-
-`ScrollView.Paint` writes entity state during paint at two call sites. It works only
-because it does not notify; one `cx.Notify()` there and every frame schedules the next for
-ever.
-
-The rule stands: writing entity state during paint is allowed for recording what the frame
-measured, notifying from paint is not. Put it in the package doc and add a test that fails
-if someone adds the notify — assert the frame count after a paint, not just the recorded
-metrics.
-
-If you would rather have a mechanism than a rule, propose one.
-
-## 7. The forecast, and it now has a deadline
-
-I have asked twice for your reading of what a virtualised list needs from `element`, and I
-have deferred the element identity decision four rounds waiting for it.
-
-I am taking that decision when you next report, with or without it. `docs/audit.md` now
-carries GPUI's mechanism read from source — a path from the root, per-element state carried
-between the two frames `window` already keeps, reachable in prepaint — so it is no longer
-waiting on information I lack.
-
-If you want the shape to fit what you will build against, this is the round to say so.
-`ScrollView` builds, lays out and paints its whole content every frame and clips the
-result; a hundred thousand lines is a hundred thousand elements, and `RequestLayout` has
-already built the subtree by the time `Prepaint` hands you bounds. What would an element
-need to be able to ask, and when?
-
-## Done when
-
-    go build ./...
-    go test ./internal/layering
-    go test ./ui
-    go test ./internal/integration
-
-all pass, and `examples/button` increments a counter when clicked.
+Nothing else outstanding here.
