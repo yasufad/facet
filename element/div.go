@@ -860,12 +860,6 @@ func (d *Div) TextAlign(a style.TextAlign) *Div {
 	return d
 }
 
-// LineClamp sets maximum line count for text.
-func (d *Div) LineClamp(lines int) *Div {
-	d.refinement.SetLineClamp(lines)
-	return d
-}
-
 // --- Lifecycle ---
 
 // RequestLayout requests layout for all children, converts the resolved style

@@ -88,7 +88,6 @@ type Refinement struct {
 	underline            *UnderlineStyle
 	strikethrough        *StrikethroughStyle
 	textAlign            TextAlign
-	lineClamp            int
 }
 
 // IsEmpty reports whether no properties have been set in this refinement.
@@ -294,9 +293,6 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propTextAlign) {
 			r.textAlign = other.textAlign
-		}
-		if other.mask.has(propLineClamp) {
-			r.lineClamp = other.lineClamp
 		}
 	}
 }
@@ -783,10 +779,4 @@ func (r *Refinement) ClearStrikethrough() {
 func (r *Refinement) SetTextAlign(a TextAlign) {
 	r.mask.set(propTextAlign)
 	r.textAlign = a
-}
-
-// SetLineClamp sets the maximum line count before clamping.
-func (r *Refinement) SetLineClamp(lines int) {
-	r.mask.set(propLineClamp)
-	r.lineClamp = lines
 }

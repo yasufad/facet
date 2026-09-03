@@ -64,9 +64,6 @@ type TextStyle struct {
 
 	// TextAlign controls horizontal text alignment.
 	TextAlign TextAlign
-
-	// LineClamp limits the maximum number of lines rendered before truncation.
-	LineClamp int
 }
 
 // DefaultTextStyle returns the default text styling.

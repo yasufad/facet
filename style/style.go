@@ -343,9 +343,6 @@ func (s *Style) Refine(r Refinement) {
 		if r.mask.has(propTextAlign) {
 			s.Text.TextAlign = r.textAlign
 		}
-		if r.mask.has(propLineClamp) {
-			s.Text.LineClamp = r.lineClamp
-		}
 	}
 }
 
