@@ -543,7 +543,6 @@ func TestTextStyling(t *testing.T) {
 		TextBackgroundColourHsla(bgHsla).
 		Underline(style.UnderlineStyle{Thickness: 1}).
 		Strikethrough(style.StrikethroughStyle{Thickness: 1}).
-		TextOverflow(style.TextOverflowEllipsis).
 		TextAlign(style.TextAlignCentre).
 		LineClamp(2)
 

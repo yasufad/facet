@@ -150,12 +150,6 @@ func (t *Text) ClearStrikethrough() *Text {
 	return t
 }
 
-// TextOverflow sets text overflow truncation behaviour.
-func (t *Text) TextOverflow(to style.TextOverflow) *Text {
-	t.refinement.SetTextOverflow(to)
-	return t
-}
-
 // TextAlign sets text alignment.
 func (t *Text) TextAlign(a style.TextAlign) *Text {
 	t.refinement.SetTextAlign(a)

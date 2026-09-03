@@ -854,12 +854,6 @@ func (d *Div) ClearStrikethrough() *Div {
 	return d
 }
 
-// TextOverflow sets text overflow truncation behaviour.
-func (d *Div) TextOverflow(to style.TextOverflow) *Div {
-	d.refinement.SetTextOverflow(to)
-	return d
-}
-
 // TextAlign sets text alignment.
 func (d *Div) TextAlign(a style.TextAlign) *Div {
 	d.refinement.SetTextAlign(a)

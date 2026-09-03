@@ -62,9 +62,6 @@ type TextStyle struct {
 	// Strikethrough configures strikethrough styling.
 	Strikethrough *StrikethroughStyle
 
-	// TextOverflow controls truncation of overflowing text.
-	TextOverflow TextOverflow
-
 	// TextAlign controls horizontal text alignment.
 	TextAlign TextAlign
 
@@ -75,13 +72,12 @@ type TextStyle struct {
 // DefaultTextStyle returns the default text styling.
 func DefaultTextStyle() TextStyle {
 	return TextStyle{
-		Colour:       colour.Rgb(0x000000),
-		FontFamily:   "",
-		FontSize:     16,
-		LineHeight:   20,
-		FontWeight:   text.WeightNormal,
-		FontStyle:    text.StyleNormal,
-		TextOverflow: TextOverflowClip,
-		TextAlign:    TextAlignLeft,
+		Colour:     colour.Rgb(0x000000),
+		FontFamily: "",
+		FontSize:   16,
+		LineHeight: 20,
+		FontWeight: text.WeightNormal,
+		FontStyle:  text.StyleNormal,
+		TextAlign:  TextAlignLeft,
 	}
 }

@@ -262,7 +262,6 @@ func TestTypographyRefinement(t *testing.T) {
 	r.SetLineHeight(24)
 	r.SetFontWeight(text.WeightBold)
 	r.SetFontStyle(text.StyleItalic)
-	r.SetTextOverflow(TextOverflowEllipsis)
 	r.SetTextAlign(TextAlignCentre)
 	r.SetLineClamp(3)
 	r.SetUnderline(UnderlineStyle{Thickness: 2, Wavy: true})
@@ -286,9 +285,6 @@ func TestTypographyRefinement(t *testing.T) {
 	}
 	if s.Text.FontStyle != text.StyleItalic {
 		t.Errorf("Text.FontStyle = %v, want Italic", s.Text.FontStyle)
-	}
-	if s.Text.TextOverflow != TextOverflowEllipsis {
-		t.Errorf("Text.TextOverflow = %v, want Ellipsis", s.Text.TextOverflow)
 	}
 	if s.Text.TextAlign != TextAlignCentre {
 		t.Errorf("Text.TextAlign = %v, want Centre", s.Text.TextAlign)
@@ -368,7 +364,6 @@ func TestDistinctPropertyIndices(t *testing.T) {
 		{"propTextBackgroundColour", propTextBackgroundColour},
 		{"propUnderline", propUnderline},
 		{"propStrikethrough", propStrikethrough},
-		{"propTextOverflow", propTextOverflow},
 		{"propTextAlign", propTextAlign},
 		{"propLineClamp", propLineClamp},
 	}

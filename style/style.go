@@ -340,9 +340,6 @@ func (s *Style) Refine(r Refinement) {
 		if r.mask.has(propStrikethrough) {
 			s.Text.Strikethrough = r.strikethrough
 		}
-		if r.mask.has(propTextOverflow) {
-			s.Text.TextOverflow = r.textOverflow
-		}
 		if r.mask.has(propTextAlign) {
 			s.Text.TextAlign = r.textAlign
 		}
