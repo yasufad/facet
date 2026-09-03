@@ -59,14 +59,31 @@ File…" now has something to call.
 Raise the interface shape before implementing it. A menu crosses into `window` eventually
 and I would rather decide that before there is code shaped around the wrong answer.
 
-## The macOS gate, still shut
+## The macOS gate is open
 
-I said the gate is `examples/button` running and `internal/integration` passing. Neither
-has happened: `internal/integration` does not exist, and `examples/button` still registers
-a raw `func(element.ClickEvent) bool`, which is the signature the audit opens with. `ui`
-holds both and is not blocked on anything now.
+I said the gate was `examples/button` running and `internal/integration` passing, and that
+when `ui` reported, macOS was yours. `ui` has reported and both conditions are met.
 
-The gate has not moved and I am not moving it. When `ui` reports, macOS is yours.
+`internal/integration` exists and holds
+`TestButtonClickInWindowMutatesEntityAndRendersNextFrame` — a real `ui.Button` clicked in
+a real window, mutating entity state, with the next frame rendering it. I broke
+`element.Listener` and it failed, so it is a test rather than a shape. `examples/button`
+binds through `element.Listener` and builds. The whole tree is green: build, vet, gofmt
+and every test.
+
+So macOS is next after the save dialog, and the gate does not come back.
+
+The first deliverable is unchanged and deliberately small: a window that opens, reports a
+real `NSWindow*`, and delivers pointer and key events. No renderer, no drawing. That is
+enough to answer the question everything else rests on — whether `objc_msgSend` with
+struct returns is reachable through purego without cgo.
+
+If it is not, that is a decision to record in `docs/architecture.md`, and the sooner it is
+recorded the less is built on the assumption. Bring me that answer before building on
+either branch of it.
+
+Finish the save dialog first. It is a stub returning "not implemented" and it is the last
+thing keeping the Windows backend from honestly matching what the README claims.
 
 ## Done when
 
