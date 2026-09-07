@@ -1611,3 +1611,82 @@ func TestIMECompositionDeliversToFocusedNode(t *testing.T) {
 		t.Fatalf("expected event counts to remain unchanged after blur, got A: %d, B: %d", len(receivedA), len(receivedB))
 	}
 }
+
+// TestStaticRootsDoNotObserveEntityMutations pins the documented behaviour of
+// SetRoot and SetRootFn: they are static roots and attach no observation, so
+// mutating entity state the root reads does not schedule a redraw on its own.
+// The contrast with SetRootView (which does observe) is TestFlushNotification
+// Deduplication. If fnView or staticView ever gain a real Observe, this test
+// fails — which is the signal that the documented contract changed.
+func TestStaticRootsDoNotObserveEntityMutations(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	plat := &stubPlatform{}
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := newStubPlatformWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+
+	newWindow := func() *Window {
+		w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+		w.platform = plat
+		return w
+	}
+
+	t.Run("SetRootFn", func(t *testing.T) {
+		plat.dispatched = nil
+
+		w := newWindow()
+		ent := app.New(a, func(cx *app.Context[counterView]) counterView {
+			return counterView{}
+		})
+
+		// The closure reads entity state, so a reactive root would repaint on
+		// mutation. A static root must not.
+		w.SetRootFn(func() element.Element {
+			c := ent.Read(a).count
+			return element.NewDiv().
+				Width(style.Px(geometry.Pixels(100 + c))).
+				Height(style.Px(50))
+		})
+		// Consume the initial frame SetRootFn schedules.
+		plat.Drain()
+		if len(plat.dispatched) != 0 {
+			t.Fatalf("expected no pending dispatches after draining initial frame, got %d", len(plat.dispatched))
+		}
+
+		ent.Update(a, func(val *counterView, cx *app.Context[counterView]) {
+			val.count++
+			cx.Notify()
+		})
+
+		if len(plat.dispatched) != 0 {
+			t.Fatalf("SetRootFn is a static root: entity mutation must not schedule a frame, got %d dispatches", len(plat.dispatched))
+		}
+	})
+
+	t.Run("SetRoot", func(t *testing.T) {
+		plat.dispatched = nil
+
+		w := newWindow()
+		ent := app.New(a, func(cx *app.Context[counterView]) counterView {
+			return counterView{}
+		})
+		_ = ent
+
+		w.SetRoot(element.NewDiv().Width(style.Px(100)).Height(style.Px(50)))
+		plat.Drain()
+		if len(plat.dispatched) != 0 {
+			t.Fatalf("expected no pending dispatches after draining initial frame, got %d", len(plat.dispatched))
+		}
+
+		ent.Update(a, func(val *counterView, cx *app.Context[counterView]) {
+			val.count++
+			cx.Notify()
+		})
+
+		if len(plat.dispatched) != 0 {
+			t.Fatalf("SetRoot is a static root: entity mutation must not schedule a frame, got %d dispatches", len(plat.dispatched))
+		}
+	})
+}
