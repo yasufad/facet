@@ -20,3 +20,7 @@ Thumbs.db
 
 # Upstream reference checkouts, managed by tools/upstream
 /_upstream/
+
+# Agent progress reports, written for the lead to read and not part of the
+# project record. What survives a round goes into docs/packages.md.
+/work/
