@@ -571,6 +571,33 @@ action handlers, and that vocabulary lives there. Without it neither `element` n
 `ui` could express a click. `input` sits below both, so this runs downward like
 everything else.
 
+Every style property with a builder method has a consumer. That was not true until
+recently: thirteen setters compiled, passed through the refinement mask, and changed
+nothing on screen. Seven were withdrawn rather than implemented, because a builder
+method is a promise and removing one turns a silent failure into a compile error.
+
+`Opacity` is the one to understand before re-adding it. CSS opacity is a group
+property — the subtree composites as a unit and then fades — so multiplying each
+primitive's alpha is visibly wrong wherever children overlap. It needs an offscreen
+target, which is the same machinery popups need, and it returns with that. The
+per-primitive version works on the cases people test and fails on the cases they ship.
+
+`WhiteSpace`, `TextOverflow`, `LineClamp` and `TextAlign` return with multi-line text;
+`AllowConcurrentScroll` and `RestrictScrollToAxis` return with a real scrollbar.
+
+`ScrollbarWidth` was on that list and should not have been: it leaves this package
+through `style.toLayout` into `layout`'s `scrollGutter` and reserves a real gutter
+today. It is recorded here because the search that missed it — grepping `element/` for
+consumers — is the search anyone would repeat, and the property leaves through the
+layout conversion where no such grep reaches.
+
+`Visibility` skips painting a subtree while keeping its layout. `BoxShadow` splits
+drop shadows before the background quad and inset shadows after it, as GPUI's
+`paint_drop_shadows`/`paint_inset_shadows` do. `Strikethrough` reuses `scene.Underline`
+at a different baseline offset rather than earning a primitive of its own.
+`BoxShadow` and `Underline` are the first producers `scene.Shadow` and
+`scene.Underline` have ever had; `PolychromeSprite` and `Path` still have none.
+
 ## window
 
 The frame loop. Owns a platform window, drives layout through paint, presents the
