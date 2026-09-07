@@ -10,6 +10,7 @@ import (
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/platform"
+	"github.com/yasufad/facet/platform/platformtest"
 	"github.com/yasufad/facet/scene"
 	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/ui"
@@ -55,51 +56,6 @@ func (s *stubRenderer) Close() error {
 	return nil
 }
 
-type stubPlatformWindow struct {
-	size         geometry.Size[geometry.Pixels]
-	pos          geometry.Point[geometry.Pixels]
-	scale        float32
-	eventHandler func(platform.Event)
-	cursors      []platform.Cursor
-	state        platform.WindowState
-}
-
-func newStubPlatformWindow(size geometry.Size[geometry.Pixels], scale float32) *stubPlatformWindow {
-	return &stubPlatformWindow{
-		size:  size,
-		scale: scale,
-	}
-}
-
-func (w *stubPlatformWindow) Show()                                           {}
-func (w *stubPlatformWindow) Hide()                                           {}
-func (w *stubPlatformWindow) Close()                                          {}
-func (w *stubPlatformWindow) SetTitle(title string)                           {}
-func (w *stubPlatformWindow) SetSize(size geometry.Size[geometry.Pixels])     { w.size = size }
-func (w *stubPlatformWindow) Size() geometry.Size[geometry.Pixels]            { return w.size }
-func (w *stubPlatformWindow) SetPosition(pos geometry.Point[geometry.Pixels]) { w.pos = pos }
-func (w *stubPlatformWindow) Position() geometry.Point[geometry.Pixels]       { return w.pos }
-func (w *stubPlatformWindow) SetMinSize(size geometry.Size[geometry.Pixels])  {}
-func (w *stubPlatformWindow) SetMaxSize(size geometry.Size[geometry.Pixels])  {}
-func (w *stubPlatformWindow) SetResizable(resizable bool)                     {}
-func (w *stubPlatformWindow) SetAlwaysOnTop(onTop bool)                       {}
-func (w *stubPlatformWindow) State() platform.WindowState                     { return w.state }
-func (w *stubPlatformWindow) SetState(state platform.WindowState)             { w.state = state }
-func (w *stubPlatformWindow) SetBackground(c colour.Rgba)                     {}
-func (w *stubPlatformWindow) ScaleFactor() float32                            { return w.scale }
-func (w *stubPlatformWindow) NativeHandle() uintptr                           { return 0 }
-func (w *stubPlatformWindow) NativeSurface() uintptr                          { return 0 }
-func (w *stubPlatformWindow) Focus()                                          {}
-func (w *stubPlatformWindow) IsFocused() bool                                 { return true }
-func (w *stubPlatformWindow) IsVisible() bool                                 { return true }
-func (w *stubPlatformWindow) SetCursor(shape platform.Cursor) {
-	w.cursors = append(w.cursors, shape)
-}
-func (w *stubPlatformWindow) SetEventHandler(h func(platform.Event)) {
-	w.eventHandler = h
-}
-func (w *stubPlatformWindow) SetCloseHandler(h func() bool) { return }
-
 type buttonIntegrationView struct {
 	clicks int
 }
@@ -125,7 +81,7 @@ func TestButtonClickInWindowMutatesEntityAndRendersNextFrame(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := window.NewWithRenderer(pw, r, a, window.WindowOptions{Size: size})
 
