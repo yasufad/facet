@@ -698,6 +698,26 @@ Buttons, labels, lists, text fields, scroll views.
 
 Invariants: built entirely from the public API of `element`, `style` and `input`. If
 a widget needs something those do not expose, the gap is in the framework and gets
+
+State that survives a frame lives in the widget's own entity, never in anything keyed
+by element — `ScrollState` is the pattern, and `docs/architecture.md` records why
+element identity is not the mechanism for it.
+
+A virtual list declares its content extent as a definite height on its own container,
+decided and not yet built. The container is `Height(totalHeight).FlexShrink(0)` read
+from the widget's entity, with a single top spacer positioning the first built item;
+the alternative — top and bottom spacers summing to the extent under an `auto`
+container — was rejected because the sum is derived from the same item-height estimates
+the items are, so an estimate error moves the container height and desynchronises the
+scroll range from the entity's own `contentHeight`. A declared height cannot drift that
+way: an estimate error changes the empty space instead.
+
+The cost is that `justify-content` and `flex-grow` on that container become
+load-bearing, since it is deliberately taller than the children inside it. The widget
+owns that container and must not expose it for styling. If Facet ever needs the CSS
+`scrollHeight` model — a content extent genuinely distinct from the container's own
+size — that is a `layout` property and this is the decision that would have to change;
+`ScrollView` does not use that model today, and neither option here needed it.
 fixed there. No widget registry — adding a widget adds a file and touches nothing else.
 
 ## third_party
