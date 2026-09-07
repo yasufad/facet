@@ -244,6 +244,51 @@ func TestFluentBuilderToLayout(t *testing.T) {
 	}
 }
 
+// TestDivScrollbarWidthNarrowsContentBox pins ScrollbarWidth's one real
+// consumer. The property leaves this package through style.ToLayout into
+// layout's scrollGutter, which reserves horizontal gutter space on a
+// vertical scroll container, so a child filling the content box is narrower
+// by the scrollbar width. No grep of element/ finds that consumer — the
+// search deleted the property once — and TestFluentBuilderToLayout only
+// checks the value reaches layout.Style, not that the solver acts on it.
+// This runs the real solver and checks the content box actually shrinks.
+func TestDivScrollbarWidthNarrowsContentBox(t *testing.T) {
+	frame := newFakeFrame()
+
+	const (
+		containerW = 200.0
+		gutter     = 12.0
+	)
+
+	// A child that grows to fill the main axis: its laid-out width is the
+	// content box width, which is where the scrollbar gutter is reserved.
+	child := NewDiv().FlexGrow(1)
+	scroll := NewDiv().
+		Flex().
+		Width(style.Px(containerW)).
+		Height(style.Px(100)).
+		OverflowY(style.OverflowScroll).
+		ScrollbarWidth(geometry.Pixels(gutter)).
+		Child(child)
+
+	frame.phase = phaseLayoutRequested
+	rootID := scroll.RequestLayout(frame)
+
+	// Run the real solver, not fakeFrame.solve: that divides space evenly
+	// and ignores styles, so scrollGutter would never fire there.
+	frame.tree.ComputeLayout(rootID, layout.Size[layout.AvailableSpace]{
+		Width:  layout.Definite(containerW),
+		Height: layout.Definite(100),
+	})
+
+	gotWidth := frame.tree.Layout(child.layoutID).Size.Width
+	wantWidth := float32(containerW - gutter)
+	if gotWidth != wantWidth {
+		t.Errorf("child width = %v, want %v (container %v minus scrollbar gutter %v)",
+			gotWidth, wantWidth, containerW, gutter)
+	}
+}
+
 func TestHiddenVsInvisible(t *testing.T) {
 	frame := newFakeFrame()
 
