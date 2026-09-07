@@ -3,6 +3,7 @@
 package d3d11
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/yasufad/facet/geometry"
@@ -135,5 +136,41 @@ func TestNewInvalidSurface(t *testing.T) {
 	_, err := New(0, geometry.NewSize[geometry.DevicePixels](100, 100), render.Options{})
 	if err == nil {
 		t.Fatalf("expected error for surface handle 0, got nil")
+	}
+}
+
+// TestCreateResourceErrorDistinctMessages pins the fix for the round 02
+// defect: pipeline.go collapsed "failing HRESULT" and "S_OK with a null
+// out-pointer" into one check and one message, so a call that succeeded
+// but returned no object reported as "failed with hr=0x00000000" — a
+// successful call reported as a failure. Two agents lost an hour each
+// attributing that message. The two conditions must produce distinct
+// messages: "failed with hr=0x..." for a rejected call, and "returned
+// null object with hr=0x..." for resource exhaustion under contention.
+//
+// This is a break test: reverting createResourceError to the old
+// single-message format makes the null-object assertion fail, because
+// "create pixel shader: hr=0x00000000" does not contain "returned null
+// object".
+func TestCreateResourceErrorDistinctMessages(t *testing.T) {
+	failErr := createResourceError("create pixel shader", 0x8007000e, false)
+	nullErr := createResourceError("create pixel shader", 0, true)
+
+	if failErr == nil {
+		t.Fatal("failing HRESULT should produce an error")
+	}
+	if nullErr == nil {
+		t.Fatal("null object with S_OK should produce an error")
+	}
+
+	if !strings.Contains(nullErr.Error(), "returned null object") {
+		t.Fatalf("null object with S_OK should say \"returned null object\", got: %s", nullErr)
+	}
+	if !strings.Contains(failErr.Error(), "failed with") {
+		t.Fatalf("failing HRESULT should say \"failed with\", got: %s", failErr)
+	}
+
+	if failErr.Error() == nullErr.Error() {
+		t.Fatalf("two distinct conditions produced the same message:\n  fail: %s\n  null: %s", failErr, nullErr)
 	}
 }
