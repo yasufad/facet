@@ -61,7 +61,11 @@ func New(surface uintptr, size geometry.Size[geometry.DevicePixels], opts render
 		uintptr(unsafe.Pointer(&context)),
 	)
 	if int32(hr) < 0 || device == nil || context == nil {
-		return nil, fmt.Errorf("D3D11CreateDevice failed: hr=0x%08x", uint32(hr))
+		hrVal := uint32(hr)
+		if hrVal == dxgiErrorUnsupported || hrVal == eFail {
+			return nil, fmt.Errorf("create D3D11 device: %w (hr=0x%08x)", render.ErrNoAdapter, hrVal)
+		}
+		return nil, fmt.Errorf("create D3D11 device: hr=0x%08x", hrVal)
 	}
 
 	r := &d3d11Renderer{
