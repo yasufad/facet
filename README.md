@@ -41,8 +41,8 @@ intends and trips the defect the audit opens with.
 Most of the code is written by AI agents, one package at a time, working to a written
 assignment and the conventions in [AGENTS.md](AGENTS.md). Assignments are working
 files and are not tracked here; what a package guarantees is in
-[docs/packages.md](docs/packages.md). A human sets the architecture, decides anything that crosses a layer boundary, and reviews what
-lands.
+[docs/packages.md](docs/packages.md). A human sets the architecture, decides anything
+that crosses a layer boundary, and reviews what lands.
 
 ## Documentation
 
