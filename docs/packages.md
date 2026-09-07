@@ -325,6 +325,26 @@ one, twenty-four methods apiece, so adding a method meant a three-party handshak
 agents who do not own each other's files. One exported double turns that into one
 package's commit.
 
+macOS exists and has never been run. `platform_darwin.go` and `window_darwin.go`
+implement `Platform` and `Window` through purego and the Objective-C runtime, they
+cross-compile for darwin/arm64 and darwin/amd64, and no call in them has executed on a
+Mac. Treat every claim about the backend as unverified until it has.
+
+That gap is sharper here than it would be elsewhere, because Objective-C selectors are
+strings resolved at runtime: a mistyped selector name compiles, links, and fails only
+when the message is sent. There is no compile-time check at all, so "it builds" carries
+even less than it did for the three wrong D3D11 vtable indices that reached reviewed,
+green code.
+
+What *is* established, from purego v0.9.1's source rather than from assumption, is that
+struct-returning Objective-C calls work without cgo. `objc.Send[T]` picks
+`objc_msgSend_stret` on amd64 for structs over 16 bytes and plain `objc_msgSend` on
+arm64, where large returns go through the `x8` indirect register; purego's own suite
+compares a returned 32-byte four-double struct against exact expected values, which is
+`NSRect`'s size and shape. So the question that gated this work — whether `NSRect`
+selectors are reachable — is answered yes, and independently of whether our own code
+calls them correctly.
+
 ## render
 
 The `Renderer` interface and the GPU side of the atlases, with a backend per
