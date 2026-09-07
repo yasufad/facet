@@ -309,7 +309,6 @@ nowhere else. Never commit a prompt, and never cite one as the reason something 
 way it is. If a prompt holds something that has to survive, that is a sign it belongs in
 `docs/`, and moving it there is the fix.
 
-
 An assignment is retired once its package is finished, so a missing file means the
 work is done, not that it was never scoped. What the package guarantees lives in
 `docs/packages.md`, which outlives the assignment.
