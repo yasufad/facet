@@ -1,5 +1,29 @@
 # ui: the tree is green, and one test agrees with its own bug
 
+> **Onboarding.** You own `ui` and nothing else. If a change you need reaches into
+> another package's exported API, stop and say so rather than editing it.
+>
+> `AGENTS.md` loads automatically and is the standard you are held to. The two sections
+> that catch people out are **Commits** — one file per commit, committed by path as
+> `git commit -m "..." -- <file>`, because the index is shared and staging then
+> committing has put three agents' work under someone else's subject line — and
+> **Working alongside other agents**, which is a list of incidents rather than advice.
+> Read your entry in `docs/packages.md` before you start: it says what you may import
+> and what you have to keep true.
+>
+> Other agents are working in this same checkout right now. `go build ./...` here
+> reports their half-finished files alongside yours, which has misled a review three
+> times, so verify in a worktree of your own before claiming anything is green:
+>
+>     git worktree add --detach <scratch>/check HEAD
+>
+> Do not push to origin — commit locally, the lead pushes in batches.
+>
+> When you are done, write `work/ui-01.md` the way **AGENTS.md → Reporting** describes.
+> That file is what gets reviewed. A claim with no break test under it is read as
+> unverified.
+
+
 Everything in the last prompt landed. `go build`, `go vet`, `gofmt` and `go test ./...`
 are all clean at HEAD — the whole tree, for the first time in this project's life.
 `internal/layering` had been red since before any of this work started.
