@@ -5,9 +5,8 @@ program can open a window and draw a styled element tree containing text, verifi
 reading the swapchain back. What is missing is a widget library and the macOS and
 Linux backends.
 
-For what is finished rather than what is designed, read the table in `README.md` and
-`prompts/`, where an assignment is retired once its package is done. "What is
-deferred" below lists the decisions taken to postpone something, as distinct from
+For what is finished rather than what is designed, read the table in `README.md`.
+"What is deferred" below lists the decisions taken to postpone something, as distinct from
 things nobody has thought about yet.
 
 ## Overview
