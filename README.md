@@ -14,7 +14,7 @@ It does not yet respond correctly to input. A view cannot mutate its own state f
 click, there is no pointer capture, and hit testing ignores the clip stack.
 [docs/audit.md](docs/audit.md) has the reproductions and the order the remaining
 decisions come in; the packages below marked reopened each have an assignment in
-`prompts/`.
+hand.
 
 | Package    | State                   |
 |------------|-------------------------|
@@ -38,9 +38,10 @@ intends and trips the defect the audit opens with.
 
 ## How this is built
 
-Most of the code is written by AI agents, one package at a time, working to the
-assignments in `prompts/` and the conventions in [AGENTS.md](AGENTS.md). A human sets
-the architecture, decides anything that crosses a layer boundary, and reviews what
+Most of the code is written by AI agents, one package at a time, working to a written
+assignment and the conventions in [AGENTS.md](AGENTS.md). Assignments are working
+files and are not tracked here; what a package guarantees is in
+[docs/packages.md](docs/packages.md). A human sets the architecture, decides anything that crosses a layer boundary, and reviews what
 lands.
 
 ## Documentation
