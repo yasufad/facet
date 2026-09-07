@@ -21,6 +21,17 @@ The `facet_debug` build turns on checks too expensive to leave in a release bina
 and the tests that exercise them are behind the same tag. Skip that run and those
 tests never execute.
 
+The `facet_debug` run under `render/d3d11` creates real D3D11 devices, so several
+agents running it at once on one GPU will fail in ways that look like code:
+
+    d3d11.New: underline shader: create pixel shader: hr=0x00000000
+
+`hr=0x00000000` is `S_OK` — the call succeeded and returned no object, which is
+resource exhaustion, not a defect. Any `render/d3d11` failure reporting a zero HRESULT
+means someone else is running the readback tests; re-run that package alone before
+believing it. Two agents reported this in one round, one calling it pre-existing and
+one calling it environmental, and neither was able to attribute it.
+
 `vet`'s `unsafeptr` analyser is off because the vendored Win32 bindings trip it
 seventeen times and the noise buries everything else. It cannot be scoped away —
 `vet` analyses dependencies, so excluding `third_party` from the package list still
