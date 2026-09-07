@@ -698,6 +698,7 @@ Buttons, labels, lists, text fields, scroll views.
 
 Invariants: built entirely from the public API of `element`, `style` and `input`. If
 a widget needs something those do not expose, the gap is in the framework and gets
+fixed there. No widget registry — adding a widget adds a file and touches nothing else.
 
 State that survives a frame lives in the widget's own entity, never in anything keyed
 by element — `ScrollState` is the pattern, and `docs/architecture.md` records why
@@ -718,7 +719,6 @@ owns that container and must not expose it for styling. If Facet ever needs the 
 `scrollHeight` model — a content extent genuinely distinct from the container's own
 size — that is a `layout` property and this is the decision that would have to change;
 `ScrollView` does not use that model today, and neither option here needed it.
-fixed there. No widget registry — adding a widget adds a file and touches nothing else.
 
 ## third_party
 
