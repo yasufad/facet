@@ -90,6 +90,22 @@ const (
 
 	d3d11FilterMinMagMipLinear = 0x15
 	d3d11TextureAddressClamp   = 3
+
+	// Failure HRESULTs that indicate the machine has no usable D3D11
+	// hardware adapter, rather than a real error in the call. Values
+	// verified against the Windows SDK (winerror.h, dxgitype.h) and
+	// the Direct3D 11 Return Codes page on Microsoft Learn.
+	//
+	// DXGI_ERROR_UNSUPPORTED: the default adapter does not support the
+	// requested hardware driver type or feature levels — the documented
+	// case for a machine whose only adapter is a software renderer.
+	//
+	// E_FAIL: the device could not be created for an environmental
+	// reason. The D3D11 docs list it for a missing debug layer, which
+	// this backend never requests, so in practice it surfaces when no
+	// adapter is present at all.
+	dxgiErrorUnsupported = 0x887A0004
+	eFail                = 0x80004005
 )
 
 type comObject struct {
