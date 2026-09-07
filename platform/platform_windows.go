@@ -457,6 +457,13 @@ func newFileSaveDialog(dialog SaveFileDialog) (*w32.IFileSaveDialog, error) {
 		// SetDefaultExtension uses the first extension from the first filter
 		// as the auto-appended extension when the user types a name without
 		// one. Empty extension list means "all files" (*.*) — no default.
+		//
+		// Unlike SetFileName (round-tripped through GetFileName above) and
+		// SetOptions (round-tripped through GetOptions), IFileDialog has no
+		// getter for the default extension, so this call cannot be verified
+		// the same way. The vtable slot is confirmed by the same SDL/Wine
+		// cross-check as the rest of the interface; what is unconfirmed is
+		// that the slot holds the right function pointer at runtime.
 		if len(dialog.Filters[0].Extensions) > 0 {
 			ext := dialog.Filters[0].Extensions[0]
 			if hr := fd.SetDefaultExtension(w32.MustStringToUTF16Ptr(ext)); hr != 0 {
