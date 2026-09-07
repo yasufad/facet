@@ -36,4 +36,14 @@
 //
 // Every dispatch decision can be inspected via DispatchExplanation to answer
 // "why did this keystroke do that?".
+//
+// # Event vocabulary
+//
+// input aliases the platform event types and their associated constants that a
+// package above it — element or ui — has to name in a handler signature or
+// body, since those packages are forbidden platform. Alias what a caller above
+// you has to write, and work that out from their call sites rather than from
+// input's own handler signatures: both earlier misses came from reading the
+// handler types here instead of opening the file that was blocked. Adding an
+// event type to platform is not complete until the alias it needs is here too.
 package input
