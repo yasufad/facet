@@ -42,6 +42,11 @@ type windowsPlatform struct {
 	// message loop), so the mutex is shared with the handler fields above
 	// rather than needing its own.
 	windows map[w32.HWND]*windowsWindow
+
+	// menu is the application menu set by SetApplicationMenu, attached as a
+	// native menu bar to every window the backend owns. It is nil until
+	// SetApplicationMenu is called. Accessed only on the platform thread.
+	menu *nativeMenu
 }
 
 // New creates a Windows platform. It must be called on the goroutine that
@@ -170,10 +175,62 @@ func (p *windowsPlatform) SetCursorVisible(visible bool) {
 	})
 }
 
-// SetApplicationMenu sets the global application menu. On Windows, menus are
-// per-window; this is a no-op until per-window menu support is added.
+// SetApplicationMenu sets the application menu. On Windows, menus are
+// per-window: this builds a native HMENU from the Menu tree and attaches it
+// to every window the backend currently owns, and to every window created
+// afterwards through registerWindow. The previous menu, if any, is destroyed
+// after it is detached, so the command map that goes with it stops
+// resolving WM_COMMAND.
+//
+// It dispatches onto the platform thread because SetMenu, DrawMenuBar and
+// DestroyMenu must run on the thread that owns the windows.
 func (p *windowsPlatform) SetApplicationMenu(menu *Menu) {
-	// TODO: per-window menus
+	p.dispatcher.Dispatch(func() {
+		// Build the new menu before detaching the old one, so a build error
+		// leaves the existing menu intact.
+		var nm *nativeMenu
+		if menu != nil {
+			nm = buildMenu(menu)
+		}
+
+		// Detach and destroy the previous menu from every window.
+		if p.menu != nil {
+			for hwnd := range p.windows {
+				w32.SetMenu(hwnd, 0)
+				w32.DrawMenuBar(hwnd)
+			}
+			w32.DestroyMenu(p.menu.hmenu)
+			p.menu = nil
+		}
+
+		p.menu = nm
+
+		// Attach the new menu to every existing decorated window. An
+		// undecorated window asked for no OS chrome, and a menu bar is OS
+		// chrome, so it is skipped.
+		if nm != nil {
+			for hwnd, w := range p.windows {
+				if !w.options.Decorated {
+					continue
+				}
+				w32.SetMenu(hwnd, nm.hmenu)
+				w32.DrawMenuBar(hwnd)
+			}
+		}
+	})
+}
+
+// dispatchMenuCommand looks up a WM_COMMAND command ID in the current menu's
+// command map and fires the matching OnClick closure. Called from the wndProc
+// on the platform thread. A command ID with no entry — from a menu item
+// added by the OS or a stale ID after a menu change — is a no-op.
+func (p *windowsPlatform) dispatchMenuCommand(id uintptr) {
+	if p.menu == nil {
+		return
+	}
+	if fn, ok := p.menu.commands[id]; ok && fn != nil {
+		fn()
+	}
 }
 
 // NewSystemTray creates a system tray icon.
@@ -556,11 +613,19 @@ func (p *windowsPlatform) primaryScale() float32 {
 }
 
 // registerWindow records a window in the platform's HWND map so the wndproc
-// can find it. Called on the platform thread during window creation.
+// can find it, and attaches the current application menu if the window is
+// decorated. Called on the platform thread during window creation.
 func (p *windowsPlatform) registerWindow(hwnd w32.HWND, w *windowsWindow) {
 	p.mu.Lock()
 	p.windows[hwnd] = w
+	menu := p.menu
 	p.mu.Unlock()
+	// An undecorated window asked for no OS chrome, and a menu bar is OS
+	// chrome, so it gets no menu.
+	if menu != nil && w.options.Decorated {
+		w32.SetMenu(hwnd, menu.hmenu)
+		w32.DrawMenuBar(hwnd)
+	}
 }
 
 // unregisterWindow removes a window from the HWND map. Called on the platform

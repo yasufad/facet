@@ -91,8 +91,9 @@ type Platform interface {
 
 	// SetApplicationMenu sets the global application menu. On platforms with a
 	// global menu bar (macOS) this is the screen menu bar; on platforms
-	// without one (Windows, Linux) it sets the menu bar on each window, or is
-	// a no-op where window menus are set per-window.
+	// without one (Windows, Linux) it sets the menu bar on each window. An
+	// undecorated window gets no menu bar, because it asked for no OS chrome
+	// and a menu bar is OS chrome.
 	SetApplicationMenu(menu *Menu)
 
 	// NewSystemTray creates a system tray icon from opts.

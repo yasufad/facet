@@ -205,6 +205,14 @@ func newWindowsWindow(owner *windowsPlatform, opts WindowOptions) (*windowsWindo
 // message was handled; otherwise it calls DefWindowProc.
 func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintptr) uintptr {
 	switch msg {
+	case w32.WM_COMMAND:
+		// A menu item was selected. The command ID is in the low word of
+		// wParam; the platform's menu holds the map from command ID to the
+		// item's OnClick closure. OnClick fires here, on the platform
+		// thread, outside any entity borrow — SetApplicationMenu's contract.
+		w.owner.dispatchMenuCommand(uintptr(wParam & 0xFFFF))
+		return 0
+
 	case w32.WM_CLOSE:
 		w.mu.Lock()
 		handler := w.closeHandler
