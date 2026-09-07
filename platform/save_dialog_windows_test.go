@@ -64,6 +64,19 @@ func TestNewFileSaveDialogConfigures(t *testing.T) {
 	if fos&w32.FOS_FILEMUSTEXIST != 0 {
 		t.Error("FOS_FILEMUSTEXIST set on a save dialog (open-dialog flag)")
 	}
+
+	// Round-trip DefaultName through GetFileName to prove the SetFileName
+	// vtable slot is the right one. SetFileName is called in
+	// newFileSaveDialog but nothing read the value back, so a wrong slot
+	// would be a legal call to the wrong method -- the same silent-failure
+	// class the whole vtable cross-check exists for.
+	name, hr := fd.GetFileName()
+	if hr != 0 {
+		t.Fatalf("GetFileName: %#x", uint32(hr))
+	}
+	if name != "untitled.txt" {
+		t.Errorf("GetFileName = %q, want %q", name, "untitled.txt")
+	}
 }
 
 // TestNewFileSaveDialogNoFilters covers the minimal case -- an empty dialog
