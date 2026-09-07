@@ -286,15 +286,23 @@ func TestTextFieldClickToPlaceCaret(t *testing.T) {
 	frame.SetPhase(elementtest.PhasePaint)
 	tf.Paint(frame, bounds)
 
-	// Click near the start (local X = 10, paddingX = 8 -> localTextX = 2)
-	clickPt := geometry.NewPoint[geometry.Pixels](bounds.Origin.X+10, bounds.Origin.Y+15)
+	// Derive the click position from the shaped layout so the assertion
+	// discriminates a correct ClosestIndexForX from one that always returns 0.
+	// Clicking at the left edge — where both agree — cannot catch that
+	// regression; the sibling drag test has the same blind spot at its origin.
+	targetIndex := 12 // 't' in "Caret", past the first word
+	targetX := state.Read(a).Layout().XForIndex(targetIndex)
+	clickPt := geometry.NewPoint[geometry.Pixels](
+		bounds.Origin.X+tf.paddingX+targetX,
+		bounds.Origin.Y+15,
+	)
 	frame.DispatchPointer(elementtest.PointerDown, clickPt, element.MouseButtonLeft, 0)
 	frame.DispatchPointer(elementtest.PointerUp, clickPt, element.MouseButtonLeft, 0)
 	a.Flush()
 
 	st := state.Read(a)
-	if st.Cursor() > 2 {
-		t.Fatalf("expected cursor near 0, got %d", st.Cursor())
+	if st.Cursor() != targetIndex {
+		t.Fatalf("expected cursor %d, got %d", targetIndex, st.Cursor())
 	}
 }
 
