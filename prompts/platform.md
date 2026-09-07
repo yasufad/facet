@@ -1,5 +1,29 @@
 # platform: the menu decision, then macOS
 
+> **Onboarding.** You own `platform` and nothing else. If a change you need reaches into
+> another package's exported API, stop and say so rather than editing it.
+>
+> `AGENTS.md` loads automatically and is the standard you are held to. The two sections
+> that catch people out are **Commits** — one file per commit, committed by path as
+> `git commit -m "..." -- <file>`, because the index is shared and staging then
+> committing has put three agents' work under someone else's subject line — and
+> **Working alongside other agents**, which is a list of incidents rather than advice.
+> Read your entry in `docs/packages.md` before you start: it says what you may import
+> and what you have to keep true.
+>
+> Other agents are working in this same checkout right now. `go build ./...` here
+> reports their half-finished files alongside yours, which has misled a review three
+> times, so verify in a worktree of your own before claiming anything is green:
+>
+>     git worktree add --detach <scratch>/check HEAD
+>
+> Do not push to origin — commit locally, the lead pushes in batches.
+>
+> When you are done, write `work/platform-01.md` the way **AGENTS.md → Reporting** describes.
+> That file is what gets reviewed. A claim with no break test under it is read as
+> unverified.
+
+
 The save dialog is verified. I replaced the flags at `platform_windows.go:410` with
 `FOS_FILEMUSTEXIST` in place of `FOS_OVERWRITEPROMPT` and both tests failed on both
 counts — the save flag missing and the open flag present — including
@@ -71,9 +95,38 @@ macOS is the same shape — `popUpMenuPositioningItem:` also runs a nested track
 so this is the contract, not a Windows workaround. Put it in the method's doc comment:
 it returns before the menu appears, and `OnClick` fires later.
 
-Order it the way `AGENTS.md` says. `windowsWindow` gets the method first, where it
-satisfies nothing and breaks nothing. The `Window` interface line and the stub in
-`platform_other.go` land together, after.
+#### The ordering, and I got it wrong the first time
+
+I wrote that the interface line and `platform_other.go` land together. `platform.Window`
+has four implementers, not two. Two of them are outside this package:
+`stubPlatformWindow` in `window/window_test.go:63` and another in
+`internal/integration/button_click_test.go`, twenty-four methods each, both passed to
+`window.NewWithRenderer(pw platform.Window, ...)`. A twenty-fifth method on the interface
+stops two packages you do not own from compiling.
+
+That is the deletion incident inverted, and I nearly caused it again in a prompt that
+cites the deletion incident.
+
+**So the fix is not sequencing, it is `platform/platformtest`.** Ship an exported
+`Window` double there, the way `element/elementtest` already serves `ui` — that package
+is the precedent and `docs/packages.md` blesses it. It adds nothing and breaks nothing,
+so it can land now, on its own.
+
+Then `window` and whoever holds `internal/integration` drop their private stubs onto it.
+That is their commit, not yours; raise it with me and I will put it in their prompts.
+Only once both are migrated does `platform.Window` gain `ShowContextMenu`, and after that
+it can grow again without a three-party handshake, which is the actual point — this
+interface is going to keep growing, and the next method should not cost a round of
+coordination.
+
+Within this package, the order is unchanged: `windowsWindow` gets the method first, where
+it satisfies nothing and breaks nothing, then the interface line and `platform_other.go`
+together.
+
+**Do the save dialog, `platformtest` and `SetApplicationMenu` now.** `SetApplicationMenu`
+is already on the interface, so the menu bar costs no coordination at all.
+`ShowContextMenu` waits for the migration.
+
 
 ### 3. Shortcuts go through `input`'s keymap. `Shortcut` is display text.
 
@@ -126,7 +179,11 @@ rather than as a record of the choice.
 `SetApplicationMenu` attaches a real `HMENU` to every window the Windows backend owns,
 present and future, and its doc comment no longer contains the words "no-op".
 
-`ShowContextMenu` exists, returns before the menu is shown, and has a test that a
-selection reaches `OnClick` without an entity borrow being live — or, if that cannot be
-tested without a human clicking, the untestable part is exactly one call wide, the way
-you split `newFileSaveDialog` out of `ShowSaveDialog`.
+`platform/platformtest` exports a `Window` double, and you have told me it is there so I
+can put the migration in `window`'s and `ui`'s prompts.
+
+`ShowContextMenu` is **not** in this round. It lands after both stubs have moved, and its
+own condition then is that it returns before the menu is shown, with a test that a
+selection reaches `OnClick` with no entity borrow live — or, if that needs a human
+clicking, the untestable part is exactly one call wide, the way you split
+`newFileSaveDialog` out of `ShowSaveDialog`.
