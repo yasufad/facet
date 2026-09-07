@@ -11,6 +11,7 @@ import (
 	"github.com/yasufad/facet/input"
 	"github.com/yasufad/facet/layout"
 	"github.com/yasufad/facet/platform"
+	"github.com/yasufad/facet/platform/platformtest"
 	"github.com/yasufad/facet/scene"
 	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/text"
@@ -60,51 +61,6 @@ func (s *stubRenderer) Close() error {
 	return nil
 }
 
-type stubPlatformWindow struct {
-	size         geometry.Size[geometry.Pixels]
-	pos          geometry.Point[geometry.Pixels]
-	scale        float32
-	eventHandler func(platform.Event)
-	cursors      []platform.Cursor
-	state        platform.WindowState
-}
-
-func newStubPlatformWindow(size geometry.Size[geometry.Pixels], scale float32) *stubPlatformWindow {
-	return &stubPlatformWindow{
-		size:  size,
-		scale: scale,
-	}
-}
-
-func (w *stubPlatformWindow) Show()                                           {}
-func (w *stubPlatformWindow) Hide()                                           {}
-func (w *stubPlatformWindow) Close()                                          {}
-func (w *stubPlatformWindow) SetTitle(title string)                           {}
-func (w *stubPlatformWindow) SetSize(size geometry.Size[geometry.Pixels])     { w.size = size }
-func (w *stubPlatformWindow) Size() geometry.Size[geometry.Pixels]            { return w.size }
-func (w *stubPlatformWindow) SetPosition(pos geometry.Point[geometry.Pixels]) { w.pos = pos }
-func (w *stubPlatformWindow) Position() geometry.Point[geometry.Pixels]       { return w.pos }
-func (w *stubPlatformWindow) SetMinSize(size geometry.Size[geometry.Pixels])  {}
-func (w *stubPlatformWindow) SetMaxSize(size geometry.Size[geometry.Pixels])  {}
-func (w *stubPlatformWindow) SetResizable(resizable bool)                     {}
-func (w *stubPlatformWindow) SetAlwaysOnTop(onTop bool)                       {}
-func (w *stubPlatformWindow) State() platform.WindowState                     { return w.state }
-func (w *stubPlatformWindow) SetState(state platform.WindowState)             { w.state = state }
-func (w *stubPlatformWindow) SetBackground(c colour.Rgba)                     {}
-func (w *stubPlatformWindow) ScaleFactor() float32                            { return w.scale }
-func (w *stubPlatformWindow) NativeHandle() uintptr                           { return 0 }
-func (w *stubPlatformWindow) NativeSurface() uintptr                          { return 0 }
-func (w *stubPlatformWindow) Focus()                                          {}
-func (w *stubPlatformWindow) IsFocused() bool                                 { return true }
-func (w *stubPlatformWindow) IsVisible() bool                                 { return true }
-func (w *stubPlatformWindow) SetCursor(shape platform.Cursor) {
-	w.cursors = append(w.cursors, shape)
-}
-func (w *stubPlatformWindow) SetEventHandler(h func(platform.Event)) {
-	w.eventHandler = h
-}
-func (w *stubPlatformWindow) SetCloseHandler(h func() bool) { return }
-
 func TestEmptyWindowOptions(t *testing.T) {
 	a := app.NewApp()
 	defer a.Close()
@@ -127,7 +83,7 @@ func TestFrameLoopSceneAssertion(t *testing.T) {
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
 	scale := float32(2.0)
-	pw := newStubPlatformWindow(size, scale)
+	pw := platformtest.NewWindow(size, scale)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, scale))
 
 	w := NewWithRenderer(pw, r, a, WindowOptions{
@@ -210,7 +166,7 @@ func TestIntraFrameHoverStyle(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
@@ -265,7 +221,7 @@ func TestTwoFramesInputIsolation(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
@@ -334,7 +290,7 @@ type stubPlatform struct {
 func (p *stubPlatform) Run() error { return nil }
 func (p *stubPlatform) Quit()      {}
 func (p *stubPlatform) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
-	return newStubPlatformWindow(opts.Size, 1.0), nil
+	return platformtest.NewWindow(opts.Size, 1.0), nil
 }
 func (p *stubPlatform) Dispatch(f func()) {
 	p.dispatched = append(p.dispatched, f)
@@ -358,7 +314,7 @@ func TestFlushNotificationDeduplication(t *testing.T) {
 
 	plat := &stubPlatform{}
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
@@ -466,7 +422,7 @@ func TestMeasureCallbackPhaseEnforcement(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -551,7 +507,7 @@ func TestScaleFactorChangeAndResize(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
@@ -600,7 +556,7 @@ func TestTextElementMeasuresFromShaping(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -636,7 +592,7 @@ func TestPointerDownFocusAndStyling(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -710,7 +666,7 @@ func TestFocusDroppedWhenElementLeavesTree(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -760,7 +716,7 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 
 	plat := &stubPlatform{}
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 	w.platform = plat
@@ -789,8 +745,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(pw.cursors) != 0 {
-		t.Fatalf("expected no SetCursor calls for default background cursor, got %v", pw.cursors)
+	if len(pw.Cursors) != 0 {
+		t.Fatalf("expected no SetCursor calls for default background cursor, got %v", pw.Cursors)
 	}
 
 	// 2. Move pointer onto Div A (50, 50)
@@ -799,8 +755,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(pw.cursors) != 1 || pw.cursors[0] != platform.CursorPointer {
-		t.Fatalf("expected [CursorPointer], got %v", pw.cursors)
+	if len(pw.Cursors) != 1 || pw.Cursors[0] != platform.CursorPointer {
+		t.Fatalf("expected [CursorPointer], got %v", pw.Cursors)
 	}
 
 	// 3. Move pointer slightly within Div A (60, 60): must NOT call SetCursor again
@@ -809,8 +765,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(pw.cursors) != 1 {
-		t.Fatalf("expected no redundant SetCursor call when moving within same cursor region, got %v", pw.cursors)
+	if len(pw.Cursors) != 1 {
+		t.Fatalf("expected no redundant SetCursor call when moving within same cursor region, got %v", pw.Cursors)
 	}
 
 	// 4. Move pointer onto Div B (150, 50)
@@ -819,8 +775,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(pw.cursors) != 2 || pw.cursors[1] != platform.CursorNotAllowed {
-		t.Fatalf("expected [CursorPointer, CursorNotAllowed], got %v", pw.cursors)
+	if len(pw.Cursors) != 2 || pw.Cursors[1] != platform.CursorNotAllowed {
+		t.Fatalf("expected [CursorPointer, CursorNotAllowed], got %v", pw.Cursors)
 	}
 
 	// 5. Move pointer back to background area (350, 250)
@@ -829,8 +785,8 @@ func TestCursorTransitionsAndDeduplication(t *testing.T) {
 		Phase:    platform.PointerMove,
 	})
 	w.Draw()
-	if len(pw.cursors) != 3 || pw.cursors[2] != platform.CursorDefault {
-		t.Fatalf("expected [CursorPointer, CursorNotAllowed, CursorDefault], got %v", pw.cursors)
+	if len(pw.Cursors) != 3 || pw.Cursors[2] != platform.CursorDefault {
+		t.Fatalf("expected [CursorPointer, CursorNotAllowed, CursorDefault], got %v", pw.Cursors)
 	}
 }
 
@@ -839,7 +795,7 @@ func TestRequestFocusPhaseEnforcement(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -863,7 +819,7 @@ func TestTabNavigationThroughWindow(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -931,7 +887,7 @@ func TestWindowPushClipPrimitiveMask(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 2.0)
+	pw := platformtest.NewWindow(size, 2.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 2.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -1002,7 +958,7 @@ func TestHitRegionClippedDuringPrepaintMisses(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -1058,7 +1014,7 @@ func TestPointerCaptureRoutesMoveOutsideRegionAndClearsActive(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -1128,7 +1084,7 @@ func TestPointerCaptureDoesNotActivateAnotherRegion(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -1194,7 +1150,7 @@ func TestPointerDownOnUnfocusableElementLeavesFocusAlone(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -1260,7 +1216,7 @@ func TestReentrantDrawPanics(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -1281,7 +1237,7 @@ func TestNilRootDrawLeavesFrameConsistent(t *testing.T) {
 	defer a.Close()
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 
@@ -1337,7 +1293,7 @@ func TestCloseEndsForegroundPumpGoroutine(t *testing.T) {
 
 	plat := &stubPlatform{}
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 	w.platform = plat
@@ -1398,7 +1354,7 @@ func TestClickMutatesEntityStateAndRendersNextFrame(t *testing.T) {
 
 	plat := &stubPlatform{}
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 	w.platform = plat
@@ -1521,7 +1477,7 @@ func TestIMECompositionDeliversToFocusedNode(t *testing.T) {
 
 	plat := &stubPlatform{}
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
+	pw := platformtest.NewWindow(size, 1.0)
 	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 	w.platform = plat
@@ -1630,7 +1586,7 @@ func TestStaticRootsDoNotObserveEntityMutations(t *testing.T) {
 		defer a.Close()
 
 		plat := &stubPlatform{}
-		pw := newStubPlatformWindow(size, 1.0)
+		pw := platformtest.NewWindow(size, 1.0)
 		r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 		w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 		w.platform = plat
@@ -1668,7 +1624,7 @@ func TestStaticRootsDoNotObserveEntityMutations(t *testing.T) {
 		defer a.Close()
 
 		plat := &stubPlatform{}
-		pw := newStubPlatformWindow(size, 1.0)
+		pw := platformtest.NewWindow(size, 1.0)
 		r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
 		w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
 		w.platform = plat
