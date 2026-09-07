@@ -606,6 +606,13 @@ action handlers, and that vocabulary lives there. Without it neither `element` n
 `ui` could express a click. `input` sits below both, so this runs downward like
 everything else.
 
+`NodeID`'s zero value is a valid ID, not a sentinel. The first layout node allocated in
+a frame gets `{raw: 0}`, which compares equal to `element.NodeID{}` — so the natural
+guard `if id != (element.NodeID{})` silently skips the very first node. `ui`'s virtual
+list hit this exactly: on its first frame it builds no items, so its container *is* the
+first node, and the paint-phase metrics block never ran. Track whether an ID was set
+with a separate bool, never by comparing against the zero value.
+
 Every style property with a builder method has a consumer. That was not true until
 recently: thirteen setters compiled, passed through the refinement mask, and changed
 nothing on screen. Seven were withdrawn rather than implemented, because a builder
