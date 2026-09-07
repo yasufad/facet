@@ -1,94 +1,132 @@
-# platform: the save dialog, and the gate is still shut
+# platform: the menu decision, then macOS
 
-Window state is verified. I broke `stillFullscreen` to trust the flag blindly and
-`TestWindowStateFullscreenFlagClearsOnMismatch` failed while the round-trip test correctly
-kept passing — two tests that fail for different reasons, which is what the pair was for.
+The save dialog is verified. I replaced the flags at `platform_windows.go:410` with
+`FOS_FILEMUSTEXIST` in place of `FOS_OVERWRITEPROMPT` and both tests failed on both
+counts — the save flag missing and the open flag present — including
+`TestNewFileSaveDialogNoFilters`, which is the one that matters, because a zero-value
+`SaveFileDialog{}` is where two earlier defects in this package survived five tests.
 
-## The WPF_RESTORETOMAXIMIZED correction is mine
+Setting `Directory` and asserting on the FOS bits is the pattern working as intended:
+the assertion cannot pass because of the action that preceded it.
 
-I told you Win32 models current-state-plus-restore-target through that flag and that you
-should follow it. You checked the SDK, and it says the flag forces a restore to maximised
-"regardless of whether it was maximized before it was minimized" — an override of the
-default behaviour, not the thing producing it. My model was wrong.
+## One gap, and one thing that cannot be closed
 
-Yours is better than either of the ones we started with. Minimise leaves
-`rcNormalPosition` alone, so a fullscreen window's monitor-bounds rect survives with no
-bookkeeping at all, and restore reproduces it even through a raw `ShowWindow` that never
-went near `SetState`. My conclusion happened to be right; the mechanism I gave you for it
-was invented. Building the simpler thing rather than binding a flag to match my
-description was the right call, and retracting your own browser claim in the same report
-rather than quietly dropping it is the standard this works at.
+`SetFileName` is called and never read back. `GetFileName` is declared in both vtable
+structs — `shobjidl.go:107` and `:291` — and has no Go method, so nothing proves that
+slot is the one being called. It is the same silent-failure class the whole vtable
+cross-check exists for: a wrong ordinal is a legal call to the wrong method. Bind
+`GetFileName` and round-trip `DefaultName` in `TestNewFileSaveDialogConfigures`.
 
-Both are recorded in `docs/packages.md`, the correction included, so the next person does
-not re-derive it from my version.
+`SetDefaultExtension` cannot be verified that way — `IFileDialog` has no getter for it.
+Say so in a comment beside the call rather than leaving the asymmetry to be noticed.
+A count of what is covered with no count of what is not reads as full coverage.
 
-## Recording the vtable method: yes
+## The menu decision
 
-You asked whether it was worth a line. It was worth a paragraph, and it is in `platform`'s
-entry now.
+All three, decided. Replace the proposal comment in `menu.go` with what survives.
 
-Microsoft Learn lists COM methods alphabetically, a vtable is ordinal, and a wrong slot is
-a legal call to the wrong method rather than a crash — which is the same failure class as
-the three D3D11 vtable indices that reached reviewed, green code. Cross-checking SDL and
-Wine's IDL, then testing a real `CoCreateInstance` round trip anyway because two sources
-agreeing is not the same as the call working, is a method that generalises to the Cocoa
-and Vulkan work ahead. That is why it is written down rather than left in a commit
-message.
+### 1. Native menu bars, and `Window` does not change
 
-Splitting `newFileOpenDialog` from `ShowOpenDialog` so the configuration is testable
-without a human clicking a modal is the other thing worth naming. The untestable part is
-now exactly one call wide.
+The proposal pairs native with `Window.SetMenu` and rendered with no new method. That
+pair is false. `windowsPlatform` already holds `windows map[w32.HWND]*windowsWindow`,
+populated at `platform_windows.go:555` and cleared at `:564`. `SetApplicationMenu`
+walks it and calls `SetMenu(hwnd, hmenu)` on each; `registerWindow` attaches the
+current menu to windows created afterwards. That is a method on the unexported
+`windowsWindow`, not on the `Window` interface.
 
-## 1. The save dialog
+Keeping it off the interface is the point. macOS cannot honour a per-window menu, so
+`Window.SetMenu` would mean something on one backend and nothing on the other — the
+`Div.Opacity` failure, which I have already caused once in this tree. `SetApplicationMenu`
+is also what an application actually wants to call: one menu, set once.
 
-Same shape, `IFileSaveDialog`. Verify its vtable the same way — it extends `IFileDialog`,
-so the inherited slots come first and the additions follow, and that ordering is precisely
-what an alphabetised page will not tell you.
+The escape clause in its doc comment goes with this. "or is a no-op where window menus
+are set per-window" is the sentence that let the Windows implementation be a TODO. It
+is real on both backends now, or the method is a lie.
 
-Overwrite confirmation, a default filename and a default extension are the three things a
-save dialog has that an open dialog does not, and each is a flag or a call that a wrong
-constant would break silently. Test them the way you tested the open flags.
+Undecorated windows get no menu bar, and that is correct rather than a limitation: a
+window created with `Decorated: false` asked for no OS chrome, and a menu bar is OS
+chrome. A rendered menu bar for custom-title-bar applications is a `ui` widget, later,
+and it needs the mechanism the next section says does not exist.
 
-## 2. Then menus, not tray or notifications
+### 2. Context menus: native, and asynchronous
 
-You had menus waiting on window state. Window state has landed, so they are unblocked, and
-they matter more than tray or notifications for the same reason the open dialog did: an
-application with a custom title bar has no menu bar unless we give it one, and "Open
-File…" now has something to call.
+    Window.ShowContextMenu(menu *Menu, at geometry.Point[geometry.Pixels])
 
-Raise the interface shape before implementing it. A menu crosses into `window` eventually
-and I would rather decide that before there is code shaped around the wrong answer.
+Native rather than rendered because a rendered popup cannot leave the window, and a
+context menu opened near the bottom edge has nowhere to go — a visible defect on an
+ordinary case. Rendering one also needs a way for an element to escape its parent's
+bounds and paint above later siblings. `scene` has `PushLayer`/`PopLayer`, but nothing
+on `element.Frame` reaches them, so that mechanism is not built. Native costs less and
+is better.
 
-## The macOS gate is open
+The part to get right is that it must not block. `TrackPopupMenu` runs a nested modal
+message loop and does not return until the user dismisses the menu. Called from inside
+an event handler, that handler is inside `app.UpdateEntity` with the entity checked
+out, and the nested loop will pump further messages into the frame loop while it is
+borrowed. So **`ShowContextMenu` records the request and returns immediately**, and the
+backend runs `TrackPopupMenu` on a later turn of its own message loop, once the current
+update has finished. `MenuItem.OnClick` fires on the platform thread, outside any borrow.
 
-I said the gate was `examples/button` running and `internal/integration` passing, and that
-when `ui` reported, macOS was yours. `ui` has reported and both conditions are met.
+macOS is the same shape — `popUpMenuPositioningItem:` also runs a nested tracking loop —
+so this is the contract, not a Windows workaround. Put it in the method's doc comment:
+it returns before the menu appears, and `OnClick` fires later.
 
-`internal/integration` exists and holds
-`TestButtonClickInWindowMutatesEntityAndRendersNextFrame` — a real `ui.Button` clicked in
-a real window, mutating entity state, with the next frame rendering it. I broke
-`element.Listener` and it failed, so it is a test rather than a shape. `examples/button`
-binds through `element.Listener` and builds. The whole tree is green: build, vet, gofmt
-and every test.
+Order it the way `AGENTS.md` says. `windowsWindow` gets the method first, where it
+satisfies nothing and breaks nothing. The `Window` interface line and the stub in
+`platform_other.go` land together, after.
 
-So macOS is next after the save dialog, and the gate does not come back.
+### 3. Shortcuts go through `input`'s keymap. `Shortcut` is display text.
 
-The first deliverable is unchanged and deliberately small: a window that opens, reports a
-real `NSWindow*`, and delivers pointer and key events. No renderer, no drawing. That is
-enough to answer the question everything else rests on — whether `objc_msgSend` with
-struct returns is reachable through purego without cgo.
+`RegisterHotKey` is out, and not narrowly. It registers system-globally: the chord
+fires whenever it is pressed anywhere on the desktop, whichever application has focus.
+For Ctrl+S that is not a near miss.
 
-If it is not, that is a decision to record in `docs/architecture.md`, and the sooner it is
-recorded the less is built on the assumption. Bring me that answer before building on
-either branch of it.
+`input` already has the whole mechanism — `Keymap` with context predicates,
+`ParseKeySequence` for chords, `Action` resolved with precedence along the focus path,
+`NoAction` and `Unbind` for suppression. `RegisterHotKey` has none of them, so two
+systems would disagree with no rule to appeal to. `input.Action`'s own doc comment
+reads "dispatched in response to keybindings, menu selections or command palettes".
+This was anticipated where it belongs.
 
-Finish the save dialog first. It is a stub returning "not implemented" and it is the last
-thing keeping the Windows backend from honestly matching what the README claims.
+So `MenuItem.Shortcut` is the text drawn beside the label, and the promise in its doc
+comment — "where the platform supports it, registered as a global shortcut for the
+item" — is withdrawn. The application binds the chord in its keymap; the menu item's
+`OnClick` dispatches the same action. Both routes arrive at one place.
+
+`platform` cannot hold an `input.Action`: `input` imports `platform` and the dependency
+runs one way only. `OnClick func()` stays, and its doc should say what it is for — a
+thin closure that dispatches an action, not the logic itself.
+
+One consequence, worth writing down now rather than meeting it on macOS. An
+`NSMenuItem` key equivalent fires natively once the item is installed, and consumes the
+keystroke before it reaches our handler. A chord present in both the menu and the
+keymap is therefore handled by the menu on macOS and never reaches the keymap. That is
+harmless only because both dispatch the same action, which is why "same action on both
+routes" above is a contract and not a preference.
+
+## Then macOS
+
+Unchanged, and it is the last thing in front of you. The first deliverable is
+deliberately small: a window that opens, reports a real `NSWindow*`, and delivers
+pointer and key events. No renderer, no drawing.
+
+That is enough to answer the question everything else rests on — whether `objc_msgSend`
+with struct returns is reachable through purego without cgo. If it is not, that is a
+decision for `docs/architecture.md`, and the sooner it is recorded the less is built on
+the assumption. Bring me that answer before building on either branch of it.
 
 ## Done when
 
-`ShowSaveDialog` is implemented and its flags tested against a real `CoCreateInstance`
-round trip, with the vtable cross-checked against two shipping implementations and the
-sources named in the commit.
+`GetFileName` is bound and `DefaultName` round-trips; the `SetDefaultExtension` gap is
+recorded beside the call.
 
-The menu interface shape is proposed, not built.
+`menu.go`'s proposal comment is replaced by the three decisions, stated as contracts
+rather than as a record of the choice.
+
+`SetApplicationMenu` attaches a real `HMENU` to every window the Windows backend owns,
+present and future, and its doc comment no longer contains the words "no-op".
+
+`ShowContextMenu` exists, returns before the menu is shown, and has a test that a
+selection reaches `OnClick` without an entity borrow being live — or, if that cannot be
+tested without a human clicking, the untestable part is exactly one call wide, the way
+you split `newFileSaveDialog` out of `ShowSaveDialog`.
