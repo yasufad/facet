@@ -302,6 +302,14 @@ rather than growing this file.
 what to read, what has already been decided, and what done means. If you have been
 told to implement a package, read `prompts/<package>.md` first.
 
+It is gitignored, like `work/`. An assignment is rewritten every round and deleted when
+its package retires, so its history records nothing — and a tracked prompt reads as the
+record, which is how a decision taken at a layer boundary came to live in one and
+nowhere else. Never commit a prompt, and never cite one as the reason something is the
+way it is. If a prompt holds something that has to survive, that is a sign it belongs in
+`docs/`, and moving it there is the fix.
+
+
 An assignment is retired once its package is finished, so a missing file means the
 work is done, not that it was never scoped. What the package guarantees lives in
 `docs/packages.md`, which outlives the assignment.
