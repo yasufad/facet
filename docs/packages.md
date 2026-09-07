@@ -290,6 +290,41 @@ character outside the basic plane is two units and one rune, and the conversion 
 tested against one. IMM32 reports `0` rather than a sentinel for the cursor of an empty
 composition, which is a legitimate answer rather than an error.
 
+Menus, decided and not yet built — the shape is settled, the code is not.
+`SetApplicationMenu` is the only menu entry point and there will be no
+`Window.SetMenu`. macOS has one menu bar for the application and cannot honour a
+per-window menu, so a public per-window method would mean something on one backend and
+nothing on the other. Windows attaches a native `HMENU` per window, which the backend
+does from the `windows` map it already keeps for the wndproc — an implementation detail
+of one backend, not a shape the interface has to take. A window created with
+`Decorated: false` gets no menu bar, because it asked for no OS chrome and a menu bar is
+OS chrome; a rendered menu bar for those is a widget, not a platform concern.
+
+Context menus are native and **asynchronous**. `TrackPopupMenu` runs a nested modal
+message loop and does not return until the menu is dismissed; called from an event
+handler that is inside `app.UpdateEntity`, it pumps messages into the frame loop while
+the entity is checked out. `ShowContextMenu` therefore records the request and returns,
+and the backend tracks the menu on a later turn of its own loop, so `OnClick` fires
+outside any borrow. macOS's `popUpMenuPositioningItem:` has the same nested loop, so this
+is the contract rather than a Windows workaround.
+
+`MenuItem.Shortcut` is display text and nothing else. `RegisterHotKey` registers
+system-globally — the chord fires whichever application has focus, which for Ctrl+S is
+the opposite of what is wanted — and it has no context predicates, chords or precedence,
+so it could only ever disagree with `input`'s keymap. The application binds the chord
+there and the menu item's `OnClick` dispatches the same action; `platform` cannot name an
+`input.Action` because the dependency runs the other way. On macOS an `NSMenuItem` key
+equivalent consumes the keystroke before it reaches our handler, so a chord in both
+places is handled by the menu and never reaches the keymap — harmless only because both
+routes dispatch the same action, which is what makes that a contract.
+
+`platform/platformtest` is to export the `Window` double, as `element/elementtest` does for
+`ui`. It is worth having because `platform.Window` keeps growing and each new method otherwise
+breaks every private stub implementing it — `window` and `internal/integration` each had
+one, twenty-four methods apiece, so adding a method meant a three-party handshake across
+agents who do not own each other's files. One exported double turns that into one
+package's commit.
+
 ## render
 
 The `Renderer` interface and the GPU side of the atlases, with a backend per
