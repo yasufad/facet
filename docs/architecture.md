@@ -188,6 +188,13 @@ A hover style that changes layout still lags one frame, because layout ran at st
 before any region existed. A hover style that only changes what is painted does not
 lag at all.
 
+What does have to survive the frame is state a widget owns — a scroll offset, a
+selection, a list's viewport — and that lives in the widget's entity, not in anything
+keyed by element. `ui.ScrollView` keeps its metrics in a `ScrollState` entity and reads
+last frame's measurement back before building this frame's children. GPUI arrives at
+the same place: `list.rs` ignores the identity it is handed and keeps its viewport in a
+`ListState` handle.
+
 ## Threading
 
 The UI runs on one goroutine and contexts do not leave it. That is what keeps the
@@ -272,3 +279,15 @@ a decision we are allowed to take if it keeps costing exports.
 backend per operating system and per graphics API, so each is a new subpackage rather
 than a change to the interface. No cgo, so Cocoa and GTK go through purego, and
 `docs/architecture.md` above says what happens if that turns out to be impossible.
+
+**Element identity.** Nothing keys state by element today, and the hover mechanism
+above is why it has not been needed. When something does — element state that is not
+the widget's own, carried between frames — it is a path. `Frame.PushElementId` and
+`PopElementId` bracket a subtree, state is keyed by the resulting path, carried between
+the two frames `window` already holds, and pruned when a frame does not touch it. That
+is GPUI's shape, read from `crates/gpui` rather than assumed.
+
+The obstacle we expected is not there. `Element::request_layout` *receives* `global_id`,
+so identity is available in all three phases; only `with_element_state`, the frame-keyed
+store, is prepaint-and-paint. A virtual list does not need retained element state to
+size itself, which is what made this smaller than the question that raised it.
