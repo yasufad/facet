@@ -1618,25 +1618,23 @@ func TestIMECompositionDeliversToFocusedNode(t *testing.T) {
 // The contrast with SetRootView (which does observe) is TestFlushNotification
 // Deduplication. If fnView or staticView ever gain a real Observe, this test
 // fails — which is the signal that the documented contract changed.
+//
+// Each subtest builds its own app on the subtest's goroutine, because
+// NewApp binds the UI goroutine to its caller and t.Run runs subtests on
+// separate goroutines — a facet_debug build catches the mismatch.
 func TestStaticRootsDoNotObserveEntityMutations(t *testing.T) {
-	a := app.NewApp()
-	defer a.Close()
-
-	plat := &stubPlatform{}
 	size := geometry.NewSize[geometry.Pixels](400, 300)
-	pw := newStubPlatformWindow(size, 1.0)
-	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
-
-	newWindow := func() *Window {
-		w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
-		w.platform = plat
-		return w
-	}
 
 	t.Run("SetRootFn", func(t *testing.T) {
-		plat.dispatched = nil
+		a := app.NewApp()
+		defer a.Close()
 
-		w := newWindow()
+		plat := &stubPlatform{}
+		pw := newStubPlatformWindow(size, 1.0)
+		r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+		w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+		w.platform = plat
+
 		ent := app.New(a, func(cx *app.Context[counterView]) counterView {
 			return counterView{}
 		})
@@ -1666,13 +1664,18 @@ func TestStaticRootsDoNotObserveEntityMutations(t *testing.T) {
 	})
 
 	t.Run("SetRoot", func(t *testing.T) {
-		plat.dispatched = nil
+		a := app.NewApp()
+		defer a.Close()
 
-		w := newWindow()
+		plat := &stubPlatform{}
+		pw := newStubPlatformWindow(size, 1.0)
+		r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+		w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+		w.platform = plat
+
 		ent := app.New(a, func(cx *app.Context[counterView]) counterView {
 			return counterView{}
 		})
-		_ = ent
 
 		w.SetRoot(element.NewDiv().Width(style.Px(100)).Height(style.Px(50)))
 		plat.Drain()
