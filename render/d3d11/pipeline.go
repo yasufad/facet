@@ -77,8 +77,8 @@ func (p *pipelineManager) initCommon() error {
 	}
 	// ID3D11Device::CreateBuffer is vtbl index 3
 	r1, _, _ := p.device.call(3, uintptr(unsafe.Pointer(&cbDesc)), 0, uintptr(unsafe.Pointer(&p.constantBuffer)))
-	if int32(r1) < 0 || p.constantBuffer == nil {
-		return fmt.Errorf("create constant buffer: hr=0x%08x", uint32(r1))
+	if err := createResourceError("create constant buffer", r1, p.constantBuffer == nil); err != nil {
+		return err
 	}
 
 	// Blend State (Premultiplied alpha)
@@ -98,8 +98,8 @@ func (p *pipelineManager) initCommon() error {
 	}
 	// ID3D11Device::CreateBlendState is vtbl index 20
 	r1, _, _ = p.device.call(20, uintptr(unsafe.Pointer(&blendDesc)), uintptr(unsafe.Pointer(&p.blendState)))
-	if int32(r1) < 0 || p.blendState == nil {
-		return fmt.Errorf("create blend state: hr=0x%08x", uint32(r1))
+	if err := createResourceError("create blend state", r1, p.blendState == nil); err != nil {
+		return err
 	}
 
 	// Rasterizer State
@@ -110,8 +110,8 @@ func (p *pipelineManager) initCommon() error {
 	}
 	// ID3D11Device::CreateRasterizerState is vtbl index 22
 	r1, _, _ = p.device.call(22, uintptr(unsafe.Pointer(&rastDesc)), uintptr(unsafe.Pointer(&p.rasterizerState)))
-	if int32(r1) < 0 || p.rasterizerState == nil {
-		return fmt.Errorf("create rasterizer state: hr=0x%08x", uint32(r1))
+	if err := createResourceError("create rasterizer state", r1, p.rasterizerState == nil); err != nil {
+		return err
 	}
 
 	// Sampler State (Linear Clamp)
@@ -124,8 +124,8 @@ func (p *pipelineManager) initCommon() error {
 	}
 	// ID3D11Device::CreateSamplerState is vtbl index 23
 	r1, _, _ = p.device.call(23, uintptr(unsafe.Pointer(&sampDesc)), uintptr(unsafe.Pointer(&p.samplerLinear)))
-	if int32(r1) < 0 || p.samplerLinear == nil {
-		return fmt.Errorf("create sampler state: hr=0x%08x", uint32(r1))
+	if err := createResourceError("create sampler state", r1, p.samplerLinear == nil); err != nil {
+		return err
 	}
 
 	return nil
@@ -143,8 +143,8 @@ func (p *pipelineManager) createShader(vsBytecode, psBytecode []byte, elements [
 	var vs *comObject
 	// ID3D11Device::CreateVertexShader is vtbl index 12
 	r1, _, _ := p.device.call(12, vsPtr, uintptr(len(vsBytecode)), 0, uintptr(unsafe.Pointer(&vs)))
-	if int32(r1) < 0 || vs == nil {
-		return shaderProgram{}, fmt.Errorf("create vertex shader: hr=0x%08x", uint32(r1))
+	if err := createResourceError("create vertex shader", r1, vs == nil); err != nil {
+		return shaderProgram{}, err
 	}
 	prog.vs = vs
 
@@ -155,9 +155,9 @@ func (p *pipelineManager) createShader(vsBytecode, psBytecode []byte, elements [
 	var ps *comObject
 	// ID3D11Device::CreatePixelShader is vtbl index 15
 	r1, _, _ = p.device.call(15, psPtr, uintptr(len(psBytecode)), 0, uintptr(unsafe.Pointer(&ps)))
-	if int32(r1) < 0 || ps == nil {
+	if err := createResourceError("create pixel shader", r1, ps == nil); err != nil {
 		prog.release()
-		return shaderProgram{}, fmt.Errorf("create pixel shader: hr=0x%08x", uint32(r1))
+		return shaderProgram{}, err
 	}
 	prog.ps = ps
 
@@ -168,9 +168,9 @@ func (p *pipelineManager) createShader(vsBytecode, psBytecode []byte, elements [
 	var inputLayout *comObject
 	// ID3D11Device::CreateInputLayout is vtbl index 11
 	r1, _, _ = p.device.call(11, elemPtr, uintptr(len(elements)), vsPtr, uintptr(len(vsBytecode)), uintptr(unsafe.Pointer(&inputLayout)))
-	if int32(r1) < 0 || inputLayout == nil {
+	if err := createResourceError("create input layout", r1, inputLayout == nil); err != nil {
 		prog.release()
-		return shaderProgram{}, fmt.Errorf("create input layout: hr=0x%08x", uint32(r1))
+		return shaderProgram{}, err
 	}
 	prog.inputLayout = inputLayout
 
@@ -326,4 +326,23 @@ func (p *pipelineManager) release() {
 	if p.constantBuffer != nil {
 		p.constantBuffer.Release()
 	}
+}
+
+// createResourceError returns a distinct error for the two ways a D3D11
+// resource creation call can fail. A failing HRESULT means the call itself
+// was rejected; S_OK with a null out-pointer means the call succeeded but
+// the driver returned no object, which is resource exhaustion under
+// contention — the condition that produced "create pixel shader:
+// hr=0x00000000" two agents could not attribute in round 01. Collapsing
+// the two into one message reports a successful call as a failure, which
+// is worse than no message: the HRESULT says S_OK while the error says it
+// failed, and the reader cannot tell which to believe.
+func createResourceError(label string, hr uintptr, objNil bool) error {
+	if int32(hr) < 0 {
+		return fmt.Errorf("%s: failed with hr=0x%08x", label, uint32(hr))
+	}
+	if objNil {
+		return fmt.Errorf("%s: returned null object with hr=0x%08x", label, uint32(hr))
+	}
+	return nil
 }
