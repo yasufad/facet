@@ -1,61 +1,56 @@
 package platform
 
-// Menu interface proposal — three questions that need deciding before
-// implementation, because the answers change whether Window gains new methods.
+// Menu bars, context menus and shortcuts — three contracts.
 //
-// # 1. Native vs. rendered menu bars on Windows
+// # 1. Native menu bars; Window gains no method
 //
-// Platform.SetApplicationMenu is already declared and is the right seam for
-// macOS, where one menu bar covers the whole application. On Windows each
-// window has its own menu bar, attached as a native HMENU via SetMenu(hwnd,
-// hmenu). There are two options:
+// SetApplicationMenu is the application-wide hook on both backends. On macOS
+// it is the single screen menu bar; on Windows it attaches a native HMENU to
+// every window the backend owns, present and future. The Windows backend
+// walks its HWND map and calls SetMenu on each, and new windows pick up the
+// current menu at creation. No method is added to the Window interface: macOS
+// cannot honour a per-window menu, so Window.SetMenu would mean something on
+// one backend and nothing on the other.
 //
-//   - Native per-window menu bars: add Window.SetMenu(*Menu). Platform.SetApplicationMenu
-//     calls Window.SetMenu on each existing and future window. The OS renders the
-//     bar and delivers WM_COMMAND when a user picks an item. This gives standard
-//     keyboard navigation, accessibility and system theming automatically.
+// Undecorated windows get no menu bar, and that is correct rather than a
+// limitation: a window created with Decorated: false asked for no OS chrome,
+// and a menu bar is OS chrome. A rendered menu bar for custom-title-bar
+// applications is a ui widget, later, and needs a mechanism element does not
+// yet expose.
 //
-//   - Rendered menu bar: the window package renders the menu bar as ordinary
-//     content in the client area. Platform.SetApplicationMenu is a no-op on
-//     Windows; window receives the Menu data through a different channel (not
-//     through platform at all). No new Window method. This is what a custom
-//     title bar application would do, and it is the model the current TODO
-//     comment implies.
+// # 2. Context menus: native, and asynchronous
 //
-// The decision determines whether Window is touched. A rendered menu bar keeps
-// the boundary clean; a native one is richer out of the box. The answer should
-// be recorded here before code is written.
+// Context menus go through the native OS path (TrackPopupMenu on Windows,
+// popUpMenuPositioningItem: on macOS) because a rendered popup cannot leave
+// the window, and a context menu opened near the bottom edge has nowhere to
+// go. The method is
 //
-// # 2. Context menus
+//	Window.ShowContextMenu(menu *Menu, at geometry.Point[geometry.Pixels])
 //
-// Right-click menus pop at a position relative to a window. If they go through
-// the native OS path (TrackPopupMenu on Windows, NSMenu.popUpMenu on macOS),
-// the signature is:
+// and it returns before the menu appears. TrackPopupMenu and
+// popUpMenuPositioningItem: both run a nested modal message loop, so a call
+// from inside an event handler would pump further messages into the frame
+// loop while an entity is checked out. The backend therefore records the
+// request and runs the native call on a later turn of its own message loop,
+// once the current update has finished. MenuItem.OnClick fires on the
+// platform thread, outside any borrow. This is the contract on both
+// backends, not a Windows workaround.
 //
-//	Window.ShowContextMenu(menu *Menu, pos geometry.Point[geometry.Pixels])
+// # 3. Shortcuts go through input's keymap; Shortcut is display text
 //
-// If context menus are rendered popups (floating windows drawn by element or
-// ui), platform never needs to know about them and no Window method is added.
+// MenuItem.Shortcut is the text drawn beside the label, nothing more. The
+// application binds the chord in its input.Keymap; the menu item's OnClick
+// dispatches the same action. Both routes arrive at one place. RegisterHotKey
+// is not used: it registers system-globally, so the chord fires whenever it
+// is pressed anywhere on the desktop, whichever application has focus.
 //
-// # 3. Shortcuts
-//
-// MenuItem.Shortcut is declared but not acted on. On macOS, NSMenuItem handles
-// the key equivalent automatically once the item is installed in the menu bar.
-// On Windows, shortcuts for a native menu bar are delivered as WM_COMMAND when
-// the menu is open; for shortcuts that work while the menu is closed, RegisterHotKey
-// is required per HWND, which again ties them to a window.
-//
-// If shortcuts should fire when no menu is visible (Ctrl+S to save, Ctrl+Z to
-// undo), platform must parse MenuItem.Shortcut and register each accelerator on
-// every window that holds the menu. If shortcuts only work while the menu is
-// open, the OS handles them through the normal menu keyboard path and no extra
-// registration is needed.
-//
-// ---
-//
-// None of these decisions are made here. The types below are the agreed-on data
-// layer; Platform.SetApplicationMenu is the agreed-on application-wide hook.
-// Raise the question before landing code that shapes around one answer.
+// platform cannot hold an input.Action — input imports platform and the
+// dependency runs one way — so OnClick stays a func(). On macOS an
+// NSMenuItem key equivalent fires natively once the item is installed and
+// consumes the keystroke before it reaches our handler, so a chord present in
+// both the menu and the keymap is handled by the menu and never reaches the
+// keymap. That is harmless only because both dispatch the same action, which
+// is why "same action on both routes" is a contract and not a preference.
 
 // Menu is a tree of menu items. It is plain data: the platform builds a
 // native menu from it, and the [MenuItem.OnClick] closure is called when the
@@ -75,9 +70,10 @@ type MenuItem struct {
 	Label string
 
 	// Shortcut is an accelerator string such as "Ctrl+S" or "Cmd+Shift+Z".
-	// It is displayed alongside the label and, where the platform supports it,
-	// registered as a global shortcut for the item. The string uses the
-	// modifier names from [Modifiers.String] and a key name from [KeyCode].
+	// It is displayed alongside the label and nothing more: the application
+	// binds the chord in its input.Keymap, and the menu item's OnClick
+	// dispatches the same action. The string uses the modifier names from
+	// [Modifiers.String] and a key name from [KeyCode].
 	Shortcut string
 
 	// Disabled greys out the item and prevents selection.
@@ -91,7 +87,10 @@ type MenuItem struct {
 	Submenu *Menu
 
 	// OnClick is called on the platform thread when the user selects this
-	// item. It is nil for submenu items and separators.
+	// item. It is a thin closure that dispatches an input.Action, not the
+	// logic itself — the action's handler lives where the keymap binds it,
+	// so the menu and the keyboard arrive at one place. It is nil for
+	// submenu items and separators.
 	OnClick func()
 }
 
