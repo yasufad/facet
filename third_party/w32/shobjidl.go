@@ -350,6 +350,24 @@ func (d *IFileSaveDialog) SetFileName(name *uint16) HRESULT {
 	return HRESULT(r)
 }
 
+// GetFileName returns the text currently in the dialog's file-name field.
+// The string returned by the OS is freed here; the caller only sees the Go
+// copy. It is the round-trip counterpart to SetFileName, used to prove the
+// vtable slot is the right one — SetFileName alone cannot distinguish a
+// correct call from a legal call to the wrong method.
+func (d *IFileSaveDialog) GetFileName() (string, HRESULT) {
+	var p *uint16
+	r, _, _ := syscall.SyscallN(d.lpVtbl.GetFileName, uintptr(unsafe.Pointer(d)), uintptr(unsafe.Pointer(&p)))
+	if HRESULT(r) != 0 {
+		return "", HRESULT(r)
+	}
+	// Sound: p is a COM-allocated string the call above told us it owns;
+	// CoTaskMemFree is the documented way to release it, and only after
+	// copying it into a Go string do we free the OS's copy.
+	defer CoTaskMemFree(unsafe.Pointer(p))
+	return UTF16PtrToString(p), 0
+}
+
 func (d *IFileSaveDialog) SetTitle(title *uint16) HRESULT {
 	r, _, _ := syscall.SyscallN(d.lpVtbl.SetTitle, uintptr(unsafe.Pointer(d)), uintptr(unsafe.Pointer(title)))
 	return HRESULT(r)
