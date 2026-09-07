@@ -18,6 +18,9 @@ import (
 	"github.com/yasufad/facet/text"
 )
 
+// staticView is a static root: it returns a fixed element and attaches no
+// observation, so entity mutations never schedule a redraw through it. See
+// SetRoot.
 type staticView struct {
 	el element.Element
 }
@@ -30,6 +33,9 @@ func (s staticView) Observe(_ *app.App, _ func(*app.App) bool) app.Subscription 
 	return app.Subscription{}
 }
 
+// fnView is a static root built from a closure. The closure runs every frame
+// the window redraws, but fnView attaches no observation: entity state the
+// closure reads does not schedule a redraw on its own. See SetRootFn.
 type fnView struct {
 	fn func() element.Element
 }
@@ -248,18 +254,29 @@ func NewWithRenderer(pw platform.Window, r render.Renderer, a *app.App, opts Win
 	return w
 }
 
-// SetRoot configures a static root element for the window.
+// SetRoot sets a static root element for the window. The element is rendered
+// once per frame and never observes entity state: content that reads entity
+// state will not repaint when that state changes. Use SetRootView for
+// reactive content.
 func (w *Window) SetRoot(el element.Element) {
 	w.SetRootView(staticView{el: el})
 }
 
-// SetRootFn configures a root element generator function for the window.
+// SetRootFn sets a root element produced by fn each frame. It is a static
+// root: fn is called on every frame the window redraws, but the window
+// attaches no observation to anything fn reads, so mutating entity state
+// captured by fn does not schedule a redraw on its own. Redraws happen only
+// when an input event or an explicit Invalidate marks the window dirty. Use
+// SetRootView for content that must react to entity mutations.
 func (w *Window) SetRootFn(fn func() element.Element) {
 	w.SetRootView(fnView{fn: fn})
 }
 
-// SetRootView sets the root renderable view for the window and attaches an
-// observer so entity mutations trigger redraws automatically.
+// SetRootView sets the root view for the window and, when the view observes an
+// entity, attaches that observation so entity mutations trigger redraws
+// automatically. This is the reactive root: a view whose Render reads entity
+// state repaints when that state notifies. SetRoot and SetRootFn are static
+// roots for content that does not react.
 func (w *Window) SetRootView(view element.AnyView) {
 	w.rootSub.Close()
 	w.rootSub = app.Subscription{}
