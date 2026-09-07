@@ -3,6 +3,7 @@
 package window_test
 
 import (
+	"errors"
 	"math"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/platform"
+	"github.com/yasufad/facet/render"
 	"github.com/yasufad/facet/render/d3d11"
 	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/window"
@@ -45,6 +47,9 @@ func TestRenderWindowPixelAssertion(t *testing.T) {
 		VSync:       false,
 	})
 	if err != nil {
+		if errors.Is(err, render.ErrNoAdapter) {
+			t.Skipf("window.New: %v", err)
+		}
 		t.Fatalf("window.New: %v", err)
 	}
 	defer w.Close()
@@ -118,6 +123,9 @@ func TestRenderTextWindowPixelAssertion(t *testing.T) {
 		VSync:       false,
 	})
 	if err != nil {
+		if errors.Is(err, render.ErrNoAdapter) {
+			t.Skipf("window.New: %v", err)
+		}
 		t.Fatalf("window.New: %v", err)
 	}
 	defer w.Close()
@@ -218,6 +226,9 @@ func TestUnbalancedClipStackPanicsUnderDebug(t *testing.T) {
 		Visible: false,
 	})
 	if err != nil {
+		if errors.Is(err, render.ErrNoAdapter) {
+			t.Skipf("window.New: %v", err)
+		}
 		t.Fatalf("window.New: %v", err)
 	}
 	defer w.Close()
