@@ -24,3 +24,7 @@ Thumbs.db
 # Agent progress reports, written for the lead to read and not part of the
 # project record. What survives a round goes into docs/packages.md.
 /work/
+
+# Assignments, rewritten each round and deleted when a package retires. What a
+# package guarantees lives in docs/packages.md, which is the record.
+/prompts/
