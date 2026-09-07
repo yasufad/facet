@@ -3,6 +3,7 @@
 package d3d11_test
 
 import (
+	"errors"
 	"math"
 	"runtime"
 	"testing"
@@ -25,6 +26,18 @@ func coloursMatch(a, b colour.Rgba, tol float32) bool {
 		diff(a.A, b.A) <= tol
 }
 
+// setupTestWindow creates the platform, window, and renderer that every
+// readback test in this file shares. The pixel assertions below are the
+// only thing standing between a wrong vtable slot or shader and a green
+// tick — three wrong indices and a batch offset all reached reviewed code
+// before readback caught them — so they must run and fail on a real GPU.
+//
+// They require a graphics adapter and are not exercised by continuous
+// integration: hosted runners have no hardware D3D11 adapter, device
+// creation returns [render.ErrNoAdapter], and the tests skip. A skip is
+// not a pass; it says the environment could not run the test, not that
+// the test passed. Run these locally on a machine with a GPU before
+// trusting a change to this package.
 func setupTestWindow(t *testing.T, title string, width, height int) (platform.Platform, platform.Window, render.Renderer, float32) {
 	p, err := platform.New(platform.Options{Name: "facet-render-test"})
 	if err != nil {
@@ -51,6 +64,9 @@ func setupTestWindow(t *testing.T, title string, width, height int) (platform.Pl
 	r, err := d3d11.New(w.NativeSurface(), devSize, render.Options{VSync: false})
 	if err != nil {
 		w.Close()
+		if errors.Is(err, render.ErrNoAdapter) {
+			t.Skipf("d3d11.New: %v", err)
+		}
 		t.Fatalf("d3d11.New: %v", err)
 	}
 
