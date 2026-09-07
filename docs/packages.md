@@ -753,5 +753,7 @@ A package whose dependencies are unwritten waits. Do not stub them — a placeho
 gets imported, drifts from the real API, and turns the merge into a rewrite.
 
 `prompts/` holds the assignments currently in hand, and one is retired when its
-package is done. It is not a list of what remains — a package with no prompt has
-either been finished or not yet been assigned. `go list ./...` says which.
+package is done. It is a working directory, not tracked here, so it is visible only
+in a checkout somebody is working in. It is also not a list of what remains — a
+package with no prompt has either been finished or not yet been assigned. `go list
+./...` says which.
