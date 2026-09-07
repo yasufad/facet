@@ -23,15 +23,15 @@ import (
 // read return the field. SetEventHandler and SetCloseHandler store the
 // closures so a test can call them directly.
 type Window struct {
-	SizeVal     geometry.Size[geometry.Pixels]
-	PosVal      geometry.Point[geometry.Pixels]
-	Scale       float32
-	StateVal    platform.WindowState
-	Cursors     []platform.Cursor
-	Visible     bool
-	Focused     bool
-	NativeHnd   uintptr
-	NativeSurf  uintptr
+	SizeVal      geometry.Size[geometry.Pixels]
+	PosVal       geometry.Point[geometry.Pixels]
+	Scale        float32
+	StateVal     platform.WindowState
+	Cursors      []platform.Cursor
+	Visible      bool
+	Focused      bool
+	NativeHnd    uintptr
+	NativeSurf   uintptr
 	EventHandler func(platform.Event)
 	CloseHandler func() bool
 }
