@@ -130,6 +130,30 @@ invariants it holds. Read your package's entry before you start.
   import rules in `docs/packages.md` govern our own packages, not the module graph —
   do not write something worse by hand to avoid a dependency.
 
+### Reporting
+
+When your prompt is done, write `work/<package>-<NN>.md` — `NN` is your round, starting
+at `01`, so two agents never write the same name and the sequence stays legible. `work/`
+is gitignored: a report is working communication, not project record. What survives the
+round goes into `docs/packages.md`, which is where the retirement rule already puts it.
+
+Write it for someone who will try to break every claim in it. Five headings:
+
+- **Landed.** Each commit, `<hash> <subject>`, and one line on what it actually changes.
+- **Evidence.** For every behavioural claim, what you broke, which test failed, and the
+  failure output pasted verbatim. This is the section that gets read first, and a claim
+  without a break under it is read as unverified — which is fair, because it is.
+- **Left out.** What the prompt asked for that you did not do, and why. An item that
+  looks wrong belongs here, argued, not closed silently. Three packages have been
+  retired with open items and all three came back.
+- **Blocked on.** The package and the exact name you are waiting for, or "nothing".
+- **Verified at.** The commands from "Commands" above with their output, and whether you
+  ran them in a worktree of your own or in the shared checkout. Green from a shared
+  checkout is not evidence — it reports whatever half-finished files other agents have
+  open, which has misled a review three times.
+
+Do not commit `work/`. Do not push.
+
 ## Language
 
 International (GB) English, in prose and in code: `colour`, `centre`, `behaviour`,
