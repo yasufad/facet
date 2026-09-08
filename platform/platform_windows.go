@@ -631,10 +631,26 @@ func (p *windowsPlatform) registerWindow(hwnd w32.HWND, w *windowsWindow) {
 // unregisterWindow removes a window from the HWND map. Called on the platform
 // thread from WM_DESTROY. After this returns, the wndproc will not find the
 // window for its HWND and will pass messages to DefWindowProc.
+//
+// When the last registered window is destroyed, the platform stops its own
+// run loop: a Facet application's lifetime is its windows, and a process
+// pumping an empty window map never returns from Run. This is the natural
+// place to detect emptiness — unregisterWindow already runs on the platform
+// thread, where the map is mutated, so PostQuitMessage lands on the right
+// queue without the cross-thread dispatch that [windowsPlatform.Quit] uses
+// for callers off the platform thread.
+//
+// This is a Windows behaviour, not a macOS one: a macOS application keeps
+// running with no windows (closing the last window does not quit on macOS),
+// so the Darwin backend does not mirror this.
 func (p *windowsPlatform) unregisterWindow(hwnd w32.HWND) {
 	p.mu.Lock()
 	delete(p.windows, hwnd)
+	empty := len(p.windows) == 0
 	p.mu.Unlock()
+	if empty {
+		p.dispatcher.Quit()
+	}
 }
 
 // windowByHWND looks up a window by its HWND. Called from the wndproc on the
