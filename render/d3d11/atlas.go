@@ -149,16 +149,16 @@ func (m *atlasManager) createPage(kind scene.AtlasTextureKind, index uint32) (*a
 	var texture *comObject
 	// Sound because desc is on the stack and texture will receive the created COM object.
 	r1, _, _ := m.device.call(5, uintptr(unsafe.Pointer(&desc)), 0, uintptr(unsafe.Pointer(&texture)))
-	if int32(r1) < 0 || texture == nil {
-		return nil, fmt.Errorf("create atlas texture: hr=0x%08x", uint32(r1))
+	if err := createResourceError("create atlas texture", r1, texture == nil); err != nil {
+		return nil, err
 	}
 
 	var srv *comObject
 	// Sound because srv is on the stack and receives the created shader resource view.
 	r1, _, _ = m.device.call(7, uintptr(unsafe.Pointer(texture)), 0, uintptr(unsafe.Pointer(&srv)))
-	if int32(r1) < 0 || srv == nil {
+	if err := createResourceError("create atlas SRV", r1, srv == nil); err != nil {
 		texture.Release()
-		return nil, fmt.Errorf("create atlas SRV: hr=0x%08x", uint32(r1))
+		return nil, err
 	}
 
 	return &atlasPage{
