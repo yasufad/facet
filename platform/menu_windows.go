@@ -41,6 +41,23 @@ func buildMenu(menu *Menu) *nativeMenu {
 	return nm
 }
 
+// buildPopupMenu constructs a native popup menu from a [Menu] tree. It is
+// the popup counterpart to buildMenu: CreatePopupMenu produces a menu
+// suitable for TrackPopupMenu rather than a menu bar, but the item layout
+// and command-ID mapping are identical. The caller owns the HMENU and must
+// DestroyMenu it once TrackPopupMenu has returned.
+func buildPopupMenu(menu *Menu) *nativeMenu {
+	nm := &nativeMenu{
+		hmenu:    w32.HMENU(w32.CreatePopupMenu()),
+		commands: make(map[uintptr]func()),
+	}
+	nm.nextID = firstCommandID
+	for i := range menu.Items {
+		nm.appendItem(&menu.Items[i])
+	}
+	return nm
+}
+
 func (nm *nativeMenu) appendItem(item *MenuItem) {
 	if item.Label == "" && item.Submenu == nil && item.OnClick == nil {
 		// Separator: an empty item with no submenu and no click handler.
