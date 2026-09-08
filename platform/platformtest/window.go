@@ -34,6 +34,13 @@ type Window struct {
 	NativeSurf   uintptr
 	EventHandler func(platform.Event)
 	CloseHandler func() bool
+
+	// ContextMenu is the most recent ShowContextMenu request recorded by
+	// the double, so a test can assert the method was called with the right
+	// menu and point. The double records the request and returns
+	// immediately, mirroring the backend contract: ShowContextMenu returns
+	// before the menu appears.
+	ContextMenu *ContextMenuRequest
 }
 
 // Ensure Window implements platform.Window.
@@ -80,4 +87,18 @@ func (w *Window) SetEventHandler(h func(platform.Event)) {
 }
 func (w *Window) SetCloseHandler(h func() bool) {
 	w.CloseHandler = h
+}
+
+// ContextMenuRequest is a recorded ShowContextMenu request, so a test can
+// assert the method was called with the right menu and point.
+type ContextMenuRequest struct {
+	Menu *platform.Menu
+	At   geometry.Point[geometry.Pixels]
+}
+
+// ShowContextMenu records the request and returns immediately, matching the
+// backend contract documented in platform/menu.go: the method returns before
+// the menu appears, and the native call runs on a later turn.
+func (w *Window) ShowContextMenu(menu *platform.Menu, at geometry.Point[geometry.Pixels]) {
+	w.ContextMenu = &ContextMenuRequest{Menu: menu, At: at}
 }

@@ -197,4 +197,18 @@ type Window interface {
 	// Close from the taskbar. Returning false prevents the close; returning
 	// true or nil allows it. The handler is called on the platform thread.
 	SetCloseHandler(handler func() bool)
+
+	// ShowContextMenu displays menu as a native context menu at at, where at
+	// is in logical pixels relative to the window's client area. The method
+	// returns before the menu appears: the backend records the request and
+	// runs the native call (TrackPopupMenu on Windows,
+	// popUpMenuPositioningItem: on macOS) on a later turn of its own message
+	// loop. Both native calls run a nested modal loop, so running them inside
+	// an event handler would pump further messages into the frame loop while
+	// an entity is checked out; deferring to its own turn keeps that loop
+	// outside any borrow.
+	//
+	// MenuItem.OnClick fires on the platform thread, outside any entity
+	// borrow. See the contract in menu.go.
+	ShowContextMenu(menu *Menu, at geometry.Point[geometry.Pixels])
 }
