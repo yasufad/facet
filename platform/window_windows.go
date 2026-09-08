@@ -225,6 +225,36 @@ func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintpt
 		w32.DestroyWindow(hwnd)
 		return 0
 
+	case w32.WM_QUERYENDSESSION:
+		// The system is asking whether the session can end — shutdown,
+		// logoff or restart. This is the Windows quit-request event: the
+		// documented SetQuitHandler contract is "the system asking it to
+		// terminate". Returning 0 vetoes the session end; returning
+		// non-zero allows it. The handler is the application's chance to
+		// save documents or confirm; nil means allow.
+		//
+		// WM_QUERYENDSESSION is broadcast to every top-level window, so
+		// with N windows the handler runs N times. It is idempotent: the
+		// application decides once whether to allow, and returning the same
+		// answer from each window is consistent.
+		w.owner.mu.Lock()
+		handler := w.owner.quitHandler
+		w.owner.mu.Unlock()
+		if handler != nil && !handler() {
+			return 0 // veto
+		}
+		return 1 // allow
+
+	case w32.WM_ENDSESSION:
+		// The session is ending (wParam != 0) or was cancelled by some app's
+		// veto (wParam == 0). When ending, stop the event loop so the process
+		// exits cleanly rather than being killed mid-message by the system.
+		if wParam == 0 {
+			return 0
+		}
+		w.owner.Quit()
+		return 0
+
 	case w32.WM_DISPLAYCHANGE:
 		// Display configuration changed (monitor attached/removed, DPI
 		// changed, resolution changed). Refresh the platform's display
