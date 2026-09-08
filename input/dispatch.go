@@ -1,8 +1,6 @@
 package input
 
 import (
-	"slices"
-
 	"github.com/yasufad/facet/platform"
 )
 
@@ -75,6 +73,23 @@ type DispatchTree struct {
 	nodeStack    []DispatchNodeID
 	focusNodeMap map[FocusID]DispatchNodeID
 	pendingKeys  []Keystroke
+
+	// pathBuf is a scratch buffer reused across dispatches by nodePath, so
+	// the pointer-move path (which calls nodePath on every mouse motion)
+	// allocates nothing at steady state. contextBuf serves contextStackForPath
+	// the same way. Both persist across Clear so their capacity is retained.
+	pathBuf    []DispatchNodeID
+	contextBuf []KeyContext
+
+	// dispatchDepth is incremented while handlers iterate over a path
+	// produced by nodePath, and decremented when they return. nodePath
+	// uses pathBuf only at depth 0; a re-entrant call (depth > 0) allocates
+	// a fresh slice so the inner walk cannot overwrite the outer path.
+	// Today no handler can reach a Dispatch* method — they see element.Frame,
+	// which exposes RequestFocus and ScheduleFrame but not the tree — so
+	// re-entrancy is unreachable. The guard is cheap and keeps the buffer
+	// safe if that ever changes.
+	dispatchDepth int
 }
 
 // NewDispatchTree constructs a DispatchTree wired to the given Keymap and FocusTree.
@@ -229,6 +244,13 @@ func (d *DispatchTree) DispatchKey(event platform.KeyEvent) DispatchResult {
 	path := d.nodePath(targetNode)
 	contexts := d.contextStackForPath(path)
 
+	// From here on, dispatchAction and dispatchRawKeyOnPath run handlers
+	// that iterate over path. Increment depth so a re-entrant nodePath
+	// call (if a handler ever reaches a Dispatch* method) allocates a
+	// fresh slice instead of overwriting this path.
+	d.dispatchDepth++
+	defer func() { d.dispatchDepth-- }()
+
 	d.pendingKeys = append(d.pendingKeys, ks)
 	matches, hasPending := d.keymap.BindingsForInput(d.pendingKeys, contexts)
 
@@ -292,6 +314,9 @@ func (d *DispatchTree) DispatchPointer(event platform.PointerEvent, targetNode D
 		return false
 	}
 
+	d.dispatchDepth++
+	defer func() { d.dispatchDepth-- }()
+
 	// Capture phase: root -> target
 	for i := 0; i < len(path); i++ {
 		node := &d.nodes[path[i]]
@@ -322,6 +347,9 @@ func (d *DispatchTree) DispatchWheel(event platform.WheelEvent, targetNode Dispa
 	if len(path) == 0 {
 		return false
 	}
+
+	d.dispatchDepth++
+	defer func() { d.dispatchDepth-- }()
 
 	// Capture phase
 	for i := 0; i < len(path); i++ {
@@ -439,6 +467,8 @@ func (d *DispatchTree) dispatchAction(action Action, path []DispatchNodeID) bool
 func (d *DispatchTree) dispatchRawKey(event platform.KeyEvent) bool {
 	targetNode := d.resolveTargetNode()
 	path := d.nodePath(targetNode)
+	d.dispatchDepth++
+	defer func() { d.dispatchDepth-- }()
 	return d.dispatchRawKeyOnPath(event, path)
 }
 
@@ -489,26 +519,40 @@ func (d *DispatchTree) nodePath(target DispatchNodeID) []DispatchNodeID {
 		return nil
 	}
 
+	// No visited-set: PushNode assigns id = len(nodes) and takes the parent
+	// from the stack, so a parent index is always strictly smaller than its
+	// child's. The walk terminates by construction; the cycle guard that was
+	// here allocated a map on every dispatch defending against a state the
+	// constructor makes unreachable.
 	var path []DispatchNodeID
+	if d.dispatchDepth == 0 {
+		path = d.pathBuf[:0]
+	}
 	curr := target
-	visited := make(map[DispatchNodeID]bool)
-
-	for curr >= 0 && int(curr) < len(d.nodes) && !visited[curr] {
-		visited[curr] = true
+	for curr >= 0 && int(curr) < len(d.nodes) {
 		path = append(path, curr)
 		curr = d.nodes[curr].parent
 	}
-
-	slices.Reverse(path)
+	// Reverse in place: root first, target last. Re-slicing to [:0] above
+	// is safe because every element we read is one we just wrote — nothing
+	// reads past len(path), unlike the window bounds bug where a reused
+	// backing array served last frame's data to an index this frame skipped.
+	for i, j := 0, len(path)-1; i < j; i, j = i+1, j-1 {
+		path[i], path[j] = path[j], path[i]
+	}
+	if d.dispatchDepth == 0 {
+		d.pathBuf = path
+	}
 	return path
 }
 
 func (d *DispatchTree) contextStackForPath(path []DispatchNodeID) []KeyContext {
-	var stack []KeyContext
+	stack := d.contextBuf[:0]
 	for _, nodeID := range path {
 		if d.nodes[nodeID].context != nil {
 			stack = append(stack, *d.nodes[nodeID].context)
 		}
 	}
+	d.contextBuf = stack
 	return stack
 }
