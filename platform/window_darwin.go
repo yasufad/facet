@@ -437,6 +437,17 @@ func (w *cocoaWindow) SetCloseHandler(handler func() bool) {
 	w.mu.Unlock()
 }
 
+// ShowContextMenu is not implemented on macOS yet. The documented contract
+// defers the native popUpMenuPositioningItem: call to a later turn of the
+// event loop, which is Objective-C runtime work, and the Darwin backend has
+// never run on a Mac. The method exists to satisfy the platform.Window
+// interface so the Windows implementation can land; it records nothing and
+// displays nothing until a Mac is available and the backend runs.
+func (w *cocoaWindow) ShowContextMenu(menu *Menu, at geometry.Point[geometry.Pixels]) {
+	_ = menu
+	_ = at
+}
+
 // deliverPointerEvent translates an NSEvent into a PointerEvent and
 // delivers it to the window's event handler. Called from the FacetView's
 // mouse callback on the main thread.
