@@ -274,10 +274,25 @@ faithfully ported, and it forces callers to do the leaf arithmetic themselves, w
 is why `ComputeLeafLayout` is exported. Wrapping it in something size-in, size-out is
 a decision we are allowed to take if it keeps costing exports.
 
-**macOS and Linux.** `platform` and `render` are Windows only. Both are designed as a
-backend per operating system and per graphics API, so each is a new subpackage rather
-than a change to the interface. No cgo, so Cocoa and GTK go through purego, and
-`docs/architecture.md` above says what happens if that turns out to be impossible.
+**macOS and Linux.** `render` is Windows only, and `platform` has a Windows backend, a
+darwin backend that has never been run, and no Linux backend at all. Each is a backend
+per operating system and per graphics API, so each is a new file or subpackage rather
+than a change to the interface.
+
+The darwin work is parked rather than abandoned, and the reason is worth keeping: nobody
+here has a Mac. Objective-C selectors are strings resolved at runtime, so a mistyped one
+compiles, links, and fails only when the message is sent — which makes unrun Cocoa code
+worth less than unrun code usually is, and makes writing more of it before any of it has
+executed a way of accumulating work rather than finishing it. The one question it was
+opened to answer is answered and recorded in `docs/packages.md`: struct-returning
+Objective-C calls do work through purego without cgo, established from purego's own
+source and its exact-value test on a 32-byte four-double struct, which is `NSRect`'s
+shape.
+
+So the files stay and keep compiling under `GOOS=darwin`, because that is the only check
+left on them and it catches interface drift. They gain nothing until there is hardware to
+run them on. Linux stays `platform_other.go`, which compiles and implements nothing, and
+says so.
 
 **Element identity.** Nothing keys state by element today, and the hover mechanism
 above is why it has not been needed. When something does — element state that is not
