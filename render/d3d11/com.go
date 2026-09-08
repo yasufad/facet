@@ -271,3 +271,27 @@ const (
 	d3d11InputPerInstanceData = 1
 	d3d11AppendAlignedElement = 0xffffffff
 )
+
+// createResourceError returns a distinct error for the two ways a D3D11
+// resource creation call can fail. A failing HRESULT means the call itself
+// was rejected; S_OK with a null out-pointer means the call succeeded but
+// the driver returned no object, which is resource exhaustion under
+// contention — the condition that produced "create pixel shader:
+// hr=0x00000000" two agents could not attribute in round 01. Collapsing
+// the two into one message reports a successful call as a failure, which
+// is worse than no message: the HRESULT says S_OK while the error says it
+// failed, and the reader cannot tell which to believe.
+//
+// Lives in com.go rather than pipeline.go so every file in the package
+// that creates a D3D11 resource — d3d11.go, draw.go, atlas.go,
+// readback_facet_debug.go and pipeline.go — can call it without reaching
+// across files for a helper that belongs to the COM layer they all share.
+func createResourceError(label string, hr uintptr, objNil bool) error {
+	if int32(hr) < 0 {
+		return fmt.Errorf("%s: failed with hr=0x%08x", label, uint32(hr))
+	}
+	if objNil {
+		return fmt.Errorf("%s: returned null object with hr=0x%08x", label, uint32(hr))
+	}
+	return nil
+}
