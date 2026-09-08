@@ -32,8 +32,8 @@ func ReadBackbuffer(r render.Renderer) ([][]colour.Rgba, error) {
 	// 1. Get backbuffer texture from swapchain (IDXGISwapChain::GetBuffer is vtbl index 9)
 	var backBuffer *comObject
 	r1, _, _ := d.swapChain.call(9, 0, uintptr(unsafe.Pointer(&iidID3D11Texture2D)), uintptr(unsafe.Pointer(&backBuffer)))
-	if int32(r1) < 0 || backBuffer == nil {
-		return nil, fmt.Errorf("get swapchain backbuffer: hr=0x%08x", uint32(r1))
+	if err := createResourceError("get swapchain backbuffer", r1, backBuffer == nil); err != nil {
+		return nil, err
 	}
 	defer backBuffer.Release()
 
@@ -54,8 +54,8 @@ func ReadBackbuffer(r render.Renderer) ([][]colour.Rgba, error) {
 	var stagingTex *comObject
 	// ID3D11Device::CreateTexture2D is vtbl index 5
 	r1, _, _ = d.device.call(5, uintptr(unsafe.Pointer(&desc)), 0, uintptr(unsafe.Pointer(&stagingTex)))
-	if int32(r1) < 0 || stagingTex == nil {
-		return nil, fmt.Errorf("create staging texture: hr=0x%08x", uint32(r1))
+	if err := createResourceError("create staging texture", r1, stagingTex == nil); err != nil {
+		return nil, err
 	}
 	defer stagingTex.Release()
 
@@ -71,8 +71,8 @@ func ReadBackbuffer(r render.Renderer) ([][]colour.Rgba, error) {
 		0,
 		uintptr(unsafe.Pointer(&mapped)),
 	)
-	if int32(r1) < 0 || mapped.PData == nil {
-		return nil, fmt.Errorf("map staging texture: hr=0x%08x", uint32(r1))
+	if err := createResourceError("map staging texture", r1, mapped.PData == nil); err != nil {
+		return nil, err
 	}
 	// ID3D11DeviceContext::Unmap is vtbl index 15
 	defer d.context.call(15, uintptr(unsafe.Pointer(stagingTex)), 0)
