@@ -165,6 +165,12 @@ Write it for someone who will try to break every claim in it. Five headings:
 
 Do not commit `work/`. Do not push.
 
+`work/` holds the round in hand, not an archive. Once the lead has verified a report and
+written what survives into `docs/packages.md`, the file is deleted — the same rule that
+retires a prompt, for the same reason. A directory of superseded reports makes it harder
+to see which round is current, and anything still worth reading was not working
+communication and belongs in `docs/`.
+
 ## Language
 
 International (GB) English, in prose and in code: `colour`, `centre`, `behaviour`,
