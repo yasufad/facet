@@ -282,3 +282,96 @@ func TestEmptyDispatchTree(t *testing.T) {
 		t.Fatalf("expected no winning binding on empty tree")
 	}
 }
+
+// TestDispatchPointerReentrantPath verifies that a dispatch launched from
+// inside a handler does not corrupt the outer dispatch's path. The scratch
+// buffer is shared across dispatches; without the re-entrancy guard a
+// nested nodePath overwrites the outer path's backing array and the outer
+// capture walk continues over the inner path's nodes.
+//
+// Today no handler can reach a Dispatch* method — they see element.Frame,
+// which exposes RequestFocus and ScheduleFrame but not the tree — so this
+// re-entrancy is unreachable in production. The test drives it directly to
+// prove the guard holds regardless.
+func TestDispatchPointerReentrantPath(t *testing.T) {
+	km := NewKeymap()
+	ft := NewFocusTree()
+	dt := NewDispatchTree(km, ft)
+
+	var captureOrder []DispatchNodeID
+
+	// Tree:
+	//   0 (root)
+	//   ├── 1
+	//   │   └── 2
+	//   │       └── 3
+	//   └── 4
+	//       └── 5
+	dt.PushNode() // 0
+	dt.OnPointerEvent(func(event platform.PointerEvent, phase DispatchPhase) bool {
+		if phase == Capture {
+			captureOrder = append(captureOrder, 0)
+		}
+		return false
+	})
+	dt.PushNode() // 1
+	dt.OnPointerEvent(func(event platform.PointerEvent, phase DispatchPhase) bool {
+		if phase == Capture {
+			captureOrder = append(captureOrder, 1)
+			// Re-enter: dispatch to node 5. Its path [0,4,5] must not
+			// corrupt this outer dispatch's path [0,1,2,3].
+			dt.DispatchPointer(platform.PointerEvent{Phase: platform.PointerMove}, 5)
+		}
+		return false
+	})
+	dt.PushNode() // 2
+	dt.OnPointerEvent(func(event platform.PointerEvent, phase DispatchPhase) bool {
+		if phase == Capture {
+			captureOrder = append(captureOrder, 2)
+		}
+		return false
+	})
+	dt.PushNode() // 3
+	dt.OnPointerEvent(func(event platform.PointerEvent, phase DispatchPhase) bool {
+		if phase == Capture {
+			captureOrder = append(captureOrder, 3)
+		}
+		return false
+	})
+	dt.PopNode()  // pop 3
+	dt.PopNode()  // pop 2
+	dt.PopNode()  // pop 1
+	dt.PushNode() // 4
+	dt.OnPointerEvent(func(event platform.PointerEvent, phase DispatchPhase) bool {
+		if phase == Capture {
+			captureOrder = append(captureOrder, 4)
+		}
+		return false
+	})
+	dt.PushNode() // 5
+	dt.OnPointerEvent(func(event platform.PointerEvent, phase DispatchPhase) bool {
+		if phase == Capture {
+			captureOrder = append(captureOrder, 5)
+		}
+		return false
+	})
+	dt.PopNode() // pop 5
+	dt.PopNode() // pop 4
+	dt.PopNode() // pop 0
+
+	// Outer dispatch to node 3. Capture visits 0, 1, then 1's handler
+	// re-enters (inner capture: 0, 4, 5), then outer continues to 2, 3.
+	// Without the guard the inner path [0,4,5] overwrites the buffer and
+	// the outer walk reads 5 at index 2 instead of 2.
+	dt.DispatchPointer(platform.PointerEvent{Phase: platform.PointerMove}, 3)
+
+	want := []DispatchNodeID{0, 1, 0, 4, 5, 2, 3}
+	if len(captureOrder) != len(want) {
+		t.Fatalf("capture order length: got %v, want %v", captureOrder, want)
+	}
+	for i := range want {
+		if captureOrder[i] != want[i] {
+			t.Fatalf("capture order corrupted by re-entrant dispatch at step %d:\n got %v\nwant %v", i, captureOrder, want)
+		}
+	}
+}
