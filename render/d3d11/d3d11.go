@@ -60,12 +60,8 @@ func New(surface uintptr, size geometry.Size[geometry.DevicePixels], opts render
 		0,
 		uintptr(unsafe.Pointer(&context)),
 	)
-	if int32(hr) < 0 || device == nil || context == nil {
-		hrVal := uint32(hr)
-		if hrVal == dxgiErrorUnsupported || hrVal == eFail {
-			return nil, fmt.Errorf("create D3D11 device: %w (hr=0x%08x)", render.ErrNoAdapter, hrVal)
-		}
-		return nil, fmt.Errorf("create D3D11 device: hr=0x%08x", hrVal)
+	if err := classifyDeviceError(hr, device, context); err != nil {
+		return nil, err
 	}
 
 	r := &d3d11Renderer{
@@ -95,26 +91,44 @@ func New(surface uintptr, size geometry.Size[geometry.DevicePixels], opts render
 	return r, nil
 }
 
+// classifyDeviceError returns the error for a D3D11CreateDevice result.
+// The two HRESULTs that mean "no usable adapter" — DXGI_ERROR_UNSUPPORTED
+// and E_FAIL — wrap render.ErrNoAdapter, so the four downstream consumers
+// (window, the readback tests, the integration test and element's joint
+// test) can branch on it with errors.Is and skip rather than fail. Every
+// other failure is a real device-creation error. Returns nil when the
+// call succeeded and both out-pointers are non-nil.
+func classifyDeviceError(hr uintptr, device, context *comObject) error {
+	if int32(hr) >= 0 && device != nil && context != nil {
+		return nil
+	}
+	hrVal := uint32(hr)
+	if hrVal == dxgiErrorUnsupported || hrVal == eFail {
+		return fmt.Errorf("create D3D11 device: %w (hr=0x%08x)", render.ErrNoAdapter, hrVal)
+	}
+	return fmt.Errorf("create D3D11 device: hr=0x%08x", hrVal)
+}
+
 func (r *d3d11Renderer) initSwapChain(width, height uint32) error {
 	var dxgiDevice *comObject
-	if hr := r.device.QueryInterface(&iidIDXGIDevice, unsafe.Pointer(&dxgiDevice)); hr < 0 || dxgiDevice == nil {
-		return fmt.Errorf("query IDXGIDevice: hr=0x%08x", uint32(hr))
+	if err := createResourceError("query IDXGIDevice", uintptr(r.device.QueryInterface(&iidIDXGIDevice, unsafe.Pointer(&dxgiDevice))), dxgiDevice == nil); err != nil {
+		return err
 	}
 	defer dxgiDevice.Release()
 
 	var adapter *comObject
 	// IDXGIDevice::GetAdapter is vtbl index 7
 	r1, _, _ := dxgiDevice.call(7, uintptr(unsafe.Pointer(&adapter)))
-	if int32(r1) < 0 || adapter == nil {
-		return fmt.Errorf("get IDXGIAdapter: hr=0x%08x", uint32(r1))
+	if err := createResourceError("get IDXGIAdapter", r1, adapter == nil); err != nil {
+		return err
 	}
 	defer adapter.Release()
 
 	var factory *comObject
 	// IDXGIAdapter::GetParent (IID_IDXGIFactory2) is vtbl index 6
 	r1, _, _ = adapter.call(6, uintptr(unsafe.Pointer(&iidIDXGIFactory2)), uintptr(unsafe.Pointer(&factory)))
-	if int32(r1) < 0 || factory == nil {
-		return fmt.Errorf("get IDXGIFactory2: hr=0x%08x", uint32(r1))
+	if err := createResourceError("get IDXGIFactory2", r1, factory == nil); err != nil {
+		return err
 	}
 	defer factory.Release()
 
@@ -153,8 +167,8 @@ func (r *d3d11Renderer) initSwapChain(width, height uint32) error {
 			0,
 			uintptr(unsafe.Pointer(&swapChain)),
 		)
-		if int32(r1) < 0 || swapChain == nil {
-			return fmt.Errorf("CreateSwapChainForHwnd: hr=0x%08x", uint32(r1))
+		if err := createResourceError("CreateSwapChainForHwnd", r1, swapChain == nil); err != nil {
+			return err
 		}
 	}
 	r.swapChain = swapChain
@@ -166,15 +180,15 @@ func (r *d3d11Renderer) createRenderTarget() error {
 	var backBuffer *comObject
 	// IDXGISwapChain::GetBuffer(0, IID_ID3D11Texture2D, &backBuffer) is vtbl index 9
 	r1, _, _ := r.swapChain.call(9, 0, uintptr(unsafe.Pointer(&iidID3D11Texture2D)), uintptr(unsafe.Pointer(&backBuffer)))
-	if int32(r1) < 0 || backBuffer == nil {
-		return fmt.Errorf("get swapchain backbuffer: hr=0x%08x", uint32(r1))
+	if err := createResourceError("get swapchain backbuffer", r1, backBuffer == nil); err != nil {
+		return err
 	}
 	defer backBuffer.Release()
 
 	// ID3D11Device::CreateRenderTargetView is vtbl index 9
 	r1, _, _ = r.device.call(9, uintptr(unsafe.Pointer(backBuffer)), 0, uintptr(unsafe.Pointer(&r.renderTargetView)))
-	if int32(r1) < 0 || r.renderTargetView == nil {
-		return fmt.Errorf("create render target view: hr=0x%08x", uint32(r1))
+	if err := createResourceError("create render target view", r1, r.renderTargetView == nil); err != nil {
+		return err
 	}
 
 	return nil
