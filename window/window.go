@@ -375,6 +375,13 @@ func (w *Window) Draw() {
 		w.resolveNextHitTest()
 
 		// 6. Paint: elements evaluate hover/active/focus styles and emit primitives into next.scene.
+		// The window bounds become the scene's viewport, the base of the clip
+		// stack, so a container that resolves to zero height clips its children
+		// rather than letting an empty mask read as "no clipping".
+		w.next.scene.SetViewport(geometry.ScaleBounds(
+			geometry.Bounds[geometry.Pixels]{Size: w.size},
+			w.scaleFactor,
+		))
 		w.phase = phasePaint
 		el.Paint(w, rootBounds)
 		w.checkClipStackEmpty()

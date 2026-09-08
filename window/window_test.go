@@ -919,6 +919,40 @@ func TestWindowPushClipPrimitiveMask(t *testing.T) {
 	}
 }
 
+// TestWindowZeroHeightContainerClipsChildren verifies the end-to-end fix for the
+// clip stack: a container that resolves to zero height and hides overflow pushes
+// a genuinely empty clip, and because window sets the scene's viewport as the
+// base of the clip stack that empty mask means nothing is visible — the child
+// is clipped away rather than painting over the whole window.
+func TestWindowZeroHeightContainerClipsChildren(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := platformtest.NewWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	w.SetRootFn(func() element.Element {
+		return element.NewDiv().
+			Width(style.Px(100)).
+			Height(style.Px(0)).
+			OverflowHidden().
+			Child(
+				element.NewDiv().
+					Width(style.Px(300)).
+					Height(style.Px(300)).
+					Bg(colour.Rgba{R: 0, G: 0, B: 1, A: 1}),
+			)
+	})
+
+	w.Draw()
+
+	if len(r.quads) != 0 {
+		t.Fatalf("zero-height container should clip its child away, got %d quads", len(r.quads))
+	}
+}
+
 // clipTestElement registers one hit region under a prepaint clip narrower than
 // the region itself, so the region's effective (post-clip) bounds are smaller
 // than its nominal bounds — a shape no Div can produce yet, since Div does not
