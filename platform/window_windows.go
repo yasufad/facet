@@ -32,6 +32,15 @@ type windowsWindow struct {
 	eventHandler func(Event)
 	closeHandler func() bool
 
+	// pendingContextMenu holds the most recent ShowContextMenu request that
+	// has not yet been displayed. ShowContextMenu records the Menu and point
+	// here and posts wmShowContextMenu; the wndproc reads and clears it when
+	// it handles that message. Only one request is pending at a time — a
+	// second call before the first runs replaces it, which is the right
+	// behaviour for a context menu (the latest request is the one the user
+	// expects). Accessed only on the platform thread.
+	pendingContextMenu *pendingContextMenuRequest
+
 	// scaleFactor is the scale factor of the display the window is on. It is
 	// updated when the window moves between displays or the DPI setting
 	// changes.
@@ -57,6 +66,16 @@ const windowClassName = "FacetWindow"
 
 // windowClass is registered once per process.
 var windowClassOnce sync.Once
+
+// wmShowContextMenu is a registered window message used to defer a context
+// menu display to a later turn of the message loop. ShowContextMenu records
+// the request and posts this message to the window; the wndproc handles it on
+// the next pump, after the event handler that called ShowContextMenu has
+// returned. TrackPopupMenuEx runs a nested modal loop, so running it inside an
+// event handler would pump further messages into the frame loop while an
+// entity is checked out — deferring it to its own turn keeps that loop outside
+// any borrow, which is the contract documented in menu.go.
+var wmShowContextMenu = w32.RegisterWindowMessage(w32.MustStringToUTF16Ptr("Facet.ShowContextMenu"))
 
 func registerWindowClass() {
 	windowClassOnce.Do(func() {
@@ -211,6 +230,14 @@ func (w *windowsWindow) wndProc(hwnd w32.HWND, msg uint32, wParam, lParam uintpt
 		// item's OnClick closure. OnClick fires here, on the platform
 		// thread, outside any entity borrow — SetApplicationMenu's contract.
 		w.owner.dispatchMenuCommand(uintptr(wParam & 0xFFFF))
+		return 0
+
+	case wmShowContextMenu:
+		// A deferred context-menu request recorded by ShowContextMenu.
+		// Running TrackPopupMenu here — on its own turn of the message
+		// loop, after the event handler that called ShowContextMenu has
+		// returned — keeps the nested modal loop outside any entity borrow.
+		w.showPendingContextMenu()
 		return 0
 
 	case w32.WM_CLOSE:
@@ -783,4 +810,68 @@ func (w *windowsWindow) SetCloseHandler(handler func() bool) {
 	w.mu.Lock()
 	w.closeHandler = handler
 	w.mu.Unlock()
+}
+
+// pendingContextMenuRequest is a recorded ShowContextMenu request awaiting
+// display on a later turn of the message loop.
+type pendingContextMenuRequest struct {
+	menu *Menu
+	at   geometry.Point[geometry.Pixels]
+}
+
+// ShowContextMenu records a context menu request and returns immediately. The
+// backend displays the menu on a later turn of its own message loop, so
+// TrackPopupMenu's nested modal loop never runs while an entity is borrowed
+// — see the contract in menu.go. MenuItem.OnClick fires on the platform
+// thread, outside any borrow.
+//
+// The point is in logical pixels, relative to the window's client area. The
+// backend converts it to device pixels using the window's scale factor and
+// then to screen coordinates for TrackPopupMenu.
+//
+// This method is safe to call from any goroutine. When called from the
+// platform thread (the common case, inside an event handler) the posted
+// message is queued rather than run inline, so the deferral holds even on the
+// platform thread.
+func (w *windowsWindow) ShowContextMenu(menu *Menu, at geometry.Point[geometry.Pixels]) {
+	w.pendingContextMenu = &pendingContextMenuRequest{menu: menu, at: at}
+	w32.PostMessage(w.hwnd, wmShowContextMenu, 0, 0)
+}
+
+// showPendingContextMenu builds a native popup from the pending request,
+// runs TrackPopupMenu, dispatches the selected item's OnClick, and cleans up.
+// Called from the wndproc on the platform thread when wmShowContextMenu
+// arrives — after the event handler that called ShowContextMenu has returned,
+// so TrackPopupMenu's nested modal loop pumps outside any entity borrow.
+func (w *windowsWindow) showPendingContextMenu() {
+	req := w.pendingContextMenu
+	w.pendingContextMenu = nil
+	if req == nil || req.menu == nil {
+		return
+	}
+
+	nm := buildPopupMenu(req.menu)
+	defer w32.DestroyMenu(nm.hmenu)
+
+	// Convert the window-relative logical-pixel point to device pixels, then
+	// to screen coordinates. TrackPopupMenu takes screen coordinates.
+	scale := w.scaleFactor
+	if scale == 0 {
+		scale = 1
+	}
+	devX := int(float32(req.at.X) / scale)
+	devY := int(float32(req.at.Y) / scale)
+	screenX, screenY := w32.ClientToScreen(w.hwnd, devX, devY)
+
+	// TPM_RETURNCMD makes TrackPopupMenu return the selected command ID
+	// rather than posting WM_COMMAND, so the OnClick closure resolves
+	// against this menu's command map — not the application menu's.
+	const flags = w32.TPM_LEFTALIGN | w32.TPM_TOPALIGN | w32.TPM_RIGHTBUTTON | w32.TPM_RETURNCMD
+	cmd := w32.TrackPopupMenuCommand(nm.hmenu, flags, int32(screenX), int32(screenY), w.hwnd, nil)
+	if cmd == 0 {
+		return // cancelled, no selection
+	}
+	if onClick, ok := nm.commands[uintptr(cmd)]; ok && onClick != nil {
+		onClick()
+	}
 }
