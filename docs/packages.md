@@ -413,6 +413,28 @@ Like `platform`, `render` backends are permitted `unsafe` for COM and graphics d
 interop, with the same condition: only for memory the OS or driver owns, never for Go
 objects, and every conversion commented.
 
+`render.ErrNoAdapter` is the contract for "this machine has no GPU we can use", and four
+places branch on it: `render/d3d11`'s readback tests, `window`'s debug tests,
+`internal/integration`'s joint test, and CI. `d3d11.New` wraps it when device creation
+returns `DXGI_ERROR_UNSUPPORTED` or `E_FAIL`, and callers skip on `errors.Is` and stay
+fatal on everything else. **Skip on the sentinel, never on `err != nil`** — Go counts a
+skip as a pass, so a broad condition turns a genuine device failure green and no other
+test catches it. That was demonstrated rather than assumed.
+
+A COM call can return `S_OK` and no object. Under GPU resource exhaustion —
+several processes creating D3D11 devices at once — `CreatePixelShader` succeeds and
+writes nothing, so a check collapsing `int32(hr) < 0 || obj == nil` into one message
+reports a successful call as `failed with hr=0x00000000`, which is `S_OK`. Two agents
+lost a round each to that message before it was split. `createResourceError` in `com.go`
+is the single helper every site now calls, and the two conditions say different things.
+The one deliberate exception is the swapchain check at `d3d11.go:159`, which is control
+flow selecting a fallback rather than an error return.
+
+The thirteen converted call sites are not individually tested, because each fires only
+on a hardware failure that cannot be provoked from a test. What is tested is the helper
+and the sentinel classification; the sites are checked by reading that each passes the
+object it actually allocated.
+
 ## text
 
 Font loading and matching, script and bidi segmentation, shaping, line breaking,
