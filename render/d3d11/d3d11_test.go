@@ -3,6 +3,7 @@
 package d3d11
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -172,5 +173,51 @@ func TestCreateResourceErrorDistinctMessages(t *testing.T) {
 
 	if failErr.Error() == nullErr.Error() {
 		t.Fatalf("two distinct conditions produced the same message:\n  fail: %s\n  null: %s", failErr, nullErr)
+	}
+}
+
+// TestClassifyDeviceErrorNoAdapter pins the ErrNoAdapter sentinel: the two
+// HRESULTs that mean "no usable adapter" (DXGI_ERROR_UNSUPPORTED and E_FAIL)
+// must wrap render.ErrNoAdapter so the four downstream consumers — window,
+// the readback tests, the integration test and element's joint test — can
+// branch on it with errors.Is and skip rather than fail. A generic failure
+// HRESULT must NOT wrap it, and a successful call must return nil. This is
+// a break test: removing the %w wrapping or changing the HRESULT set makes
+// the errors.Is assertions fail.
+func TestClassifyDeviceErrorNoAdapter(t *testing.T) {
+	for _, hr := range []uintptr{dxgiErrorUnsupported, eFail} {
+		err := classifyDeviceError(hr, nil, nil)
+		if err == nil {
+			t.Fatalf("hr=0x%08x with nil device should be an error", uint32(hr))
+		}
+		if !errors.Is(err, render.ErrNoAdapter) {
+			t.Fatalf("hr=0x%08x should wrap ErrNoAdapter, got: %v", uint32(hr), err)
+		}
+	}
+
+	// A generic failure HRESULT must not be mistaken for "no adapter".
+	genericErr := classifyDeviceError(0x8007000e, nil, nil)
+	if genericErr == nil {
+		t.Fatal("E_OUTOFMEMORY with nil device should be an error")
+	}
+	if errors.Is(genericErr, render.ErrNoAdapter) {
+		t.Fatalf("E_OUTOFMEMORY should not wrap ErrNoAdapter, got: %v", genericErr)
+	}
+
+	// S_OK with non-nil device and context is success, not an error.
+	dev := &comObject{}
+	ctx := &comObject{}
+	if err := classifyDeviceError(0, dev, ctx); err != nil {
+		t.Fatalf("S_OK with non-nil device and context should not be an error, got: %v", err)
+	}
+
+	// S_OK with a nil device is a failure (resource exhaustion), but not
+	// "no adapter" — it does not wrap the sentinel.
+	nullErr := classifyDeviceError(0, nil, ctx)
+	if nullErr == nil {
+		t.Fatal("S_OK with nil device should be an error")
+	}
+	if errors.Is(nullErr, render.ErrNoAdapter) {
+		t.Fatalf("S_OK with nil device should not wrap ErrNoAdapter, got: %v", nullErr)
 	}
 }
