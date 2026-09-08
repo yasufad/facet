@@ -68,8 +68,8 @@ func (b *dynamicBuffer) grow(needed int) (bool, error) {
 
 	// ID3D11Device::CreateBuffer is vtbl index 3
 	r1, _, _ := b.device.call(3, uintptr(unsafe.Pointer(&desc)), 0, uintptr(unsafe.Pointer(&b.buffer)))
-	if int32(r1) < 0 || b.buffer == nil {
-		return false, fmt.Errorf("create dynamic buffer (%d bytes): hr=0x%08x", newCap, uint32(r1))
+	if err := createResourceError(fmt.Sprintf("create dynamic buffer (%d bytes)", newCap), r1, b.buffer == nil); err != nil {
+		return false, err
 	}
 
 	b.capacity = newCap
@@ -123,8 +123,8 @@ func (b *dynamicBuffer) write(count, elemSize int, fill func([]byte)) (int, erro
 		0,
 		uintptr(unsafe.Pointer(&mapped)),
 	)
-	if int32(r1) < 0 || mapped.PData == nil {
-		return 0, fmt.Errorf("map buffer: hr=0x%08x", uint32(r1))
+	if err := createResourceError("map buffer", r1, mapped.PData == nil); err != nil {
+		return 0, err
 	}
 
 	// Sound because mapped.PData addresses b.capacity bytes of GPU-mapped
