@@ -387,6 +387,90 @@ func TestFullyClippedSkipped(t *testing.T) {
 	}
 }
 
+// TestViewportZeroHeightClipClipsEverything reproduces the standalone case from
+// docs/audit-packages.md: a container that resolves to zero height pushes a
+// genuinely empty clip. Without a viewport the empty mask is read as "no
+// clipping" and the children paint over the whole window; with a viewport the
+// stack is never empty, the empty mask means nothing is visible, and the quad
+// is dropped.
+func TestViewportZeroHeightClipClipsEverything(t *testing.T) {
+	s := New()
+	defer s.Clear()
+	s.SetViewport(spBounds(0, 0, 200, 200))
+
+	s.PushClip(ContentMask[geometry.ScaledPixels]{Bounds: spBounds(0, 0, 200, 0)})
+	s.InsertQuad(quadAt(0, 0, 100, 100))
+	s.PopClip()
+
+	if s.Len() != 0 {
+		t.Fatalf("zero-height clip with viewport: got %d primitives, want 0", s.Len())
+	}
+}
+
+// TestViewportNestedEmptyInnerClipsEverything reproduces the nested case from
+// docs/audit-packages.md: an outer 50x50 clip with an inner zero-height clip.
+// Without a viewport the inner empty clip is discarded and the parent's mask is
+// inherited, so children escape into the grandparent's bounds; with a viewport
+// the inner empty mask intersects the outer clip to empty and the quad is
+// dropped.
+func TestViewportNestedEmptyInnerClipsEverything(t *testing.T) {
+	s := New()
+	defer s.Clear()
+	s.SetViewport(spBounds(0, 0, 200, 200))
+
+	s.PushClip(ContentMask[geometry.ScaledPixels]{Bounds: spBounds(0, 0, 50, 50)})
+	s.PushClip(ContentMask[geometry.ScaledPixels]{Bounds: spBounds(0, 0, 200, 0)})
+	s.InsertQuad(quadAt(0, 0, 100, 100))
+	s.PopClip()
+	s.PopClip()
+
+	if s.Len() != 0 {
+		t.Fatalf("nested empty inner clip with viewport: got %d primitives, want 0", s.Len())
+	}
+}
+
+// TestViewportIsBaseClip verifies that with a viewport set, a clip larger than
+// the viewport is intersected down to the viewport, so primitives outside the
+// window are clipped even when no explicit clip is pushed.
+func TestViewportIsBaseClip(t *testing.T) {
+	s := New()
+	defer s.Clear()
+	s.SetViewport(spBounds(0, 0, 100, 100))
+
+	// No explicit clip: the viewport is the base, so a quad outside it is dropped.
+	s.InsertQuad(quadAt(150, 150, 10, 10))
+	if s.Len() != 0 {
+		t.Fatalf("quad outside viewport: got %d, want 0", s.Len())
+	}
+
+	// A quad inside the viewport is kept and carries the viewport as its mask.
+	s.InsertQuad(quadAt(20, 20, 10, 10))
+	if s.Len() != 1 {
+		t.Fatalf("quad inside viewport: got %d, want 1", s.Len())
+	}
+	if got := s.quads[0].ContentMask.Bounds; !boundsEq(got, spBounds(0, 0, 100, 100)) {
+		t.Fatalf("quad mask: got %v, want viewport bounds", got)
+	}
+}
+
+// TestNoViewportPreservesEmptyMeansNoClipping documents the contract a Scene
+// with no viewport keeps: an empty mask means "no clipping", which the render
+// package's readback tests rely on for synthetic scenes built by hand. A
+// pushed empty clip does not clip, matching the behaviour before the viewport
+// was introduced.
+func TestNoViewportPreservesEmptyMeansNoClipping(t *testing.T) {
+	s := New()
+	defer s.Clear()
+
+	s.PushClip(ContentMask[geometry.ScaledPixels]{Bounds: spBounds(0, 0, 200, 0)})
+	s.InsertQuad(quadAt(0, 0, 100, 100))
+	s.PopClip()
+
+	if s.Len() != 1 {
+		t.Fatalf("no viewport: empty clip should mean no clipping, got %d, want 1", s.Len())
+	}
+}
+
 // TestPathInsertion verifies that a path is inserted with an ID and order.
 func TestPathInsertion(t *testing.T) {
 	s := New()

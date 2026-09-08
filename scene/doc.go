@@ -44,9 +44,13 @@
 // stack's current mask in its ContentMask field. A primitive whose bounds are
 // fully clipped away is skipped and never reaches a per-type slice.
 //
-// A ContentMask with empty bounds means "no clipping". The Scene never inserts
-// a primitive carrying a mask that clips it to nothing — the intersection is
-// empty and the primitive is dropped first.
+// SetViewport establishes the window bounds as the base of the clip stack, so
+// the stack is never empty once a viewport is set: an empty mask then
+// unambiguously means nothing is visible, and a container that resolves to
+// zero height clips its children rather than letting them escape. A Scene that
+// has never been given a viewport keeps the original encoding, where an empty
+// mask means "no clipping" — the render package's readback tests rely on that
+// for synthetic scenes built by hand.
 //
 // # Colour
 //

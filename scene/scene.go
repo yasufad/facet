@@ -24,11 +24,28 @@ type Scene struct {
 	tree   boundsTree
 	layers []DrawOrder
 	clips  []ContentMask[geometry.ScaledPixels]
+
+	// viewport is the base of the clip stack once set: the stack is then never
+	// empty, so an empty mask means nothing is visible rather than "no
+	// clipping". A zero-value viewport means unset, and the Scene behaves as
+	// before — an empty mask means no clipping, which the render package's
+	// readback tests rely on for synthetic scenes built by hand.
+	viewport geometry.Bounds[geometry.ScaledPixels]
 }
 
 // New returns an empty Scene ready to paint into.
 func New() *Scene {
 	return &Scene{}
+}
+
+// SetViewport establishes the scene's viewport as the base of the clip stack.
+// Once set, the clip stack is never empty: the viewport is the base mask, so an
+// empty mask unambiguously means nothing is visible — a container that
+// resolves to zero height clips its children rather than letting them escape
+// into an ancestor's bounds. A Scene that has never been given a viewport
+// keeps the original encoding, where an empty mask means "no clipping".
+func (s *Scene) SetViewport(bounds geometry.Bounds[geometry.ScaledPixels]) {
+	s.viewport = bounds
 }
 
 // Clear removes every primitive, layer and clip, keeping the slice capacity for
@@ -70,12 +87,15 @@ func (s *Scene) PopLayer() {
 	}
 }
 
-// PushClip pushes a content mask onto the clip stack, intersected with the mask
-// already on top. Every primitive inserted until the matching PopClip is
-// clipped to the intersection.
+// PushClip pushes a content mask onto the clip stack, intersected with the
+// mask already on top — or with the viewport, when the stack is empty and a
+// viewport has been set. Every primitive inserted until the matching PopClip
+// is clipped to the intersection.
 func (s *Scene) PushClip(mask ContentMask[geometry.ScaledPixels]) {
 	if len(s.clips) > 0 {
 		mask = mask.Intersect(s.clips[len(s.clips)-1])
+	} else if !s.viewport.IsEmpty() {
+		mask = mask.Intersect(ContentMask[geometry.ScaledPixels]{Bounds: s.viewport})
 	}
 	s.clips = append(s.clips, mask)
 }
@@ -87,13 +107,16 @@ func (s *Scene) PopClip() {
 	}
 }
 
-// currentClip returns the top of the clip stack, or a zero mask (no clipping)
-// if the stack is empty.
+// currentClip returns the top of the clip stack, the viewport when the stack is
+// empty and a viewport is set, or a zero mask (no clipping) when neither holds.
 func (s *Scene) currentClip() ContentMask[geometry.ScaledPixels] {
-	if len(s.clips) == 0 {
-		return ContentMask[geometry.ScaledPixels]{}
+	if len(s.clips) > 0 {
+		return s.clips[len(s.clips)-1]
 	}
-	return s.clips[len(s.clips)-1]
+	if !s.viewport.IsEmpty() {
+		return ContentMask[geometry.ScaledPixels]{Bounds: s.viewport}
+	}
+	return ContentMask[geometry.ScaledPixels]{}
 }
 
 // place computes the draw order and resolved content mask for a primitive with
@@ -102,7 +125,17 @@ func (s *Scene) currentClip() ContentMask[geometry.ScaledPixels] {
 // the spatial tree. The bool is false when the primitive is fully clipped.
 func (s *Scene) place(bounds geometry.Bounds[geometry.ScaledPixels]) (DrawOrder, ContentMask[geometry.ScaledPixels], bool) {
 	mask := s.currentClip()
-	if !mask.Bounds.IsEmpty() {
+	if s.viewport.IsEmpty() {
+		// No viewport: an empty mask means no clipping, the behaviour
+		// synthetic scenes in render's readback tests rely on.
+		if !mask.Bounds.IsEmpty() {
+			bounds = bounds.Intersect(mask.Bounds)
+		}
+	} else {
+		// Viewport in force: an empty mask means nothing is visible.
+		if mask.Bounds.IsEmpty() {
+			return 0, mask, false
+		}
 		bounds = bounds.Intersect(mask.Bounds)
 	}
 	if bounds.IsEmpty() {
