@@ -27,7 +27,7 @@ hand.
 | `input`    | done                    |
 | `style`    | done                    |
 | `platform` | Windows; macOS unrun    |
-| `render`   | Direct3D 11            |
+| `render`   | Direct3D 11, done      |
 | `element`  | reopened                |
 | `window`   | reopened                |
 | `ui`       | in progress             |
