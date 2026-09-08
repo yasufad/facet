@@ -209,6 +209,8 @@ func (l *List) buildTree() {
 	// wrapper carries the user's refinement; the container does not.
 	for i := firstVisible; i <= lastVisible; i++ {
 		wrapper := element.NewDiv().
+			Flex().
+			FlexCol().
 			Height(style.Px(l.itemHeight)).
 			FlexShrink(0).
 			WFull().
