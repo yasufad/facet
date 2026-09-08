@@ -325,7 +325,9 @@ one, twenty-four methods apiece, so adding a method meant a three-party handshak
 agents who do not own each other's files. One exported double turns that into one
 package's commit.
 
-macOS exists and has never been run. `platform_darwin.go` and `window_darwin.go`
+macOS exists, has never been run, and is parked until there is a Mac to run it on --
+`docs/architecture.md` has the reasoning. It keeps compiling under `GOOS=darwin` and
+gains nothing meanwhile. `platform_darwin.go` and `window_darwin.go`
 implement `Platform` and `Window` through purego and the Objective-C runtime, they
 cross-compile for darwin/arm64 and darwin/amd64, and no call in them has executed on a
 Mac. Treat every claim about the backend as unverified until it has.
