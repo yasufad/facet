@@ -331,7 +331,6 @@ type cocoaPlatform struct {
 	mu sync.Mutex // protects the fields below
 
 	activationHandler func()
-	quitHandler       func() bool
 	displayHandler    func()
 
 	displays []Display
@@ -527,12 +526,17 @@ func (p *cocoaPlatform) SetActivationHandler(handler func()) {
 	p.mu.Unlock()
 }
 
-// SetQuitHandler sets a handler called when the user requests the
-// application to quit.
+// SetQuitHandler is not implemented on macOS yet. The documented contract
+// fires the handler when the user requests the application to quit (Cmd+Q,
+// the application menu, or the system asking it to terminate), which on
+// macOS means wiring applicationShouldTerminate: on the NSApplication
+// delegate. That is Objective-C runtime work, and the Darwin backend has
+// never run on a Mac, so the handler is discarded rather than stored and
+// never read — a stored-but-unused field would be a dead setter pretending
+// to work. When a Mac is available and the backend runs, this method
+// installs a real delegate and the field returns.
 func (p *cocoaPlatform) SetQuitHandler(handler func() bool) {
-	p.mu.Lock()
-	p.quitHandler = handler
-	p.mu.Unlock()
+	_ = handler
 }
 
 // SetDisplayChangeHandler sets a handler called when the display
