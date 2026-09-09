@@ -47,6 +47,13 @@ type windowsPlatform struct {
 	// native menu bar to every window the backend owns. It is nil until
 	// SetApplicationMenu is called. Accessed only on the platform thread.
 	menu *nativeMenu
+
+	// largeIcon and smallIcon are the HICONs set by SetIcon, applied to
+	// the window class (so new windows inherit them) and to every
+	// existing window via WM_SETICON. They are destroyed when replaced
+	// or cleared. Accessed only on the platform thread.
+	largeIcon w32.HICON
+	smallIcon w32.HICON
 }
 
 // New creates a Windows platform. It must be called on the goroutine that
@@ -657,9 +664,65 @@ func (p *windowsPlatform) Show() {
 	})
 }
 
-// SetIcon sets the application icon.
+// SetIcon sets the application icon from PNG or ICO bytes. It creates
+// large and small HICONs and applies them to the window class (so new
+// windows inherit the icon) and to every existing window via WM_SETICON
+// (which overrides the class icon for windows already on screen). The
+// previous icons, if any, are destroyed.
+//
+// It dispatches onto the platform thread because the windows map and
+// SetClassLongPtr must run on the thread that owns the windows.
+//
+// SetIcon is void on the [Platform] interface, so an error decoding the
+// icon bytes cannot be reported to the caller — the icon is simply not
+// applied. That is an interface limitation; a future revision that needs
+// to surface decode errors would change SetIcon to return an error,
+// which crosses the layer boundary and is a decision for the lead.
 func (p *windowsPlatform) SetIcon(icon []byte) {
-	// TODO: load icon from bytes
+	p.dispatcher.Dispatch(func() {
+		// Destroy the previous icons before installing new ones or
+		// clearing, so the handles do not leak across repeated calls.
+		if p.largeIcon != 0 {
+			w32.DestroyIcon(p.largeIcon)
+			p.largeIcon = 0
+		}
+		if p.smallIcon != 0 {
+			w32.DestroyIcon(p.smallIcon)
+			p.smallIcon = 0
+		}
+
+		if len(icon) == 0 {
+			// Clear the class icon and every window's override.
+			for hwnd := range p.windows {
+				w32.SendMessage(hwnd, w32.WM_SETICON, w32.ICON_BIG, 0)
+				w32.SendMessage(hwnd, w32.WM_SETICON, w32.ICON_SMALL, 0)
+			}
+			return
+		}
+
+		large, err := w32.CreateLargeHIconFromImage(icon)
+		if err != nil {
+			return // cannot report: SetIcon is void
+		}
+		small, err := w32.CreateSmallHIconFromImage(icon)
+		if err != nil {
+			w32.DestroyIcon(large)
+			return
+		}
+		p.largeIcon = large
+		p.smallIcon = small
+
+		// Set on the class so new windows inherit it. All Facet windows
+		// share one class (windowClassName), so setting on any window's
+		// class sets it for all. Apply WM_SETICON to every existing
+		// window too, since the class icon does not retroactively change
+		// a window that is already created.
+		for hwnd := range p.windows {
+			w32.SetApplicationIcon(uintptr(hwnd), large)
+			w32.SendMessage(hwnd, w32.WM_SETICON, w32.ICON_BIG, uintptr(large))
+			w32.SendMessage(hwnd, w32.WM_SETICON, w32.ICON_SMALL, uintptr(small))
+		}
+	})
 }
 
 // SetActivationHandler sets a handler called when the application is
