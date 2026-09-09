@@ -563,14 +563,32 @@ func (p *windowsPlatform) Activate() {
 	})
 }
 
-// Hide hides all application windows.
+// Hide hides every window the backend owns. It dispatches onto the
+// platform thread because the windows map is accessed only there and
+// ShowWindow runs on the thread that owns the windows. Each window's
+// visibility is asked of the OS through ShowWindow(SW_HIDE), which clears
+// the WS_VISIBLE style — the same state IsWindowVisible reads.
 func (p *windowsPlatform) Hide() {
-	// TODO: enumerate and hide all windows
+	p.dispatcher.Dispatch(func() {
+		for hwnd := range p.windows {
+			w32.ShowWindow(hwnd, w32.SW_HIDE)
+		}
+	})
 }
 
-// Show restores windows hidden by Hide.
+// Show restores every window hidden by [Hide]. It dispatches onto the
+// platform thread for the same reason, and calls ShowWindow(SW_SHOW) on
+// each window, which sets the WS_VISIBLE style back. A window that was
+// minimised before Hide returns shown, not restored to minimised — SW_SHOW
+// makes the window visible without changing its minimised/maximised state,
+// and a window that was minimised stays minimised (and therefore not
+// visible on screen) until the user restores it.
 func (p *windowsPlatform) Show() {
-	// TODO: enumerate and show all windows
+	p.dispatcher.Dispatch(func() {
+		for hwnd := range p.windows {
+			w32.ShowWindow(hwnd, w32.SW_SHOW)
+		}
+	})
 }
 
 // SetIcon sets the application icon.
