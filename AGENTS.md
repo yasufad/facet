@@ -124,6 +124,14 @@ invariants it holds. Read your package's entry before you start.
   `platform.Platform` and `element.Element` change by explicit decision, never as a
   side effect of an implementation. Plan a change that crosses a layer boundary or
   alters one of these before writing it.
+- An interface at a layer boundary ships with an exported test double in the package
+  that declares it. Without one, every consumer writes a private stub, and the next
+  method added to the interface breaks each of them at once — in packages whose owners
+  cannot edit each other's files, so a one-line addition becomes a three-party
+  handshake. `platform.Window` cost a round to that before `platform/platformtest`
+  fixed it permanently; `render.Renderer` still has three private stubs and is about to
+  cost the same round again. The double is not a convenience, it is what makes the
+  interface extensible.
 - Do not create files that many packages append to — no central `types.go`, no
   widget registry, no enum-plus-switch dispatch. Adding a feature must not require
   editing a list somewhere else.
