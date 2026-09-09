@@ -475,6 +475,27 @@ What matters is the boundary, not the dependency count — `text` exposes shaped
 glyph runs and coverage masks in our own types, so no layer above it knows what it is
 built on and any of it can be replaced without reaching further up.
 
+The clip stack is never empty once `Scene.SetViewport` is called, and `window` calls it
+every frame before paint. Empty then means "nothing is visible" rather than "no
+clipping", which is what makes a container that resolves to zero height clip its children
+instead of letting them paint over the window. `ContentMask.Intersect` has no
+empty-means-identity case: intersecting an empty mask with anything is empty. A `Scene`
+with **no** viewport keeps the old encoding exactly, because twelve callers build
+synthetic scenes by hand — eleven in `render/d3d11`'s readback tests, one in
+`element/elementtest` — and an unset viewport that started clipping would blank them
+while their own assertions still passed.
+
+The shaders' clip is `screen_pos > content_mask.z`, which reads as inclusive on the
+maximum edge where `geometry.Bounds.Contains` is half-open. They do not in fact disagree.
+`screen_pos` is the interpolated vertex position, not `SV_Position`, so fragment centres
+land at `i + 0.5` and never exactly on an integer edge — for integer mask bounds the two
+comparisons select the same fragments. A difference appears only when a scaled mask edge
+lands exactly on a fragment centre, which needs a device-pixel bound with a `.5` fraction,
+and there the honest answer is coverage blending rather than a boundary flip: moving `>`
+to `>=` rounds the other way, not more correctly. It is a rounding convention at
+fractional scale factors, not a defect, and it is recorded here so it is not rediscovered
+as one.
+
 ## style
 
 Style properties, the refinement model that layers them, and the conversion into
