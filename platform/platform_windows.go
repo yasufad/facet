@@ -238,9 +238,75 @@ func (p *windowsPlatform) NewSystemTray(opts SystemTrayOptions) (SystemTray, err
 	return nil, fmt.Errorf("system tray: not implemented")
 }
 
-// ShowMessageDialog shows a modal message dialog.
+// ShowMessageDialog shows a modal message dialog through MessageBoxW. It
+// does not marshal onto the platform thread itself — MessageBoxW blocks
+// for as long as the dialog is up, and the caller must not be the
+// platform thread, per the threading note on
+// [Platform.ShowMessageDialog]. The window package dispatches it onto a
+// background goroutine and marshals the result back, the same pattern
+// ShowOpenDialog and ShowSaveDialog use.
+//
+// No owner HWND is passed: a [MessageDialog] carries no window reference,
+// and passing 0 makes the dialog application-modal rather than parented
+// to a specific window — the standard behaviour for an alert with no
+// nominated owner.
 func (p *windowsPlatform) ShowMessageDialog(dialog MessageDialog) (DialogResult, error) {
-	return 0, fmt.Errorf("message dialog: not implemented")
+	flags := messageDialogFlags(dialog)
+	id := w32.MessageBox(0, dialog.Message, dialog.Title, flags)
+	if id == 0 {
+		return ResultNone, fmt.Errorf("message dialog: MessageBoxW failed")
+	}
+	return messageDialogResult(id), nil
+}
+
+// messageDialogFlags translates a [MessageDialog]'s button set and icon
+// into the MessageBoxW uType flags. Split out from ShowMessageDialog so
+// the configuration — the part a wrong button-set constant or icon
+// constant would actually break — is reachable by a test that never has
+// to dismiss a modal window, the same way newFileSaveDialog is split from
+// ShowSaveDialog.
+func messageDialogFlags(dialog MessageDialog) uint {
+	var flags uint
+	switch dialog.Buttons {
+	case ButtonsOK:
+		flags |= w32.MB_OK
+	case ButtonsOKCancel:
+		flags |= w32.MB_OKCANCEL
+	case ButtonsYesNo:
+		flags |= w32.MB_YESNO
+	case ButtonsYesNoCancel:
+		flags |= w32.MB_YESNOCANCEL
+	}
+	switch dialog.Icon {
+	case IconInfo:
+		flags |= w32.MB_ICONINFORMATION
+	case IconWarning:
+		flags |= w32.MB_ICONWARNING
+	case IconError:
+		flags |= w32.MB_ICONERROR
+	case IconQuestion:
+		flags |= w32.MB_ICONQUESTION
+	}
+	return flags
+}
+
+// messageDialogResult maps a MessageBoxW return value (IDOK, IDYES, etc.)
+// to the platform's [DialogResult]. A value that matches no known button
+// maps to ResultNone, which MessageBoxW returns 0 for on failure —
+// ShowMessageDialog checks that case separately and reports an error.
+func messageDialogResult(id int) DialogResult {
+	switch id {
+	case w32.IDOK:
+		return ResultOK
+	case w32.IDCANCEL:
+		return ResultCancel
+	case w32.IDYES:
+		return ResultYes
+	case w32.IDNO:
+		return ResultNo
+	default:
+		return ResultNone
+	}
 }
 
 // ShowOpenDialog shows a modal file-open dialog through the Common Item
