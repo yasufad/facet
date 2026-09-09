@@ -74,10 +74,13 @@ type DispatchTree struct {
 	focusNodeMap map[FocusID]DispatchNodeID
 	pendingKeys  []Keystroke
 
-	// pathBuf is a scratch buffer reused across dispatches by nodePath, so
+	// pathBuf and contextBuf are scratch buffers reused across dispatches so
 	// the pointer-move path (which calls nodePath on every mouse motion)
-	// allocates nothing at steady state. contextBuf serves contextStackForPath
-	// the same way. Both persist across Clear so their capacity is retained.
+	// allocates nothing at steady state. Both persist across Clear so their
+	// capacity is retained. They are not symmetric in re-entrancy: pathBuf is
+	// selected by dispatchDepth in nodePath, contextBuf is taken
+	// unconditionally in contextStackForPath — see the invariant there for
+	// why that is safe.
 	pathBuf    []DispatchNodeID
 	contextBuf []KeyContext
 
@@ -546,6 +549,18 @@ func (d *DispatchTree) nodePath(target DispatchNodeID) []DispatchNodeID {
 	return path
 }
 
+// contextStackForPath collects the KeyContext of every node on path into
+// contextBuf, reused across dispatches. Unlike nodePath it takes
+// d.contextBuf[:0] unconditionally, with no dispatchDepth guard. That is safe
+// because both call sites consume the returned slice before any handler runs:
+// DispatchKey feeds it to keymap.BindingsForInput, which returns before
+// dispatchAction or dispatchRawKeyOnPath invoke handlers; ExplainKey feeds it
+// to keymap.Explain and runs no handlers at all. So no re-entrant dispatch
+// can intervene while the buffer is held, and a depth guard here would be
+// speculative complexity — defending a buffer that is never alive across a
+// handler. The condition that changes the answer is a caller that holds the
+// returned slice across a handler which itself dispatches; if one is added,
+// contextBuf needs the same depth-aware selection pathBuf has.
 func (d *DispatchTree) contextStackForPath(path []DispatchNodeID) []KeyContext {
 	stack := d.contextBuf[:0]
 	for _, nodeID := range path {
