@@ -399,6 +399,11 @@ func TestPhaseOrderingInvariants(t *testing.T) {
 	assertPanic(t, "RasteriseGlyph outside phasePaint", func() {
 		w.RasteriseGlyph(text.Face{}, 0, 16, text.SubpixelZero)
 	})
+
+	// Calling WrapText outside phaseLayoutSolve/phasePaint must panic.
+	assertPanic(t, "WrapText outside phaseLayoutSolve/phasePaint", func() {
+		w.WrapText("test", []text.StyleRun{{ByteLen: 4, Size: 16}}, geometry.Pixels(100))
+	})
 }
 
 type testMeasureElement struct {
@@ -500,6 +505,69 @@ func assertPanic(t *testing.T, name string, f func()) {
 		}
 	}()
 	f()
+}
+
+// testPaintElement is a minimal element that runs a closure during paint. It
+// exists because WrapText is not yet on element.Frame, so a paint-phase
+// element cannot call it through the interface — the test captures *Window
+// directly and calls the method on it.
+type testPaintElement struct {
+	onPaint func()
+}
+
+func (e *testPaintElement) RequestLayout(f element.Frame) layout.NodeID {
+	return f.RequestLayout(layout.Style{}, nil)
+}
+
+func (e *testPaintElement) Prepaint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {}
+
+func (e *testPaintElement) Paint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {
+	if e.onPaint != nil {
+		e.onPaint()
+	}
+}
+
+func TestWrapText(t *testing.T) {
+	a := app.NewApp()
+	defer a.Close()
+
+	size := geometry.NewSize[geometry.Pixels](400, 300)
+	pw := platformtest.NewWindow(size, 1.0)
+	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	w := NewWithRenderer(pw, r, a, WindowOptions{Size: size})
+
+	// Delegation: WrapText during paint wraps a long string into multiple lines.
+	str := "The quick brown fox jumps over the lazy dog"
+	runs := []text.StyleRun{{
+		ByteLen:   len(str),
+		Font:      text.FontRequest{Family: "Arial", Families: []string{"Helvetica", "DejaVu Sans", "Liberation Sans"}},
+		Size:      geometry.Pixels(16),
+		Direction: text.LTR,
+		Language:  "en",
+	}}
+	var got []text.ShapedLine
+	var werr error
+	w.SetRootFn(func() element.Element {
+		return &testPaintElement{
+			onPaint: func() {
+				got, werr = w.WrapText(str, runs, geometry.Pixels(80))
+			},
+		}
+	})
+	w.Draw()
+	if werr != nil {
+		t.Fatalf("WrapText: %v", werr)
+	}
+	if len(got) < 2 {
+		t.Fatalf("expected at least 2 wrapped lines at 80px width, got %d", len(got))
+	}
+
+	// Nil textSystem returns nil, nil without panicking.
+	wnil := &Window{phase: phasePaint}
+	lines, err := wnil.WrapText("test", []text.StyleRun{{ByteLen: 4, Size: 16}}, geometry.Pixels(100))
+	if lines != nil || err != nil {
+		t.Fatalf("expected (nil, nil) for nil textSystem, got (%v, %v)", lines, err)
+	}
 }
 
 func TestScaleFactorChangeAndResize(t *testing.T) {
