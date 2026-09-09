@@ -575,6 +575,30 @@ across the boundary. `ScrollDelta` itself is not named: nothing above reaches it
 except through a `WheelEvent`'s `Delta` field, so no caller has to write the type
 name, and it gets added only once one does.
 
+
+Dispatch allocates nothing per event at steady state. `nodePath` reuses a scratch buffer
+rather than growing a slice, and it carries no cycle guard: `PushNode` assigns
+`id = len(nodes)` and takes its parent from the stack, so a parent index is always
+strictly smaller and the walk terminates by construction. The `map[DispatchNodeID]bool`
+that used to defend against a cycle was defending a state the constructor makes
+unreachable, and it cost an allocation on every pointer move. Removing it took a
+ten-deep pointer-move dispatch from 1627 ns and 576 B to 268 ns and zero.
+
+The two scratch buffers are deliberately asymmetric and the asymmetry is the part to
+preserve. `nodePath` guards on a dispatch-depth counter, allocating fresh when re-entered,
+because its path is held across the handler loops. `contextStackForPath` takes its buffer
+unconditionally, because both call sites consume the returned slice — into
+`BindingsForInput` or `Explain` — before any handler runs, so no dispatch can intervene
+while it is held. A guard there would be protecting an unreachable case; what would change
+the answer is a caller holding that slice across a handler that itself dispatches.
+
+Alias what a caller above has to write, worked out from their call sites rather than from
+this package's own signatures. Three rounds were spent adding aliases one at a time
+because each was scoped from the handler types here instead of from the file that was
+blocked: first the four event types, then `ScrollUnit` and its constants (a type alias
+does not cover a constant), then the field types, without which a caller can name
+`KeyEvent` but not construct a non-zero one. Adding an event type to `platform` is not
+finished until the vocabulary a caller needs exists here.
 ## element
 
 The Element interface, the three-phase lifecycle, the element tree, and `div`.
