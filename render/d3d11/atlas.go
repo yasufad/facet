@@ -88,6 +88,13 @@ type atlasPage struct {
 	srv        *comObject
 	packer     *shelfPacker
 	generation uint32
+
+	// released tracks TileIDs that ReleaseTile has marked as no longer
+	// referenced, so a second release of the same tile is a no-op rather
+	// than a double-free. The free list that reclaims the tile's storage
+	// is a separate step; this set is the idempotency guarantee the
+	// ReleaseTile contract rests on in the meantime.
+	released map[scene.TileID]bool
 }
 
 // Tile identifiers pack an 8-bit generation into their high byte, so a tile
@@ -267,7 +274,37 @@ func (m *atlasManager) clear(kind scene.AtlasTextureKind) {
 	for _, page := range pages {
 		page.packer.reset()
 		page.generation++
+		page.released = nil
 	}
+}
+
+// releaseTile marks tile as no longer referenced by the caller. It is
+// idempotent: releasing a tile that was never allocated, that has already
+// been released, or whose page was cleared by ClearAtlas in the meantime
+// is a no-op. It never panics on a stale or unknown tile, because the
+// caller may release a tile whose page was cleared between the tile being
+// handed out and the release call.
+func (m *atlasManager) releaseTile(tile scene.AtlasTile) {
+	if tile.Bounds.Size.Width == 0 && tile.Bounds.Size.Height == 0 {
+		return
+	}
+	var pages []*atlasPage
+	if tile.TextureID.Kind == scene.TextureMonochrome {
+		pages = m.monoPages
+	} else {
+		pages = m.polyPages
+	}
+	if int(tile.TextureID.Index) >= len(pages) {
+		return
+	}
+	page := pages[tile.TextureID.Index]
+	if tileGeneration(tile.TileID) != page.generation&0xff {
+		return
+	}
+	if page.released == nil {
+		page.released = make(map[scene.TileID]bool)
+	}
+	page.released[tile.TileID] = true
 }
 
 // tileValid reports whether tile was handed out by the page it names at

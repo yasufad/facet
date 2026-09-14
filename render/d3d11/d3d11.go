@@ -235,6 +235,19 @@ func (r *d3d11Renderer) ClearAtlas(kind scene.AtlasTextureKind) {
 	r.atlas.clear(kind)
 }
 
+// ReleaseTile marks the tile as no longer referenced by the caller, allowing
+// the atlas to reclaim its storage. After ReleaseTile the tile's TileID is
+// invalid: a sprite still carrying it must not be drawn, and under facet_debug
+// drawing it panics via the existing generation check.
+//
+// ReleaseTile is idempotent: releasing a tile that was never allocated, or that
+// has already been released, is a no-op. It never panics on a stale or unknown
+// tile, because the caller may release a tile whose page was cleared by
+// ClearAtlas in the meantime.
+func (r *d3d11Renderer) ReleaseTile(tile scene.AtlasTile) {
+	r.atlas.releaseTile(tile)
+}
+
 func (r *d3d11Renderer) setShader(s *shaderProgram) {
 	// ID3D11DeviceContext::VSSetShader is vtbl index 11
 	r.context.call(11, uintptr(unsafe.Pointer(s.vs)), 0, 0)
