@@ -117,6 +117,14 @@ type Frame interface {
 	// window's scale factor.
 	ShapeLine(str string, runs []text.StyleRun) (text.ShapedLine, error)
 
+	// WrapText shapes text and wraps it to maxWidth, returning one ShapedLine
+	// per visual line. Newlines in the text force line breaks. Valid during
+	// layout solve and paint, the same phases as ShapeLine. The available
+	// width is a shaping input: a re-layout at a different width must re-wrap
+	// even when the style runs are identical, so callers cache the result
+	// keyed on width as well as on the runs.
+	WrapText(str string, runs []text.StyleRun, maxWidth geometry.Pixels) ([]text.ShapedLine, error)
+
 	// RasteriseGlyph returns the atlas tile and device-pixel bounding box relative to
 	// the pen position for the specified glyph, rasterising and uploading on miss.
 	RasteriseGlyph(face text.Face, gid text.GlyphID, size geometry.Pixels, subpixel text.SubpixelOffset) (scene.AtlasTile, geometry.Bounds[geometry.DevicePixels], bool)
