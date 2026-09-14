@@ -95,9 +95,10 @@ type ScrollView struct {
 	refinement style.Refinement
 
 	// Ephemeral element tree constructed for lifecycle execution
-	viewport        *element.Div
-	content         *element.Div
-	contentLayoutID element.NodeID
+	viewport         *element.Div
+	content          *element.Div
+	contentLayoutID  element.NodeID
+	contentLayoutSet bool
 }
 
 // Ensure ScrollView implements element.Element.
@@ -158,6 +159,7 @@ func (s *ScrollView) buildTree() {
 		inner: s.content,
 		onLayout: func(id element.NodeID) {
 			s.contentLayoutID = id
+			s.contentLayoutSet = true
 		},
 	}
 
@@ -211,7 +213,7 @@ func (s *ScrollView) Prepaint(f element.Frame, bounds geometry.Bounds[geometry.P
 // Paint draws viewport background and children clipped to the viewport bounds,
 // and records layout metrics into ScrollState for scroll clamping.
 func (s *ScrollView) Paint(f element.Frame, bounds geometry.Bounds[geometry.Pixels]) {
-	if s.app != nil && s.contentLayoutID != (element.NodeID{}) {
+	if s.app != nil && s.contentLayoutSet {
 		contentBounds := f.LayoutBounds(s.contentLayoutID)
 		s.state.Update(s.app, func(st *ScrollState, cx *app.Context[ScrollState]) {
 			st.UpdateMetrics(bounds.Size.Height, contentBounds.Size.Height)
