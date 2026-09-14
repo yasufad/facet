@@ -38,12 +38,12 @@ type Text struct {
 	// different width must re-wrap even when the style runs are identical —
 	// comparing runs alone would silently keep the previous frame's line
 	// breaks.
-	shapedLines     []text.ShapedLine
-	shapedFor       []text.StyleRun
-	shapedForWidth  geometry.Pixels
-	layoutID   layout.NodeID
-	bounds     geometry.Bounds[geometry.Pixels]
-	phase      drawPhase
+	shapedLines    []text.ShapedLine
+	shapedFor      []text.StyleRun
+	shapedForWidth geometry.Pixels
+	layoutID       layout.NodeID
+	bounds         geometry.Bounds[geometry.Pixels]
+	phase          drawPhase
 }
 
 // Ensure Text implements Element.
