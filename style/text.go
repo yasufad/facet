@@ -64,6 +64,9 @@ type TextStyle struct {
 
 	// WhiteSpace controls line wrapping behaviour.
 	WhiteSpace WhiteSpace
+
+	// TextOverflow controls truncation of overflowing text.
+	TextOverflow TextOverflow
 }
 
 // DefaultTextStyle returns the default text styling.
@@ -75,6 +78,7 @@ func DefaultTextStyle() TextStyle {
 		LineHeight: 20,
 		FontWeight: text.WeightNormal,
 		FontStyle:  text.StyleNormal,
-		WhiteSpace: WhiteSpaceNormal,
+		WhiteSpace:   WhiteSpaceNormal,
+		TextOverflow: TextOverflowClip,
 	}
 }

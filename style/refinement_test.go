@@ -264,6 +264,7 @@ func TestTypographyRefinement(t *testing.T) {
 	r.SetFontStyle(text.StyleItalic)
 	r.SetUnderline(UnderlineStyle{Thickness: 2, Wavy: true})
 	r.SetWhiteSpace(WhiteSpaceNowrap)
+	r.SetTextOverflow(TextOverflowEllipsis)
 
 	s := Default().Refined(r)
 
@@ -290,6 +291,9 @@ func TestTypographyRefinement(t *testing.T) {
 	}
 	if s.Text.WhiteSpace != WhiteSpaceNowrap {
 		t.Errorf("Text.WhiteSpace = %v, want Nowrap", s.Text.WhiteSpace)
+	}
+	if s.Text.TextOverflow != TextOverflowEllipsis {
+		t.Errorf("Text.TextOverflow = %v, want Ellipsis", s.Text.TextOverflow)
 	}
 }
 
@@ -359,6 +363,7 @@ func TestDistinctPropertyIndices(t *testing.T) {
 		{"propUnderline", propUnderline},
 		{"propStrikethrough", propStrikethrough},
 		{"propWhiteSpace", propWhiteSpace},
+		{"propTextOverflow", propTextOverflow},
 	}
 
 	seen := make(map[uint8]string)

@@ -161,6 +161,16 @@ const (
 	WhiteSpaceNowrap
 )
 
+// TextOverflow controls how overflowing text is truncated.
+type TextOverflow uint8
+
+const (
+	// TextOverflowClip clips overflowing text at the bounds.
+	TextOverflowClip TextOverflow = iota
+	// TextOverflowEllipsis truncates overflowing text with an ellipsis.
+	TextOverflowEllipsis
+)
+
 // Conversion helpers to layout enums
 
 func (d Display) toLayout() layout.Display {

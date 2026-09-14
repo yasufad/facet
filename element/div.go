@@ -848,6 +848,12 @@ func (d *Div) WhiteSpace(w style.WhiteSpace) *Div {
 	return d
 }
 
+// TextOverflow sets text overflow truncation behaviour.
+func (d *Div) TextOverflow(to style.TextOverflow) *Div {
+	d.refinement.SetTextOverflow(to)
+	return d
+}
+
 // --- Lifecycle ---
 
 // RequestLayout requests layout for all children, converts the resolved style

@@ -83,6 +83,7 @@ const (
 	propUnderline
 	propStrikethrough
 	propWhiteSpace
+	propTextOverflow
 )
 
 // mask is a 128-bit bitset indicating which properties have been explicitly

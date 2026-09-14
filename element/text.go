@@ -172,6 +172,12 @@ func (t *Text) WhiteSpace(w style.WhiteSpace) *Text {
 	return t
 }
 
+// TextOverflow sets text overflow truncation behaviour.
+func (t *Text) TextOverflow(to style.TextOverflow) *Text {
+	t.refinement.SetTextOverflow(to)
+	return t
+}
+
 // textStyleRuns builds the single-run WrapText input for content shaped under
 // textStyle. Both RequestLayout and Paint need the exact same construction,
 // since Paint compares its result against what RequestLayout shaped from to
@@ -248,6 +254,70 @@ func lineBoxHeight(line text.ShapedLine, lineHeight geometry.Pixels) geometry.Pi
 	return line.Height()
 }
 
+// ellipsisRunes is the ellipsis character appended to truncated text under
+// TextOverflowEllipsis. It is U+2026 (HORIZONTAL ELLIPSIS), three bytes in
+// UTF-8.
+const ellipsisStr = "…"
+
+// maybeTruncateWithEllipsis implements TextOverflowEllipsis: when the text is
+// a single line that overflows availableWidth, it replaces that line with a
+// truncated copy plus an ellipsis, binary-searching the rune count so the
+// result fits. This is the CSS single-line text-overflow behaviour — it
+// applies to one overflowing line, not to every line of a wrapped paragraph
+// (line-clamp handles multi-line truncation). When the text is already
+// within availableWidth, or TextOverflow is not Ellipsis, or there is more
+// than one line, the input is returned unchanged.
+func maybeTruncateWithEllipsis(f Frame, content string, textStyle style.TextStyle, lines []text.ShapedLine, availableWidth geometry.Pixels) []text.ShapedLine {
+	if textStyle.TextOverflow != style.TextOverflowEllipsis || len(lines) != 1 || availableWidth <= 0 {
+		return lines
+	}
+	if lines[0].Width() <= availableWidth {
+		return lines
+	}
+
+	// Shape the ellipsis alone to measure its width and to fall back to it
+	// when nothing else fits.
+	ellipsisRuns := textStyleRuns(ellipsisStr, textStyle)
+	ellipsisLines, err := f.WrapText(ellipsisStr, ellipsisRuns, noWrapMaxWidth)
+	if err != nil || len(ellipsisLines) == 0 {
+		return lines
+	}
+	ellipsisWidth := ellipsisLines[0].Width()
+	if ellipsisWidth >= availableWidth {
+		// Even the ellipsis alone does not fit; keep the line as-is.
+		return lines
+	}
+
+	runes := []rune(content)
+	// Binary search the longest rune prefix whose shape plus the ellipsis
+	// fits within availableWidth.
+	lo, hi := 0, len(runes)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		candidate := string(runes[:mid]) + ellipsisStr
+		candRuns := textStyleRuns(candidate, textStyle)
+		candLines, err := f.WrapText(candidate, candRuns, noWrapMaxWidth)
+		if err != nil || len(candLines) == 0 || candLines[0].Width() > availableWidth {
+			hi = mid - 1
+		} else {
+			lo = mid
+		}
+	}
+
+	if lo == 0 {
+		// Nothing of the content fits; show only the ellipsis.
+		return []text.ShapedLine{ellipsisLines[0]}
+	}
+
+	finalStr := string(runes[:lo]) + ellipsisStr
+	finalRuns := textStyleRuns(finalStr, textStyle)
+	finalLines, err := f.WrapText(finalStr, finalRuns, noWrapMaxWidth)
+	if err != nil || len(finalLines) == 0 {
+		return lines
+	}
+	return finalLines
+}
+
 // RequestLayout resolves text styling, registers a measured layout callback
 // that shapes and wraps the text through Frame.WrapText, and adds the leaf
 // node to the layout tree.
@@ -283,6 +353,16 @@ func (t *Text) RequestLayout(f Frame) NodeID {
 				t.shapedLines = lines
 				t.shapedFor = runs
 				t.shapedForWidth = wrapWidth
+			}
+		}
+
+		// TextOverflowEllipsis truncates a single overflowing line to fit the
+		// known width, so the measured width is the truncated width rather
+		// than the full content width.
+		if known.Width.IsSome() {
+			availWidth := geometry.Pixels(known.Width.UnwrapOr(0))
+			if availWidth > 0 {
+				t.shapedLines = maybeTruncateWithEllipsis(f, t.content, textStyle, t.shapedLines, availWidth)
 			}
 		}
 
@@ -365,6 +445,12 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		t.shapedLines = lines
 		t.shapedFor = runs
 		t.shapedForWidth = wrapWidth
+	}
+
+	// TextOverflowEllipsis truncates a single overflowing line to fit the
+	// bounds width at paint time, mirroring the truncation measure applied.
+	if bounds.Size.Width > 0 {
+		t.shapedLines = maybeTruncateWithEllipsis(f, t.content, textStyle, t.shapedLines, bounds.Size.Width)
 	}
 
 	scale := f.ScaleFactor()

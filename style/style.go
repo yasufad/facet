@@ -329,6 +329,9 @@ func (s *Style) Refine(r Refinement) {
 		if r.mask.has(propWhiteSpace) {
 			s.Text.WhiteSpace = r.whiteSpace
 		}
+		if r.mask.has(propTextOverflow) {
+			s.Text.TextOverflow = r.textOverflow
+		}
 	}
 }
 

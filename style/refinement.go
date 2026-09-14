@@ -86,6 +86,7 @@ type Refinement struct {
 	underline            *UnderlineStyle
 	strikethrough        *StrikethroughStyle
 	whiteSpace           WhiteSpace
+	textOverflow         TextOverflow
 }
 
 // IsEmpty reports whether no properties have been set in this refinement.
@@ -285,6 +286,9 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propWhiteSpace) {
 			r.whiteSpace = other.whiteSpace
+		}
+		if other.mask.has(propTextOverflow) {
+			r.textOverflow = other.textOverflow
 		}
 	}
 }
@@ -759,4 +763,10 @@ func (r *Refinement) ClearStrikethrough() {
 func (r *Refinement) SetWhiteSpace(w WhiteSpace) {
 	r.mask.set(propWhiteSpace)
 	r.whiteSpace = w
+}
+
+// SetTextOverflow sets overflow text truncation behaviour.
+func (r *Refinement) SetTextOverflow(o TextOverflow) {
+	r.mask.set(propTextOverflow)
+	r.textOverflow = o
 }

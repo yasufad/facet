@@ -499,6 +499,63 @@ func TestTextWhiteSpaceNowrapSuppressesWrapping(t *testing.T) {
 	}
 }
 
+// TestTextOverflowEllipsisTruncatesOverflow pins TextOverflow's real consumer:
+// under TextOverflowEllipsis, a single line that overflows the known width is
+// truncated to fit with an ellipsis appended, where TextOverflowClip (the
+// default) leaves the line overflowing. Removing the Ellipsis branch from
+// maybeTruncateWithEllipsis collapses this test to the clip case and the
+// width assertion fails.
+func TestTextOverflowEllipsisTruncatesOverflow(t *testing.T) {
+	content := "The quick brown fox jumps over the lazy dog"
+	const knownWidth = geometry.Pixels(100)
+
+	// Clip: the line overflows the known width.
+	frameClip := newFakeFrame()
+	frameClip.phase = phaseLayoutRequested
+	clip := NewText(content).FontSize(16).LineHeight(20).
+		WhiteSpace(style.WhiteSpaceNowrap).
+		TextOverflow(style.TextOverflowClip)
+	clipID := clip.RequestLayout(frameClip)
+	frameClip.measureCallbacks[clipID](
+		layout.Size[layout.OptF32]{Width: layout.SomeOptF32(float32(knownWidth))},
+		layout.Size[layout.AvailableSpace]{Width: layout.MaxContent(), Height: layout.MaxContent()},
+	)
+	if len(clip.shapedLines) != 1 {
+		t.Fatalf("Clip: expected 1 line, got %d", len(clip.shapedLines))
+	}
+	if clip.shapedLines[0].Width() <= knownWidth {
+		t.Fatalf("Clip: line width %v should overflow known width %v", clip.shapedLines[0].Width(), knownWidth)
+	}
+
+	// Ellipsis: the line is truncated to fit the known width.
+	frameEllipsis := newFakeFrame()
+	frameEllipsis.phase = phaseLayoutRequested
+	ellipsis := NewText(content).FontSize(16).LineHeight(20).
+		WhiteSpace(style.WhiteSpaceNowrap).
+		TextOverflow(style.TextOverflowEllipsis)
+	ellipsisID := ellipsis.RequestLayout(frameEllipsis)
+	frameEllipsis.measureCallbacks[ellipsisID](
+		layout.Size[layout.OptF32]{Width: layout.SomeOptF32(float32(knownWidth))},
+		layout.Size[layout.AvailableSpace]{Width: layout.MaxContent(), Height: layout.MaxContent()},
+	)
+	if len(ellipsis.shapedLines) != 1 {
+		t.Fatalf("Ellipsis: expected 1 line, got %d", len(ellipsis.shapedLines))
+	}
+	if ellipsis.shapedLines[0].Width() > knownWidth {
+		t.Fatalf("Ellipsis: line width %v should fit known width %v (truncation did not happen)", ellipsis.shapedLines[0].Width(), knownWidth)
+	}
+	// The truncated line must be shorter than the full clip line: the
+	// ellipsis replaced the tail of the content.
+	if ellipsis.shapedLines[0].Width() >= clip.shapedLines[0].Width() {
+		t.Fatalf("Ellipsis line width %v should be less than clip line width %v", ellipsis.shapedLines[0].Width(), clip.shapedLines[0].Width())
+	}
+	// The truncated line carries fewer bytes than the full content: the
+	// ellipsis replaced the tail.
+	if ellipsis.shapedLines[0].Len() >= len(content) {
+		t.Fatalf("Ellipsis line Len %d should be less than content len %d", ellipsis.shapedLines[0].Len(), len(content))
+	}
+}
+
 // TestTextReshapesWhenPaintTimeStyleChangesFontMetrics pins the paint-time
 // gap docs/audit.md names: f.TextStyle() carries whatever pseudo-state
 // refinements a container merges in between prepaint and paint, so the style
