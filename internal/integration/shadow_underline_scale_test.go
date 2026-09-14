@@ -49,6 +49,10 @@ func (r *readbackRenderer) ClearAtlas(kind scene.AtlasTextureKind) {
 	r.inner.ClearAtlas(kind)
 }
 
+func (r *readbackRenderer) ReleaseTile(tile scene.AtlasTile) {
+	r.inner.ReleaseTile(tile)
+}
+
 func (r *readbackRenderer) Size() geometry.Size[geometry.DevicePixels] {
 	return r.inner.Size()
 }
