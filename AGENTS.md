@@ -253,6 +253,12 @@ after committing; a commit should contain exactly the file its message describes
 One agent holds the architecture and reviews what the others land. If that is you,
 this section is the job; everything else in this file is what you hold them to.
 
+`prompts/lead.md` carries the state this section cannot: which prompts are live, what is
+blocked on whom, and what decisions are outstanding. It is rewritten at the end of every
+round like any other prompt, and it is gitignored like any other prompt. If you were
+handed it, the role is yours. If it is stale, it is worse than absent — it reads as the
+record, and the record is `docs/`.
+
 You own the shared files: `docs/`, `AGENTS.md`, `prompts/`, `README.md`,
 `upstream.pins`, `internal/layering`. You do not write package code. Anything that
 crosses a layer boundary is yours to decide, and deciding it means editing
