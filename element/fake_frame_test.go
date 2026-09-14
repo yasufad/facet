@@ -50,6 +50,7 @@ type fakeFrame struct {
 	popClipCount      int
 	prepaintClipStack []geometry.Bounds[geometry.Pixels]
 	shapeLineCalls    int
+	wrapTextCalls     int
 }
 
 func newFakeFrame() *fakeFrame {
@@ -283,6 +284,14 @@ func (f *fakeFrame) ShapeLine(str string, runs []text.StyleRun) (text.ShapedLine
 		return f.textSys.ShapeLine(str, runs)
 	}
 	return text.ShapedLine{}, nil
+}
+
+func (f *fakeFrame) WrapText(str string, runs []text.StyleRun, maxWidth geometry.Pixels) ([]text.ShapedLine, error) {
+	f.wrapTextCalls++
+	if f.textSys != nil {
+		return f.textSys.WrapText(str, runs, maxWidth)
+	}
+	return nil, nil
 }
 
 func (f *fakeFrame) RasteriseGlyph(face text.Face, gid text.GlyphID, size geometry.Pixels, subpixel text.SubpixelOffset) (scene.AtlasTile, geometry.Bounds[geometry.DevicePixels], bool) {
