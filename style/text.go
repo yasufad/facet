@@ -71,6 +71,9 @@ type TextStyle struct {
 	// LineClamp limits the maximum number of lines rendered before
 	// truncation. A value of 0 (the default) means no clamping.
 	LineClamp int
+
+	// TextAlign controls horizontal alignment of text lines.
+	TextAlign TextAlign
 }
 
 // DefaultTextStyle returns the default text styling.
@@ -84,5 +87,6 @@ func DefaultTextStyle() TextStyle {
 		FontStyle:  text.StyleNormal,
 		WhiteSpace:   WhiteSpaceNormal,
 		TextOverflow: TextOverflowClip,
+		TextAlign:    TextAlignLeft,
 	}
 }

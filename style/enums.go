@@ -171,6 +171,19 @@ const (
 	TextOverflowEllipsis
 )
 
+// TextAlign specifies horizontal alignment of text lines within the
+// element's content box.
+type TextAlign uint8
+
+const (
+	// TextAlignLeft aligns text to the left.
+	TextAlignLeft TextAlign = iota
+	// TextAlignCentre centres text horizontally.
+	TextAlignCentre
+	// TextAlignRight aligns text to the right.
+	TextAlignRight
+)
+
 // Conversion helpers to layout enums
 
 func (d Display) toLayout() layout.Display {

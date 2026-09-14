@@ -88,6 +88,7 @@ type Refinement struct {
 	whiteSpace           WhiteSpace
 	textOverflow         TextOverflow
 	lineClamp            int
+	textAlign            TextAlign
 }
 
 // IsEmpty reports whether no properties have been set in this refinement.
@@ -293,6 +294,9 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propLineClamp) {
 			r.lineClamp = other.lineClamp
+		}
+		if other.mask.has(propTextAlign) {
+			r.textAlign = other.textAlign
 		}
 	}
 }
@@ -780,4 +784,10 @@ func (r *Refinement) SetTextOverflow(o TextOverflow) {
 func (r *Refinement) SetLineClamp(lines int) {
 	r.mask.set(propLineClamp)
 	r.lineClamp = lines
+}
+
+// SetTextAlign sets horizontal text alignment.
+func (r *Refinement) SetTextAlign(a TextAlign) {
+	r.mask.set(propTextAlign)
+	r.textAlign = a
 }

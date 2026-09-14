@@ -266,6 +266,7 @@ func TestTypographyRefinement(t *testing.T) {
 	r.SetWhiteSpace(WhiteSpaceNowrap)
 	r.SetTextOverflow(TextOverflowEllipsis)
 	r.SetLineClamp(3)
+	r.SetTextAlign(TextAlignCentre)
 
 	s := Default().Refined(r)
 
@@ -298,6 +299,9 @@ func TestTypographyRefinement(t *testing.T) {
 	}
 	if s.Text.LineClamp != 3 {
 		t.Errorf("Text.LineClamp = %v, want 3", s.Text.LineClamp)
+	}
+	if s.Text.TextAlign != TextAlignCentre {
+		t.Errorf("Text.TextAlign = %v, want Centre", s.Text.TextAlign)
 	}
 }
 
@@ -369,6 +373,7 @@ func TestDistinctPropertyIndices(t *testing.T) {
 		{"propWhiteSpace", propWhiteSpace},
 		{"propTextOverflow", propTextOverflow},
 		{"propLineClamp", propLineClamp},
+		{"propTextAlign", propTextAlign},
 	}
 
 	seen := make(map[uint8]string)

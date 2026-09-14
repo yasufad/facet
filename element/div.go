@@ -860,6 +860,12 @@ func (d *Div) LineClamp(lines int) *Div {
 	return d
 }
 
+// TextAlign sets text alignment.
+func (d *Div) TextAlign(a style.TextAlign) *Div {
+	d.refinement.SetTextAlign(a)
+	return d
+}
+
 // --- Lifecycle ---
 
 // RequestLayout requests layout for all children, converts the resolved style

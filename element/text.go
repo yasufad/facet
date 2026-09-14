@@ -184,6 +184,12 @@ func (t *Text) LineClamp(lines int) *Text {
 	return t
 }
 
+// TextAlign sets text alignment.
+func (t *Text) TextAlign(a style.TextAlign) *Text {
+	t.refinement.SetTextAlign(a)
+	return t
+}
+
 // textStyleRuns builds the single-run WrapText input for content shaped under
 // textStyle. Both RequestLayout and Paint need the exact same construction,
 // since Paint compares its result against what RequestLayout shaped from to
@@ -258,6 +264,25 @@ func lineBoxHeight(line text.ShapedLine, lineHeight geometry.Pixels) geometry.Pi
 		return lineHeight
 	}
 	return line.Height()
+}
+
+// alignedLineX returns the x origin of a line within bounds under the given
+// text alignment: Left pins it to the left edge, Centre centres a line
+// narrower than the box, and Right pins it to the right edge. A line wider
+// than the box overflows from the left, matching CSS.
+func alignedLineX(bounds geometry.Bounds[geometry.Pixels], line text.ShapedLine, align style.TextAlign) geometry.Pixels {
+	slack := bounds.Size.Width - line.Width()
+	if slack <= 0 {
+		return bounds.Origin.X
+	}
+	switch align {
+	case style.TextAlignCentre:
+		return bounds.Origin.X + slack/2
+	case style.TextAlignRight:
+		return bounds.Origin.X + slack
+	default:
+		return bounds.Origin.X
+	}
 }
 
 // ellipsisStr is the ellipsis character appended to truncated text under
@@ -537,7 +562,7 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	lineY := bounds.Origin.Y
 	for _, line := range t.shapedLines {
 		boxH := lineBoxHeight(line, textStyle.LineHeight)
-		lineOrigin := geometry.NewPoint(bounds.Origin.X, lineY)
+		lineOrigin := geometry.NewPoint(alignedLineX(bounds, line, textStyle.TextAlign), lineY)
 		if extra := boxH - line.Height(); extra > 0 {
 			lineOrigin.Y += extra / 2
 		}

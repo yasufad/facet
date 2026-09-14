@@ -748,6 +748,53 @@ func TestTextPaintCentresGlyphsOnTallerLineHeight(t *testing.T) {
 	}
 }
 
+// TestTextAlignShiftsLineOrigin pins TextAlign's real consumer: a short line
+// in a wide box shifts its x origin with alignment — Left pins to the left
+// edge, Centre shifts right by half the slack, Right by all of it. Removing
+// the alignment branch from alignedLineX collapses every alignment to Left
+// and the Centre/Right assertions fail.
+func TestTextAlignShiftsLineOrigin(t *testing.T) {
+	spriteX := func(align style.TextAlign) geometry.ScaledPixels {
+		frame := newFakeFrame()
+		txt := NewText("Hi").FontSize(16).LineHeight(20).TextAlign(align)
+
+		frame.phase = phaseLayoutRequested
+		nodeID := txt.RequestLayout(frame)
+		measured := frame.measureCallbacks[nodeID](layout.Size[layout.OptF32]{}, layout.Size[layout.AvailableSpace]{
+			Width:  layout.MaxContent(),
+			Height: layout.MaxContent(),
+		})
+
+		// Paint into a box wider than the line so alignment has slack to use.
+		bounds := geometry.NewBounds(geometry.NewPoint[geometry.Pixels](0, 0), geometry.NewSize[geometry.Pixels](200, measured.Height))
+		frame.phase = phasePrepainted
+		txt.Prepaint(frame, bounds)
+		frame.phase = phasePainted
+		txt.Paint(frame, bounds)
+
+		if len(frame.monoSprites) == 0 {
+			t.Fatal("expected at least one glyph sprite")
+		}
+		return frame.monoSprites[0].Bounds.Origin.X
+	}
+
+	leftX := spriteX(style.TextAlignLeft)
+	centreX := spriteX(style.TextAlignCentre)
+	rightX := spriteX(style.TextAlignRight)
+
+	if centreX <= leftX {
+		t.Fatalf("Centre sprite X %v should be right of Left %v", centreX, leftX)
+	}
+	if rightX <= centreX {
+		t.Fatalf("Right sprite X %v should be right of Centre %v", rightX, centreX)
+	}
+	// Centre moves by half the slack, Right by all of it, so Right - Left is
+	// twice Centre - Left (modulo the per-glyph offset being constant).
+	if got := (rightX - leftX) - 2*(centreX - leftX); got > geometry.ScaledPixels(0.5) || got < geometry.ScaledPixels(-0.5) {
+		t.Fatalf("Right-Left %v should be 2*(Centre-Left %v), diff %v", rightX-leftX, centreX-leftX, got)
+	}
+}
+
 func TestTextSetContent(t *testing.T) {
 	txt := NewText("Initial")
 	txt.SetContent("Updated")

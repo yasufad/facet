@@ -85,6 +85,7 @@ const (
 	propWhiteSpace
 	propTextOverflow
 	propLineClamp
+	propTextAlign
 )
 
 // mask is a 128-bit bitset indicating which properties have been explicitly
