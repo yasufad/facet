@@ -203,12 +203,13 @@ func TestTextUnderlinePaintsPrimitive(t *testing.T) {
 	// pins: LineHeight defaults to 20 (DefaultTextStyle), which is usually
 	// taller than the shaped line's own ascent+descent, so the baseline is
 	// not simply at the box's top edge plus ascent.
+	firstLine := txt.shapedLines[0]
 	lineOriginY := bounds.Origin.Y
-	if extra := bounds.Size.Height - txt.shapedLine.Height(); extra > 0 {
+	if extra := bounds.Size.Height - firstLine.Height(); extra > 0 {
 		lineOriginY += extra / 2
 	}
-	baselineY := lineOriginY + txt.shapedLine.Ascent()
-	wantY := (baselineY + txt.shapedLine.Descent()*0.618).Scale(scale)
+	baselineY := lineOriginY + firstLine.Ascent()
+	wantY := (baselineY + firstLine.Descent()*0.618).Scale(scale)
 	if u.Bounds.Origin.Y != wantY {
 		t.Fatalf("underline Y = %v, want %v", u.Bounds.Origin.Y, wantY)
 	}
@@ -289,12 +290,13 @@ func TestTextStrikethroughPaintsPrimitiveAboveBaseline(t *testing.T) {
 		t.Fatalf("strikethrough thickness = %v, want %v", line.Thickness, wantThickness)
 	}
 
+	firstLine := txt.shapedLines[0]
 	lineOriginY := bounds.Origin.Y
-	if extra := bounds.Size.Height - txt.shapedLine.Height(); extra > 0 {
+	if extra := bounds.Size.Height - firstLine.Height(); extra > 0 {
 		lineOriginY += extra / 2
 	}
-	baselineY := lineOriginY + txt.shapedLine.Ascent()
-	wantY := (baselineY - txt.shapedLine.Ascent()*0.25).Scale(scale)
+	baselineY := lineOriginY + firstLine.Ascent()
+	wantY := (baselineY - firstLine.Ascent()*0.25).Scale(scale)
 	if line.Bounds.Origin.Y != wantY {
 		t.Fatalf("strikethrough Y = %v, want %v", line.Bounds.Origin.Y, wantY)
 	}
@@ -335,14 +337,13 @@ func TestTextUnderlineAndStrikethroughBothPaint(t *testing.T) {
 	}
 }
 
-// TestTextDoesNotReshapeOnWidthChange pins the fix for the redundant reshape
-// docs/audit.md names: ShapeLine shapes one line with no wrapping, so its
-// output for the same content and style is identical at every available
-// width, and the solver calls measure several times per solve with different
-// constraints. Reshaping keyed on width repeated the same work on most
-// frames; this asserts the shape happens exactly once regardless of how many
-// times measure is called with a different width.
-func TestTextDoesNotReshapeOnWidthChange(t *testing.T) {
+// TestTextDoesNotRewrapOnAvailableWidthChange pins the cache key: the wrap
+// width comes from the known (definite) width, not from the available space,
+// so the solver calling measure several times with different available widths
+// but the same known width reuses one wrap. This is the counterpart to
+// TestTextRewrapsOnKnownWidthChange, which asserts the opposite — a different
+// known width must re-wrap even with identical style runs.
+func TestTextDoesNotRewrapOnAvailableWidthChange(t *testing.T) {
 	frame := newFakeFrame()
 	frame.phase = phaseLayoutRequested
 
@@ -364,8 +365,102 @@ func TestTextDoesNotReshapeOnWidthChange(t *testing.T) {
 		}
 	}
 
-	if frame.shapeLineCalls != 1 {
-		t.Fatalf("ShapeLine called %d times across 5 different widths, want 1: reshaping on width change is back", frame.shapeLineCalls)
+	if frame.wrapTextCalls != 1 {
+		t.Fatalf("WrapText called %d times across 5 different available widths, want 1: re-wrapping on available-width change is back", frame.wrapTextCalls)
+	}
+}
+
+// TestTextRewrapsOnKnownWidthChange pins the prompt's explicit requirement: a
+// re-layout at a different width must re-wrap even when the style runs are
+// identical. Comparing runs alone would silently keep the previous frame's
+// line breaks, so the width is part of the cache key.
+func TestTextRewrapsOnKnownWidthChange(t *testing.T) {
+	frame := newFakeFrame()
+	frame.phase = phaseLayoutRequested
+
+	txt := NewText("The quick brown fox jumps over the lazy dog").
+		FontSize(16).
+		LineHeight(20)
+
+	nodeID := txt.RequestLayout(frame)
+	measureCb := frame.measureCallbacks[nodeID]
+	avail := layout.Size[layout.AvailableSpace]{
+		Width:  layout.MaxContent(),
+		Height: layout.MaxContent(),
+	}
+
+	for _, w := range []float32{100, 200, 300} {
+		known := layout.Size[layout.OptF32]{Width: layout.SomeOptF32(w)}
+		measureCb(known, avail)
+	}
+
+	if frame.wrapTextCalls != 3 {
+		t.Fatalf("WrapText called %d times across 3 different known widths, want 3: width is not part of the wrap cache key", frame.wrapTextCalls)
+	}
+}
+
+// TestTextWrapsToMultipleLines pins that Text wraps through Frame.WrapText:
+// long content at a narrow known width produces more than one shaped line,
+// and the measured height grows to cover every line box.
+func TestTextWrapsToMultipleLines(t *testing.T) {
+	frame := newFakeFrame()
+	frame.phase = phaseLayoutRequested
+
+	txt := NewText("The quick brown fox jumps over the lazy dog").
+		FontSize(16).
+		LineHeight(20)
+
+	nodeID := txt.RequestLayout(frame)
+	measureCb := frame.measureCallbacks[nodeID]
+
+	// A narrow known width forces wrapping; the natural (MaxContent) width
+	// keeps everything on one line.
+	narrow := measureCb(
+		layout.Size[layout.OptF32]{Width: layout.SomeOptF32(40)},
+		layout.Size[layout.AvailableSpace]{Width: layout.MaxContent(), Height: layout.MaxContent()},
+	)
+	narrowLineCount := len(txt.shapedLines)
+
+	natural := measureCb(
+		layout.Size[layout.OptF32]{},
+		layout.Size[layout.AvailableSpace]{Width: layout.MaxContent(), Height: layout.MaxContent()},
+	)
+
+	if narrowLineCount <= 1 {
+		t.Fatalf("expected wrapped text to produce >1 line at width 40, got %d", narrowLineCount)
+	}
+	if narrow.Height <= natural.Height {
+		t.Fatalf("narrow height %v should exceed natural height %v for wrapped multi-line text", narrow.Height, natural.Height)
+	}
+	// LineHeight applies per line: height = LineHeight * lineCount.
+	wantHeight := geometry.Pixels(20) * geometry.Pixels(narrowLineCount)
+	if narrow.Height != wantHeight {
+		t.Fatalf("narrow height = %v, want LineHeight*lines = %v", narrow.Height, wantHeight)
+	}
+}
+
+// TestTextNewlinesProduceMultipleLines pins that explicit newlines flow through
+// WrapText: each newline forces a line break even at the no-wrap width used
+// for MaxContent, so the element renders one line per source line.
+func TestTextNewlinesProduceMultipleLines(t *testing.T) {
+	frame := newFakeFrame()
+	frame.phase = phaseLayoutRequested
+
+	txt := NewText("line one\nline two\nline three").FontSize(16).LineHeight(20)
+
+	nodeID := txt.RequestLayout(frame)
+	measureCb := frame.measureCallbacks[nodeID]
+	measured := measureCb(
+		layout.Size[layout.OptF32]{},
+		layout.Size[layout.AvailableSpace]{Width: layout.MaxContent(), Height: layout.MaxContent()},
+	)
+
+	if len(txt.shapedLines) != 3 {
+		t.Fatalf("expected 3 lines from 2 newlines, got %d", len(txt.shapedLines))
+	}
+	wantHeight := geometry.Pixels(20) * 3
+	if measured.Height != wantHeight {
+		t.Fatalf("height = %v, want 3*LineHeight = %v", measured.Height, wantHeight)
 	}
 }
 
@@ -398,8 +493,8 @@ func TestTextReshapesWhenPaintTimeStyleChangesFontMetrics(t *testing.T) {
 	frame.phase = phasePainted
 	parent.Paint(frame, rootBounds)
 
-	if frame.shapeLineCalls != 1 {
-		t.Fatalf("shapeLineCalls after first paint = %d, want 1", frame.shapeLineCalls)
+	if frame.wrapTextCalls != 1 {
+		t.Fatalf("wrapTextCalls after first paint = %d, want 1", frame.wrapTextCalls)
 	}
 
 	if len(frame.hitRegions) == 0 {
@@ -411,8 +506,8 @@ func TestTextReshapesWhenPaintTimeStyleChangesFontMetrics(t *testing.T) {
 	label.phase = phasePrepainted
 	parent.Paint(frame, rootBounds)
 
-	if frame.shapeLineCalls != 2 {
-		t.Fatalf("shapeLineCalls after hover paint = %d, want 2: paint-time font weight change did not reshape", frame.shapeLineCalls)
+	if frame.wrapTextCalls != 2 {
+		t.Fatalf("wrapTextCalls after hover paint = %d, want 2: paint-time font weight change did not reshape", frame.wrapTextCalls)
 	}
 }
 
@@ -444,8 +539,8 @@ func TestTextDoesNotReshapeWhenOnlyColourChanges(t *testing.T) {
 	frame.phase = phasePainted
 	parent.Paint(frame, rootBounds)
 
-	if frame.shapeLineCalls != 1 {
-		t.Fatalf("shapeLineCalls after first paint = %d, want 1", frame.shapeLineCalls)
+	if frame.wrapTextCalls != 1 {
+		t.Fatalf("wrapTextCalls after first paint = %d, want 1", frame.wrapTextCalls)
 	}
 
 	if len(frame.hitRegions) == 0 {
@@ -457,8 +552,8 @@ func TestTextDoesNotReshapeWhenOnlyColourChanges(t *testing.T) {
 	label.phase = phasePrepainted
 	parent.Paint(frame, rootBounds)
 
-	if frame.shapeLineCalls != 1 {
-		t.Fatalf("shapeLineCalls after colour-only hover paint = %d, want 1: colour-only pseudo-state should not reshape", frame.shapeLineCalls)
+	if frame.wrapTextCalls != 1 {
+		t.Fatalf("wrapTextCalls after colour-only hover paint = %d, want 1: colour-only pseudo-state should not reshape", frame.wrapTextCalls)
 	}
 }
 
@@ -485,7 +580,7 @@ func TestTextPaintCentresGlyphsOnTallerLineHeight(t *testing.T) {
 			Width:  layout.MaxContent(),
 			Height: layout.MaxContent(),
 		})
-		if txt.shapedLine == nil {
+		if txt.shapedLines == nil || len(txt.shapedLines) == 0 {
 			t.Fatal("expected the measure pass to shape the line")
 		}
 
@@ -498,7 +593,7 @@ func TestTextPaintCentresGlyphsOnTallerLineHeight(t *testing.T) {
 		if len(frame.monoSprites) == 0 {
 			t.Fatal("expected at least one glyph sprite")
 		}
-		return frame.monoSprites[0].Bounds.Origin.Y, txt.shapedLine.Height()
+		return frame.monoSprites[0].Bounds.Origin.Y, txt.shapedLines[0].Height()
 	}
 
 	naturalY, shapedHeight := topSpriteY(0) // LineHeight(0) falls back to the shaped line's own height.
