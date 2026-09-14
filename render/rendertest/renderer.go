@@ -23,6 +23,12 @@ type UploadCall struct {
 	Data []byte
 }
 
+// ReleasedTile records one ReleaseTile invocation, so a test can assert
+// which tiles the caller asked the atlas to reclaim.
+type ReleasedTile struct {
+	Tile scene.AtlasTile
+}
+
 // Renderer is an exported test double implementing render.Renderer. The zero
 // value is a usable renderer with a zero size; fields are exported so a test
 // can set the values it wants to read back, and read what a method under test
@@ -40,6 +46,7 @@ type Renderer struct {
 	ClearedAtlases []scene.AtlasTextureKind
 	LastScene      *scene.Scene
 	Uploads        []UploadCall
+	ReleasedTiles  []ReleasedTile
 	Closed         bool
 }
 
@@ -75,6 +82,10 @@ func (r *Renderer) Upload(kind scene.AtlasTextureKind, size geometry.Size[geomet
 
 func (r *Renderer) ClearAtlas(kind scene.AtlasTextureKind) {
 	r.ClearedAtlases = append(r.ClearedAtlases, kind)
+}
+
+func (r *Renderer) ReleaseTile(tile scene.AtlasTile) {
+	r.ReleasedTiles = append(r.ReleasedTiles, ReleasedTile{Tile: tile})
 }
 
 func (r *Renderer) Size() geometry.Size[geometry.DevicePixels] {

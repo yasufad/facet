@@ -57,6 +57,18 @@ type Renderer interface {
 	// for the given texture kind, freeing GPU memory.
 	ClearAtlas(kind scene.AtlasTextureKind)
 
+	// ReleaseTile marks the tile as no longer referenced by the caller,
+	// allowing the atlas to reclaim its storage. After ReleaseTile the
+	// tile's TileID is invalid: a sprite still carrying it must not be
+	// drawn, and under facet_debug drawing it panics via the existing
+	// generation check.
+	//
+	// ReleaseTile is idempotent: releasing a tile that was never
+	// allocated, or that has already been released, is a no-op. It never
+	// panics on a stale or unknown tile, because the caller may release a
+	// tile whose page was cleared by ClearAtlas in the meantime.
+	ReleaseTile(tile scene.AtlasTile)
+
 	// Size returns the current swapchain dimensions in device pixels.
 	Size() geometry.Size[geometry.DevicePixels]
 
