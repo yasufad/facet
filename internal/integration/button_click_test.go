@@ -11,50 +11,11 @@ import (
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/platform"
 	"github.com/yasufad/facet/platform/platformtest"
-	"github.com/yasufad/facet/scene"
+	"github.com/yasufad/facet/render/rendertest"
 	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/ui"
 	"github.com/yasufad/facet/window"
 )
-
-type stubRenderer struct {
-	size     geometry.Size[geometry.DevicePixels]
-	quads    []scene.Quad
-	presents int
-}
-
-func newStubRenderer(size geometry.Size[geometry.DevicePixels]) *stubRenderer {
-	return &stubRenderer{size: size}
-}
-
-func (s *stubRenderer) Resize(size geometry.Size[geometry.DevicePixels]) error {
-	s.size = size
-	return nil
-}
-
-func (s *stubRenderer) Draw(sc *scene.Scene) error {
-	s.quads = append([]scene.Quad(nil), sc.Quads()...)
-	return nil
-}
-
-func (s *stubRenderer) Present() error {
-	s.presents++
-	return nil
-}
-
-func (s *stubRenderer) Upload(kind scene.AtlasTextureKind, size geometry.Size[geometry.DevicePixels], data []byte) (scene.AtlasTile, error) {
-	return scene.AtlasTile{}, nil
-}
-
-func (s *stubRenderer) ClearAtlas(kind scene.AtlasTextureKind) {}
-
-func (s *stubRenderer) Size() geometry.Size[geometry.DevicePixels] {
-	return s.size
-}
-
-func (s *stubRenderer) Close() error {
-	return nil
-}
 
 type buttonIntegrationView struct {
 	clicks int
@@ -82,7 +43,7 @@ func TestButtonClickInWindowMutatesEntityAndRendersNextFrame(t *testing.T) {
 
 	size := geometry.NewSize[geometry.Pixels](400, 300)
 	pw := platformtest.NewWindow(size, 1.0)
-	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	r := rendertest.NewRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := window.NewWithRenderer(pw, r, a, window.WindowOptions{Size: size})
 
 	ent := app.New(a, func(cx *app.Context[buttonIntegrationView]) buttonIntegrationView {
@@ -98,11 +59,11 @@ func TestButtonClickInWindowMutatesEntityAndRendersNextFrame(t *testing.T) {
 	if read := ent.Read(a); read.clicks != 0 {
 		t.Fatalf("expected initial clicks 0, got %d", read.clicks)
 	}
-	if len(r.quads) < 2 {
-		t.Fatalf("expected at least 2 quads in frame 1, got %d", len(r.quads))
+	if len(r.Quads) < 2 {
+		t.Fatalf("expected at least 2 quads in frame 1, got %d", len(r.Quads))
 	}
-	if r.quads[0].Background.R != 0 {
-		t.Fatalf("expected initial container quad red component 0, got %v", r.quads[0].Background.R)
+	if r.Quads[0].Background.R != 0 {
+		t.Fatalf("expected initial container quad red component 0, got %v", r.Quads[0].Background.R)
 	}
 
 	// Dispatch synthetic pointer down and up inside the button at (30, 15).
@@ -132,10 +93,10 @@ func TestButtonClickInWindowMutatesEntityAndRendersNextFrame(t *testing.T) {
 	w.Draw()
 
 	// Assert 2: Next frame reflects changed entity state.
-	if len(r.quads) < 2 {
-		t.Fatalf("expected at least 2 quads in frame 2, got %d", len(r.quads))
+	if len(r.Quads) < 2 {
+		t.Fatalf("expected at least 2 quads in frame 2, got %d", len(r.Quads))
 	}
-	if r.quads[0].Background.R != 1.0 {
-		t.Fatalf("expected frame 2 container quad red component 1.0, got %v", r.quads[0].Background.R)
+	if r.Quads[0].Background.R != 1.0 {
+		t.Fatalf("expected frame 2 container quad red component 1.0, got %v", r.Quads[0].Background.R)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/platform/platformtest"
+	"github.com/yasufad/facet/render/rendertest"
 	"github.com/yasufad/facet/scene"
 	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/ui"
@@ -46,7 +47,7 @@ func TestScrollViewRendersChildAtViewportWidthInWindow(t *testing.T) {
 
 	size := geometry.NewSize[geometry.Pixels](winW, winH)
 	pw := platformtest.NewWindow(size, 1.0)
-	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	r := rendertest.NewRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := window.NewWithRenderer(pw, r, a, window.WindowOptions{Size: size})
 
 	state := app.New(a, func(cx *app.Context[ui.ScrollState]) ui.ScrollState {
@@ -80,7 +81,7 @@ func TestScrollViewRendersChildAtViewportWidthInWindow(t *testing.T) {
 	// content height (500) into the entity for frame 2.
 	w.Draw()
 
-	childQuad := findQuadByBg(r.quads, childBg)
+	childQuad := findQuadByBg(r.Quads, childBg)
 	if childQuad == nil {
 		t.Fatalf("child quad not found after frame 1; the scroll view did not paint the child")
 	}
@@ -102,7 +103,7 @@ func TestScrollViewRendersChildAtViewportWidthInWindow(t *testing.T) {
 	// Frame 2: the content shifts up by the scroll offset.
 	w.Draw()
 
-	scrolledQuad := findQuadByBg(r.quads, childBg)
+	scrolledQuad := findQuadByBg(r.Quads, childBg)
 	if scrolledQuad == nil {
 		t.Fatalf("child quad not found after scroll to %v; the scroll view did not paint the child", scrollTo)
 	}

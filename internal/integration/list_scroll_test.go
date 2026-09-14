@@ -8,6 +8,7 @@ import (
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/platform/platformtest"
+	"github.com/yasufad/facet/render/rendertest"
 	"github.com/yasufad/facet/scene"
 	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/ui"
@@ -52,7 +53,7 @@ func TestListScrollRendersVisibleItemsInWindow(t *testing.T) {
 
 	size := geometry.NewSize[geometry.Pixels](winW, winH)
 	pw := platformtest.NewWindow(size, 1.0)
-	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	r := rendertest.NewRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := window.NewWithRenderer(pw, r, a, window.WindowOptions{Size: size})
 
 	state := app.New(a, func(cx *app.Context[ui.ListState]) ui.ListState {
@@ -112,13 +113,13 @@ func TestListScrollRendersVisibleItemsInWindow(t *testing.T) {
 	// always building item 0, or ignoring the scroll offset, or applying
 	// it to the wrong side of the spacer — renders a different item at the
 	// viewport top, and this assertion catches it.
-	if len(r.quads) == 0 {
+	if len(r.Quads) == 0 {
 		t.Fatalf("no quads rendered after scroll; the frame produced an empty scene")
 	}
 
 	var topItem *scene.Quad
-	for i := range r.quads {
-		q := &r.quads[i]
+	for i := range r.Quads {
+		q := &r.Quads[i]
 		if q.Background.A < 0.5 {
 			continue // skip transparent quads (divs with no background)
 		}

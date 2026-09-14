@@ -8,6 +8,7 @@ import (
 	"github.com/yasufad/facet/element"
 	"github.com/yasufad/facet/geometry"
 	"github.com/yasufad/facet/platform/platformtest"
+	"github.com/yasufad/facet/render/rendertest"
 	"github.com/yasufad/facet/scene"
 	"github.com/yasufad/facet/style"
 	"github.com/yasufad/facet/ui"
@@ -44,7 +45,7 @@ func TestButtonRendersAtPositiveSizeInWindow(t *testing.T) {
 
 	size := geometry.NewSize[geometry.Pixels](winW, winH)
 	pw := platformtest.NewWindow(size, 1.0)
-	r := newStubRenderer(geometry.SizeToDevicePixels(size, 1.0))
+	r := rendertest.NewRenderer(geometry.SizeToDevicePixels(size, 1.0))
 	w := window.NewWithRenderer(pw, r, a, window.WindowOptions{Size: size})
 
 	// Distinctive background applied to base, hover, and active states.
@@ -77,15 +78,15 @@ func TestButtonRendersAtPositiveSizeInWindow(t *testing.T) {
 	w.Draw()
 
 	var btnQuad *scene.Quad
-	for i := range r.quads {
-		q := &r.quads[i]
+	for i := range r.Quads {
+		q := &r.Quads[i]
 		if q.Background == btnBg {
 			btnQuad = q
 			break
 		}
 	}
 	if btnQuad == nil {
-		t.Fatalf("button background quad not found in rendered scene; the button did not paint a quad (quad count: %d)", len(r.quads))
+		t.Fatalf("button background quad not found in rendered scene; the button did not paint a quad (quad count: %d)", len(r.Quads))
 	}
 
 	// The zero-width wrapper defect: a container whose children don't
