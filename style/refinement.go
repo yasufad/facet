@@ -87,6 +87,7 @@ type Refinement struct {
 	strikethrough        *StrikethroughStyle
 	whiteSpace           WhiteSpace
 	textOverflow         TextOverflow
+	lineClamp            int
 }
 
 // IsEmpty reports whether no properties have been set in this refinement.
@@ -289,6 +290,9 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propTextOverflow) {
 			r.textOverflow = other.textOverflow
+		}
+		if other.mask.has(propLineClamp) {
+			r.lineClamp = other.lineClamp
 		}
 	}
 }
@@ -769,4 +773,11 @@ func (r *Refinement) SetWhiteSpace(w WhiteSpace) {
 func (r *Refinement) SetTextOverflow(o TextOverflow) {
 	r.mask.set(propTextOverflow)
 	r.textOverflow = o
+}
+
+// SetLineClamp sets the maximum line count before clamping. A value of 0
+// (the default) means no clamping.
+func (r *Refinement) SetLineClamp(lines int) {
+	r.mask.set(propLineClamp)
+	r.lineClamp = lines
 }

@@ -67,6 +67,10 @@ type TextStyle struct {
 
 	// TextOverflow controls truncation of overflowing text.
 	TextOverflow TextOverflow
+
+	// LineClamp limits the maximum number of lines rendered before
+	// truncation. A value of 0 (the default) means no clamping.
+	LineClamp int
 }
 
 // DefaultTextStyle returns the default text styling.

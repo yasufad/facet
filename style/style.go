@@ -332,6 +332,9 @@ func (s *Style) Refine(r Refinement) {
 		if r.mask.has(propTextOverflow) {
 			s.Text.TextOverflow = r.textOverflow
 		}
+		if r.mask.has(propLineClamp) {
+			s.Text.LineClamp = r.lineClamp
+		}
 	}
 }
 

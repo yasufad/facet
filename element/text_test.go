@@ -556,6 +556,52 @@ func TestTextOverflowEllipsisTruncatesOverflow(t *testing.T) {
 	}
 }
 
+// TestTextLineClampCapsLineCount pins LineClamp's real consumer: a paragraph
+// that wraps to more lines than the clamp is reduced to exactly LineClamp
+// lines, and the last visible line is truncated with an ellipsis. Removing
+// the clamp branch from maybeClampLines collapses this test to the full
+// paragraph and the line-count assertion fails.
+func TestTextLineClampCapsLineCount(t *testing.T) {
+	content := "The quick brown fox jumps over the lazy dog and then keeps running"
+	const knownWidth = geometry.Pixels(80)
+	const clamp = 2
+
+	// No clamp: the paragraph wraps to many lines.
+	frameFull := newFakeFrame()
+	frameFull.phase = phaseLayoutRequested
+	full := NewText(content).FontSize(16).LineHeight(20)
+	fullID := full.RequestLayout(frameFull)
+	frameFull.measureCallbacks[fullID](
+		layout.Size[layout.OptF32]{Width: layout.SomeOptF32(float32(knownWidth))},
+		layout.Size[layout.AvailableSpace]{Width: layout.MaxContent(), Height: layout.MaxContent()},
+	)
+	if len(full.shapedLines) <= clamp {
+		t.Fatalf("unclamped paragraph: expected >%d lines at width %v, got %d", clamp, knownWidth, len(full.shapedLines))
+	}
+
+	// Clamped: exactly LineClamp lines, the last truncated with an ellipsis.
+	frameClamp := newFakeFrame()
+	frameClamp.phase = phaseLayoutRequested
+	clamped := NewText(content).FontSize(16).LineHeight(20).LineClamp(clamp)
+	clampedID := clamped.RequestLayout(frameClamp)
+	frameClamp.measureCallbacks[clampedID](
+		layout.Size[layout.OptF32]{Width: layout.SomeOptF32(float32(knownWidth))},
+		layout.Size[layout.AvailableSpace]{Width: layout.MaxContent(), Height: layout.MaxContent()},
+	)
+	if len(clamped.shapedLines) != clamp {
+		t.Fatalf("clamped paragraph: expected %d lines, got %d", clamp, len(clamped.shapedLines))
+	}
+	// The last clamped line carries the ellipsis, so it differs from the
+	// corresponding unclamped line: either longer (ellipsis appended to a
+	// line that already fit) or shorter (line truncated to make room for the
+	// ellipsis). Either way the byte length changes.
+	lastClamped := clamped.shapedLines[clamp-1]
+	lastFull := full.shapedLines[clamp-1]
+	if lastClamped.Len() == lastFull.Len() {
+		t.Fatalf("clamped last line Len %d equals unclamped %d (ellipsis not applied)", lastClamped.Len(), lastFull.Len())
+	}
+}
+
 // TestTextReshapesWhenPaintTimeStyleChangesFontMetrics pins the paint-time
 // gap docs/audit.md names: f.TextStyle() carries whatever pseudo-state
 // refinements a container merges in between prepaint and paint, so the style

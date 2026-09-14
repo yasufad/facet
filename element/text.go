@@ -178,6 +178,12 @@ func (t *Text) TextOverflow(to style.TextOverflow) *Text {
 	return t
 }
 
+// LineClamp sets maximum line count for text.
+func (t *Text) LineClamp(lines int) *Text {
+	t.refinement.SetLineClamp(lines)
+	return t
+}
+
 // textStyleRuns builds the single-run WrapText input for content shaped under
 // textStyle. Both RequestLayout and Paint need the exact same construction,
 // since Paint compares its result against what RequestLayout shaped from to
@@ -254,38 +260,27 @@ func lineBoxHeight(line text.ShapedLine, lineHeight geometry.Pixels) geometry.Pi
 	return line.Height()
 }
 
-// ellipsisRunes is the ellipsis character appended to truncated text under
-// TextOverflowEllipsis. It is U+2026 (HORIZONTAL ELLIPSIS), three bytes in
-// UTF-8.
+// ellipsisStr is the ellipsis character appended to truncated text under
+// TextOverflowEllipsis and LineClamp. It is U+2026 (HORIZONTAL ELLIPSIS),
+// three bytes in UTF-8.
 const ellipsisStr = "…"
 
-// maybeTruncateWithEllipsis implements TextOverflowEllipsis: when the text is
-// a single line that overflows availableWidth, it replaces that line with a
-// truncated copy plus an ellipsis, binary-searching the rune count so the
-// result fits. This is the CSS single-line text-overflow behaviour — it
-// applies to one overflowing line, not to every line of a wrapped paragraph
-// (line-clamp handles multi-line truncation). When the text is already
-// within availableWidth, or TextOverflow is not Ellipsis, or there is more
-// than one line, the input is returned unchanged.
-func maybeTruncateWithEllipsis(f Frame, content string, textStyle style.TextStyle, lines []text.ShapedLine, availableWidth geometry.Pixels) []text.ShapedLine {
-	if textStyle.TextOverflow != style.TextOverflowEllipsis || len(lines) != 1 || availableWidth <= 0 {
-		return lines
-	}
-	if lines[0].Width() <= availableWidth {
-		return lines
-	}
-
-	// Shape the ellipsis alone to measure its width and to fall back to it
-	// when nothing else fits.
+// truncateLineWithEllipsis shapes content + "…" truncated to fit
+// availableWidth, binary-searching the rune count so the result fits, and
+// returns the resulting ShapedLine. It is the shared engine behind
+// TextOverflowEllipsis (one overflowing line) and LineClamp (the last visible
+// line of a clamped paragraph). The ok flag is false when shaping fails or
+// even the ellipsis alone does not fit.
+func truncateLineWithEllipsis(f Frame, content string, textStyle style.TextStyle, availableWidth geometry.Pixels) (text.ShapedLine, bool) {
 	ellipsisRuns := textStyleRuns(ellipsisStr, textStyle)
 	ellipsisLines, err := f.WrapText(ellipsisStr, ellipsisRuns, noWrapMaxWidth)
 	if err != nil || len(ellipsisLines) == 0 {
-		return lines
+		return text.ShapedLine{}, false
 	}
 	ellipsisWidth := ellipsisLines[0].Width()
 	if ellipsisWidth >= availableWidth {
-		// Even the ellipsis alone does not fit; keep the line as-is.
-		return lines
+		// Even the ellipsis alone does not fit.
+		return text.ShapedLine{}, false
 	}
 
 	runes := []rune(content)
@@ -306,16 +301,81 @@ func maybeTruncateWithEllipsis(f Frame, content string, textStyle style.TextStyl
 
 	if lo == 0 {
 		// Nothing of the content fits; show only the ellipsis.
-		return []text.ShapedLine{ellipsisLines[0]}
+		return ellipsisLines[0], true
 	}
 
 	finalStr := string(runes[:lo]) + ellipsisStr
 	finalRuns := textStyleRuns(finalStr, textStyle)
 	finalLines, err := f.WrapText(finalStr, finalRuns, noWrapMaxWidth)
 	if err != nil || len(finalLines) == 0 {
+		return text.ShapedLine{}, false
+	}
+	return finalLines[0], true
+}
+
+// maybeTruncateWithEllipsis implements TextOverflowEllipsis: when the text is
+// a single line that overflows availableWidth, it replaces that line with a
+// truncated copy plus an ellipsis. This is the CSS single-line text-overflow
+// behaviour — it applies to one overflowing line, not to every line of a
+// wrapped paragraph (LineClamp handles multi-line). When the text is already
+// within availableWidth, or TextOverflow is not Ellipsis, or there is more
+// than one line, the input is returned unchanged.
+func maybeTruncateWithEllipsis(f Frame, content string, textStyle style.TextStyle, lines []text.ShapedLine, availableWidth geometry.Pixels) []text.ShapedLine {
+	if textStyle.TextOverflow != style.TextOverflowEllipsis || len(lines) != 1 || availableWidth <= 0 {
 		return lines
 	}
-	return finalLines
+	if lines[0].Width() <= availableWidth {
+		return lines
+	}
+	if truncated, ok := truncateLineWithEllipsis(f, content, textStyle, availableWidth); ok {
+		return []text.ShapedLine{truncated}
+	}
+	return lines
+}
+
+// lineByteOffsets returns the byte offset of each shaped line's text within
+// content. The wrapper breaks at newlines and excludes them from a line's
+// text, so the offset of line i is the sum of earlier lines' Len() plus the
+// newlines that separated them.
+func lineByteOffsets(content string, lines []text.ShapedLine) []int {
+	offsets := make([]int, len(lines))
+	pos := 0
+	for i, l := range lines {
+		for pos < len(content) && content[pos] == '\n' {
+			pos++
+		}
+		offsets[i] = pos
+		pos += l.Len()
+	}
+	return offsets
+}
+
+// maybeClampLines implements LineClamp: when the wrapped paragraph exceeds
+// LineClamp lines, it keeps only the first LineClamp and truncates the last
+// visible one with an ellipsis to signal that text was dropped. When
+// LineClamp is 0 (no clamping) or the paragraph already fits, the input is
+// returned unchanged.
+func maybeClampLines(f Frame, content string, textStyle style.TextStyle, lines []text.ShapedLine, availableWidth geometry.Pixels) []text.ShapedLine {
+	if textStyle.LineClamp <= 0 || len(lines) <= textStyle.LineClamp {
+		return lines
+	}
+	keep := textStyle.LineClamp
+	clamped := make([]text.ShapedLine, keep)
+	copy(clamped, lines[:keep])
+
+	// Truncate the last visible line with an ellipsis, using its substring
+	// of the content so the binary search truncates the right text.
+	offsets := lineByteOffsets(content, lines)
+	lastIdx := keep - 1
+	lastStart := offsets[lastIdx]
+	lastEnd := lastStart + clamped[lastIdx].Len()
+	lastContent := content[lastStart:lastEnd]
+	if availableWidth > 0 {
+		if truncated, ok := truncateLineWithEllipsis(f, lastContent, textStyle, availableWidth); ok {
+			clamped[lastIdx] = truncated
+		}
+	}
+	return clamped
 }
 
 // RequestLayout resolves text styling, registers a measured layout callback
@@ -358,11 +418,13 @@ func (t *Text) RequestLayout(f Frame) NodeID {
 
 		// TextOverflowEllipsis truncates a single overflowing line to fit the
 		// known width, so the measured width is the truncated width rather
-		// than the full content width.
+		// than the full content width. LineClamp caps the line count and
+		// truncates the last visible line with an ellipsis.
 		if known.Width.IsSome() {
 			availWidth := geometry.Pixels(known.Width.UnwrapOr(0))
 			if availWidth > 0 {
 				t.shapedLines = maybeTruncateWithEllipsis(f, t.content, textStyle, t.shapedLines, availWidth)
+				t.shapedLines = maybeClampLines(f, t.content, textStyle, t.shapedLines, availWidth)
 			}
 		}
 
@@ -449,8 +511,10 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 
 	// TextOverflowEllipsis truncates a single overflowing line to fit the
 	// bounds width at paint time, mirroring the truncation measure applied.
+	// LineClamp caps the line count and truncates the last visible line.
 	if bounds.Size.Width > 0 {
 		t.shapedLines = maybeTruncateWithEllipsis(f, t.content, textStyle, t.shapedLines, bounds.Size.Width)
+		t.shapedLines = maybeClampLines(f, t.content, textStyle, t.shapedLines, bounds.Size.Width)
 	}
 
 	scale := f.ScaleFactor()
