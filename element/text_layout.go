@@ -19,11 +19,15 @@ type TextLayout struct {
 }
 
 // Layout returns a queryable view of this Text element's most recently
-// shaped line. Content and style are fixed once RequestLayout runs, so the
-// line does not change again until a fresh Text element replaces this one on
-// the next frame.
+// shaped first line. Content and style are fixed once RequestLayout runs, so
+// the line does not change again until a fresh Text element replaces this one
+// on the next frame. Multi-line text exposes its first line here; a future
+// round that gives the caret line awareness will widen this view.
 func (t *Text) Layout() TextLayout {
-	return TextLayout{line: t.shapedLine}
+	if len(t.shapedLines) == 0 {
+		return TextLayout{}
+	}
+	return TextLayout{line: &t.shapedLines[0]}
 }
 
 // XForIndex returns the x position, relative to the line's left edge, of the

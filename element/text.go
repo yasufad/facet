@@ -12,20 +12,35 @@ import (
 	"github.com/yasufad/facet/text"
 )
 
-// Text is an element that renders a run of single-line, left-aligned text.
+// noWrapMaxWidth is a width large enough that the line wrapper never breaks a
+// line of realistic length. It mirrors text.ShapeLine's noWrapWidth: when the
+// available width is unconstrained (MaxContent), the text is laid out as a
+// single line per explicit newline rather than word-wrapped.
+const noWrapMaxWidth = geometry.Pixels(1 << 23)
+
+// Text is an element that renders text, wrapping it to the available width.
 //
-// It measures its content size during layout by shaping via Frame.ShapeLine,
-// caches the resulting ShapedLine across solver passes, and emits a
-// scene.MonochromeSprite for each glyph during the paint phase.
+// It measures its content size during layout by shaping and wrapping through
+// Frame.WrapText, caches the resulting []ShapedLine across solver passes keyed
+// on both the style runs and the width it was wrapped at, and emits a
+// scene.MonochromeSprite for each glyph during the paint phase. Line breaking
+// comes from the text package; element only orchestrates layout and painting
+// around the result.
 type Text struct {
 	content    string
 	refinement style.Refinement
 
-	// Cached layout & shaping state. shapedFor is the exact input shapedLine
-	// was shaped from; Paint compares against it because the style Text
-	// paints under can differ from the style it shaped under — see Paint.
-	shapedLine *text.ShapedLine
-	shapedFor  []text.StyleRun
+	// Cached layout & shaping state. shapedFor is the exact input shapedLines
+	// was shaped from and shapedForWidth is the width it was wrapped at. Paint
+	// compares against both because the style Text paints under can differ
+	// from the style it shaped under (a container's pseudo-state can change
+	// font metrics between prepaint and paint), and a re-layout at a
+	// different width must re-wrap even when the style runs are identical —
+	// comparing runs alone would silently keep the previous frame's line
+	// breaks.
+	shapedLines     []text.ShapedLine
+	shapedFor       []text.StyleRun
+	shapedForWidth  geometry.Pixels
 	layoutID   layout.NodeID
 	bounds     geometry.Bounds[geometry.Pixels]
 	phase      drawPhase
@@ -49,8 +64,9 @@ func (t *Text) Content() string {
 // SetContent updates the text content displayed by this element.
 func (t *Text) SetContent(content string) *Text {
 	t.content = content
-	t.shapedLine = nil
+	t.shapedLines = nil
 	t.shapedFor = nil
+	t.shapedForWidth = 0
 	return t
 }
 
@@ -150,10 +166,10 @@ func (t *Text) ClearStrikethrough() *Text {
 	return t
 }
 
-// textStyleRuns builds the single-run ShapeLine input for content shaped
-// under textStyle. Both RequestLayout and Paint need the exact same
-// construction, since Paint compares its result against what RequestLayout
-// shaped from to decide whether to reshape.
+// textStyleRuns builds the single-run WrapText input for content shaped under
+// textStyle. Both RequestLayout and Paint need the exact same construction,
+// since Paint compares its result against what RequestLayout shaped from to
+// decide whether to reshape.
 func textStyleRuns(content string, textStyle style.TextStyle) []text.StyleRun {
 	return []text.StyleRun{
 		{
@@ -197,9 +213,33 @@ func styleRunsEqual(a, b []text.StyleRun) bool {
 	return true
 }
 
+// wrapWidthFromKnown returns the width to wrap text at for a given known-width
+// option: the definite width when one is set and positive, or noWrapMaxWidth
+// when the width is unconstrained (MaxContent). A non-positive definite width
+// is degenerate and would force one word per line, so it is treated as
+// unconstrained too.
+func wrapWidthFromKnown(knownWidth layout.OptF32) geometry.Pixels {
+	if knownWidth.IsSome() {
+		if w := geometry.Pixels(knownWidth.UnwrapOr(0)); w > 0 {
+			return w
+		}
+	}
+	return noWrapMaxWidth
+}
+
+// lineBoxHeight returns the height of one line box: the configured line height
+// when it is positive, or the shaped line's own ascent plus descent otherwise.
+// The line box is what per-line half-leading is computed against.
+func lineBoxHeight(line text.ShapedLine, lineHeight geometry.Pixels) geometry.Pixels {
+	if lineHeight > 0 {
+		return lineHeight
+	}
+	return line.Height()
+}
+
 // RequestLayout resolves text styling, registers a measured layout callback
-// that shapes the text run through Frame.ShapeLine, and adds the leaf node
-// to the layout tree.
+// that shapes and wraps the text through Frame.WrapText, and adds the leaf
+// node to the layout tree.
 func (t *Text) RequestLayout(f Frame) NodeID {
 	if t.phase != phaseInitial {
 		panic("element: RequestLayout called out of order or multiple times")
@@ -216,36 +256,45 @@ func (t *Text) RequestLayout(f Frame) NodeID {
 	runs := textStyleRuns(t.content, textStyle)
 
 	measure := func(known layout.Size[layout.OptF32], avail layout.Size[layout.AvailableSpace]) geometry.Size[geometry.Pixels] {
-		// ShapeLine shapes one line with no wrapping, so its output for a
-		// given content and style is the same at every available width. The
-		// solver calls measure several times per solve with different width
-		// constraints; reshaping on each call would repeat the same work for
-		// no reason. Content is fixed for this element's lifetime, and this
-		// is the first shape of it, so nothing else can have changed since
-		// the call above built runs — shapedLine==nil is the whole cache
-		// this measure closure needs. Paint has to check harder; see there.
-		if t.shapedLine == nil {
-			line, err := f.ShapeLine(t.content, runs)
+		wrapWidth := wrapWidthFromKnown(known.Width)
+
+		// Wrap (or re-wrap) when the cache key changes. The width is part of
+		// the key, not just the runs: a re-layout at a different width must
+		// re-wrap even when the runs are identical, or the previous frame's
+		// line breaks are silently retained. Content is fixed for this
+		// element's lifetime, and this is the first wrap of it on this frame,
+		// so shapedLines==nil covers the cold cache; Paint has to check
+		// harder because pseudo-state can change the runs between prepaint
+		// and paint.
+		if t.shapedLines == nil || !styleRunsEqual(t.shapedFor, runs) || t.shapedForWidth != wrapWidth {
+			lines, err := f.WrapText(t.content, runs, wrapWidth)
 			if err == nil {
-				t.shapedLine = &line
+				t.shapedLines = lines
 				t.shapedFor = runs
+				t.shapedForWidth = wrapWidth
 			}
 		}
 
 		var width geometry.Pixels
 		if known.Width.IsSome() {
 			width = geometry.Pixels(known.Width.UnwrapOr(0))
-		} else if t.shapedLine != nil {
-			width = t.shapedLine.Width()
+		} else {
+			for _, l := range t.shapedLines {
+				if l.Width() > width {
+					width = l.Width()
+				}
+			}
 		}
 
 		var height geometry.Pixels
 		if known.Height.IsSome() {
 			height = geometry.Pixels(known.Height.UnwrapOr(0))
 		} else if textStyle.LineHeight > 0 {
-			height = textStyle.LineHeight
-		} else if t.shapedLine != nil {
-			height = t.shapedLine.Height()
+			height = textStyle.LineHeight * geometry.Pixels(len(t.shapedLines))
+		} else {
+			for _, l := range t.shapedLines {
+				height += l.Height()
+			}
 		}
 
 		return geometry.NewSize(width, height)
@@ -264,7 +313,9 @@ func (t *Text) Prepaint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	t.bounds = bounds
 }
 
-// Paint draws each glyph in the shaped text run as a scene.MonochromeSprite.
+// Paint draws each glyph in every wrapped line as a scene.MonochromeSprite,
+// applying per-line half-leading so a line box taller than the font's own
+// metrics centres the glyphs vertically within it.
 func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	if t.phase != phasePrepainted {
 		panic("element: Paint called before Prepaint or out of order")
@@ -286,20 +337,26 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	// painted under is not always the style RequestLayout's measure shaped
 	// under — a container's Hover changing font weight, family or size is a
 	// real, supported case, not a hypothetical one. Reshape whenever the
-	// resolved input differs from what shapedLine was actually shaped from,
-	// not only when nothing has been shaped yet.
+	// resolved input differs from what shapedLines was actually shaped from,
+	// not only when nothing has been shaped yet. The width is the same one
+	// measure settled on: the element's bounds are the solver's output for
+	// the constraint measure shaped under.
 	runs := textStyleRuns(t.content, textStyle)
-	if t.shapedLine == nil || !styleRunsEqual(t.shapedFor, runs) {
-		line, err := f.ShapeLine(t.content, runs)
+	wrapWidth := bounds.Size.Width
+	if wrapWidth <= 0 {
+		wrapWidth = noWrapMaxWidth
+	}
+	if t.shapedLines == nil || !styleRunsEqual(t.shapedFor, runs) || t.shapedForWidth != wrapWidth {
+		lines, err := f.WrapText(t.content, runs, wrapWidth)
 		if err != nil {
 			return
 		}
-		t.shapedLine = &line
+		t.shapedLines = lines
 		t.shapedFor = runs
+		t.shapedForWidth = wrapWidth
 	}
 
 	scale := f.ScaleFactor()
-	lineOrigin := bounds.Origin
 
 	// TextBackgroundColour paints as a quad behind the glyphs, spanning the
 	// element's full box, the same way Div paints its own background.
@@ -310,68 +367,73 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 		})
 	}
 
-	// A glyph's Position.Y is the baseline's offset from the top of the
-	// line's own tight box (ascent plus descent). When the box painted into
-	// is taller than that — LineHeight set higher than the font's own
-	// metrics, as an editor's 1.5 line height does — CSS's rule is half the
-	// extra space above and half below, not all of it below. Skipping this
-	// pins every line's glyphs to the top of its box instead of centring
-	// them, and the caret has to use the same offset or it stops lining up
-	// with the text it sits next to.
-	if extra := bounds.Size.Height - t.shapedLine.Height(); extra > 0 {
-		lineOrigin.Y += extra / 2
-	}
-
-	baselineY := lineOrigin.Y + t.shapedLine.Ascent()
-	lineWidth := t.shapedLine.Width()
-
-	// An underline sits within the descent, below the baseline. 0.618 is the
-	// golden-ratio placement GPUI's text_system/line.rs uses for the same
-	// line, rather than splitting the descent evenly.
-	if u := textStyle.Underline; u != nil {
-		underlineY := baselineY + t.shapedLine.Descent()*0.618
-		f.InsertUnderline(decorationLine(bounds.Origin.X, underlineY, lineWidth, u.Thickness, decorationColour(u.Colour, textStyle.Colour), u.Wavy, scale))
-	}
-
-	for _, run := range t.shapedLine.Runs() {
-		for _, g := range run.Glyphs {
-			penPos := lineOrigin.Add(g.Position)
-
-			// Subpixel bucket calculation from fractional device-pixel pen X
-			penXDevice := float32(penPos.X) * scale
-			frac := penXDevice - float32(math.Floor(float64(penXDevice)))
-			subpixel := text.SubpixelFor(frac)
-
-			tile, glyphBounds, ok := f.RasteriseGlyph(g.Face, g.ID, textStyle.FontSize, subpixel)
-			if !ok || glyphBounds.Size.IsZero() {
-				continue
-			}
-
-			penScaled := geometry.ScalePoint(penPos, scale)
-			spOrigin := geometry.Point[geometry.ScaledPixels]{
-				X: penScaled.X + glyphBounds.Origin.X.ToScaledPixels(),
-				Y: penScaled.Y - glyphBounds.Origin.Y.ToScaledPixels(),
-			}
-			spSize := geometry.Size[geometry.ScaledPixels]{
-				Width:  glyphBounds.Size.Width.ToScaledPixels(),
-				Height: glyphBounds.Size.Height.ToScaledPixels(),
-			}
-
-			f.InsertMonochromeSprite(scene.MonochromeSprite{
-				Bounds:         geometry.NewBounds(spOrigin, spSize),
-				Colour:         textStyle.Colour,
-				Tile:           tile,
-				Transformation: scene.IdentityMatrix,
-			})
+	// Each line occupies a line box of height lineBoxHeight stacked from the
+	// element's top. The half-leading rule — (boxHeight - line.Height()) / 2
+	// when the box is taller than the font's metrics — runs per line, not
+	// once against the whole element: with several lines, running it once
+	// would pin every line to the top of the first box. The caret has to use
+	// the same per-line offset or it stops sitting next to the text.
+	lineY := bounds.Origin.Y
+	for _, line := range t.shapedLines {
+		boxH := lineBoxHeight(line, textStyle.LineHeight)
+		lineOrigin := geometry.NewPoint(bounds.Origin.X, lineY)
+		if extra := boxH - line.Height(); extra > 0 {
+			lineOrigin.Y += extra / 2
 		}
-	}
 
-	// Strikethrough draws last, over the glyphs: it is a line through the
-	// letters, not one that sits behind them. It runs through the middle of
-	// lowercase glyphs at roughly a quarter of the ascent above the
-	// baseline, rather than at the baseline itself.
-	if s := textStyle.Strikethrough; s != nil {
-		strikeY := baselineY - t.shapedLine.Ascent()*0.25
-		f.InsertUnderline(decorationLine(bounds.Origin.X, strikeY, lineWidth, s.Thickness, decorationColour(s.Colour, textStyle.Colour), false, scale))
+		baselineY := lineOrigin.Y + line.Ascent()
+		lineWidth := line.Width()
+
+		// An underline sits within the descent, below the baseline. 0.618 is
+		// the golden-ratio placement GPUI's text_system/line.rs uses for the
+		// same line, rather than splitting the descent evenly.
+		if u := textStyle.Underline; u != nil {
+			underlineY := baselineY + line.Descent()*0.618
+			f.InsertUnderline(decorationLine(lineOrigin.X, underlineY, lineWidth, u.Thickness, decorationColour(u.Colour, textStyle.Colour), u.Wavy, scale))
+		}
+
+		for _, run := range line.Runs() {
+			for _, g := range run.Glyphs {
+				penPos := lineOrigin.Add(g.Position)
+
+				// Subpixel bucket calculation from fractional device-pixel pen X
+				penXDevice := float32(penPos.X) * scale
+				frac := penXDevice - float32(math.Floor(float64(penXDevice)))
+				subpixel := text.SubpixelFor(frac)
+
+				tile, glyphBounds, ok := f.RasteriseGlyph(g.Face, g.ID, textStyle.FontSize, subpixel)
+				if !ok || glyphBounds.Size.IsZero() {
+					continue
+				}
+
+				penScaled := geometry.ScalePoint(penPos, scale)
+				spOrigin := geometry.Point[geometry.ScaledPixels]{
+					X: penScaled.X + glyphBounds.Origin.X.ToScaledPixels(),
+					Y: penScaled.Y - glyphBounds.Origin.Y.ToScaledPixels(),
+				}
+				spSize := geometry.Size[geometry.ScaledPixels]{
+					Width:  glyphBounds.Size.Width.ToScaledPixels(),
+					Height: glyphBounds.Size.Height.ToScaledPixels(),
+				}
+
+				f.InsertMonochromeSprite(scene.MonochromeSprite{
+					Bounds:         geometry.NewBounds(spOrigin, spSize),
+					Colour:         textStyle.Colour,
+					Tile:           tile,
+					Transformation: scene.IdentityMatrix,
+				})
+			}
+		}
+
+		// Strikethrough draws last, over the glyphs: it is a line through the
+		// letters, not one that sits behind them. It runs through the middle
+		// of lowercase glyphs at roughly a quarter of the ascent above the
+		// baseline, rather than at the baseline itself.
+		if s := textStyle.Strikethrough; s != nil {
+			strikeY := baselineY - line.Ascent()*0.25
+			f.InsertUnderline(decorationLine(lineOrigin.X, strikeY, lineWidth, s.Thickness, decorationColour(s.Colour, textStyle.Colour), false, scale))
+		}
+
+		lineY += boxH
 	}
 }
