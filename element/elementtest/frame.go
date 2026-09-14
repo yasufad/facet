@@ -666,6 +666,16 @@ func (f *Frame) ShapeLine(str string, runs []text.StyleRun) (text.ShapedLine, er
 	return text.ShapedLine{}, nil
 }
 
+// WrapText shapes text and wraps it to maxWidth, returning one ShapedLine per
+// visual line. Newlines force line breaks. Mirrors Frame.ShapeLine's
+// delegation to the underlying text system.
+func (f *Frame) WrapText(str string, runs []text.StyleRun, maxWidth geometry.Pixels) ([]text.ShapedLine, error) {
+	if f.textSys != nil {
+		return f.textSys.WrapText(str, runs, maxWidth)
+	}
+	return nil, nil
+}
+
 // RasteriseGlyph returns a mock tile and device bounds for testing.
 func (f *Frame) RasteriseGlyph(face text.Face, gid text.GlyphID, size geometry.Pixels, subpixel text.SubpixelOffset) (scene.AtlasTile, geometry.Bounds[geometry.DevicePixels], bool) {
 	if f.phase != PhasePaint {
