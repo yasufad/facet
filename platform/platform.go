@@ -18,6 +18,14 @@ type Options struct {
 	// platform-dependent: a named mutex on Windows, a lock file or launch
 	// service on macOS, a DBus name on Linux.
 	SingleInstance bool
+
+	// AppUserModelID is the Windows AppUserModelID, used by the shell for
+	// taskbar grouping, jump lists, and toast notification attribution. It
+	// must correspond to a Start Menu shortcut for notifications to display
+	// properly; without one, toasts may not appear at all. The platform
+	// calls SetCurrentProcessExplicitAppUserModelID with this value in New,
+	// before any windows are created. Ignored on other platforms.
+	AppUserModelID string
 }
 
 // Platform is the operating-system layer: the native event loop, windows,

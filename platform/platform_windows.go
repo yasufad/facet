@@ -88,6 +88,20 @@ func New(opts Options) (Platform, error) {
 		opts.Name = "Facet"
 	}
 
+	// Set the AppUserModelID before any windows are created. The shell
+	// uses it for taskbar grouping and toast notification attribution,
+	// and SetCurrentProcessExplicitAppUserModelID must be called before
+	// the process creates its first window — the dispatcher's hidden
+	// window is created below, so this is the last chance. An empty
+	// AppUserModelID is skipped: the process keeps its default identity,
+	// and SendNotification will error rather than silently showing a
+	// toast attributed to a fabricated ID.
+	if opts.AppUserModelID != "" {
+		if hr := w32.SetCurrentProcessExplicitAppUserModelID(opts.AppUserModelID); hr != 0 {
+			return nil, fmt.Errorf("initialise platform: SetCurrentProcessExplicitAppUserModelID: %#x", uint32(hr))
+		}
+	}
+
 	// Make this process DPI-aware so window sizes are in physical pixels.
 	w32.SetProcessDpiAwarenessContext(w32.DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
 
