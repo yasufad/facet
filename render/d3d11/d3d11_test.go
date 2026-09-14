@@ -221,3 +221,62 @@ func TestClassifyDeviceErrorNoAdapter(t *testing.T) {
 		t.Fatalf("S_OK with nil device should not wrap ErrNoAdapter, got: %v", nullErr)
 	}
 }
+
+// TestReleaseTileIdempotent pins the ReleaseTile contract: releasing an
+// unknown, stale, or already-released tile is a no-op rather than a panic.
+// window is relying on this property — a ScaleChangedEvent can drive
+// ClearAtlas between a tile being handed out and released, and a panic there
+// would make that path unrunnable. The generation check is for drawing a
+// stale tile, not releasing one.
+//
+// This is a break test: if releaseTile panics on a stale or unknown tile
+// (as debugCheckTile does for drawing), the test fails. It exercises
+// releaseTile directly with a manually constructed atlasManager, so it
+// needs no GPU device.
+func TestReleaseTileIdempotent(t *testing.T) {
+	page := &atlasPage{kind: scene.TextureMonochrome, packer: newShelfPacker(atlasPageWidth, atlasPageHeight)}
+	m := &atlasManager{monoPages: []*atlasPage{page}, nextTileID: 1}
+
+	tile := scene.AtlasTile{
+		TextureID: scene.AtlasTextureID{Index: 0, Kind: scene.TextureMonochrome},
+		TileID:    makeTileID(page.generation, 1),
+		Bounds:    geometry.NewBounds(geometry.NewPoint[geometry.DevicePixels](0, 0), geometry.NewSize[geometry.DevicePixels](4, 4)),
+	}
+
+	// Releasing a valid tile does not panic.
+	m.releaseTile(tile)
+
+	// Releasing the same tile again is a no-op (idempotent).
+	m.releaseTile(tile)
+
+	// Releasing a tile on a nonexistent page does not panic.
+	stray := tile
+	stray.TextureID.Index = 7
+	m.releaseTile(stray)
+
+	// Releasing a tile whose page was cleared does not panic. ClearAtlas
+	// bumps the generation and clears the released set, so the tile is
+	// stale — but releaseTile must treat that as a no-op, not an error.
+	m.clear(scene.TextureMonochrome)
+	m.releaseTile(tile)
+
+	// Releasing a tile minted after the clear, then clearing again, then
+	// releasing the stale post-clear tile does not panic.
+	freshTile := scene.AtlasTile{
+		TextureID: scene.AtlasTextureID{Index: 0, Kind: scene.TextureMonochrome},
+		TileID:    makeTileID(page.generation, 2),
+		Bounds:    geometry.NewBounds(geometry.NewPoint[geometry.DevicePixels](0, 0), geometry.NewSize[geometry.DevicePixels](4, 4)),
+	}
+	m.releaseTile(freshTile)
+	m.clear(scene.TextureMonochrome)
+	m.releaseTile(freshTile)
+
+	// Releasing an empty (zero-sized) tile does not panic.
+	m.releaseTile(scene.AtlasTile{})
+
+	// Releasing a tile whose kind has no pages does not panic.
+	polyTile := tile
+	polyTile.TextureID.Kind = scene.TexturePolychrome
+	polyTile.TextureID.Index = 0
+	m.releaseTile(polyTile)
+}
