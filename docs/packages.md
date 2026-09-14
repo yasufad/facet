@@ -368,6 +368,32 @@ compares a returned 32-byte four-double struct against exact expected values, wh
 selectors are reachable — is answered yes, and independently of whether our own code
 calls them correctly.
 
+`Options.AppUserModelID` carries the application's Windows AUMID, and the zero value means
+do not set one. Toast notifications need an AUMID that matches a Start Menu shortcut the
+application's installer created; a library cannot invent one, and an AUMID with no
+registered shortcut does not merely show a generic icon — the toast does not appear.
+Deriving one from `Options.Name` would therefore make `SendNotification` return success
+having displayed nothing, which is the failure this package has already withdrawn three
+times over (`SetQuitHandler` stored and never read, `Hide` and `Show` returning no error
+and doing nothing, `Div.Opacity` one layer up).
+
+It is a field on `Options` rather than a method because
+`SetCurrentProcessExplicitAppUserModelID` must run before the process creates any window,
+and `Options` is consumed at `New`. It sits beside the existing
+`SetProcessDpiAwarenessContext` call, which is the same kind of process-wide setup done
+before the dispatcher's window exists.
+
+Unset, nothing is called at all: the side effects are process-wide — taskbar grouping and
+jump lists — and an application that never sends a notification should not have its shell
+identity changed by a default it did not ask for. `SendNotification` then errors, which is
+what it did before the field existed.
+
+The name is the Win32 term rather than a generic `ApplicationID`, because a wrong value
+fails silently. A generic name invites a reverse-DNS bundle identifier that is not the
+AUMID, and the toast simply never appears. `Options.Name` is not overloaded for this, even
+though its doc already claims the application ID role on Linux; the two are different
+strings with different registration requirements.
+
 ## render
 
 The `Renderer` interface and the GPU side of the atlases, with a backend per
