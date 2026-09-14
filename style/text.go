@@ -79,12 +79,12 @@ type TextStyle struct {
 // DefaultTextStyle returns the default text styling.
 func DefaultTextStyle() TextStyle {
 	return TextStyle{
-		Colour:     colour.Rgb(0x000000),
-		FontFamily: "",
-		FontSize:   16,
-		LineHeight: 20,
-		FontWeight: text.WeightNormal,
-		FontStyle:  text.StyleNormal,
+		Colour:       colour.Rgb(0x000000),
+		FontFamily:   "",
+		FontSize:     16,
+		LineHeight:   20,
+		FontWeight:   text.WeightNormal,
+		FontStyle:    text.StyleNormal,
 		WhiteSpace:   WhiteSpaceNormal,
 		TextOverflow: TextOverflowClip,
 		TextAlign:    TextAlignLeft,
