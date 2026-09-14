@@ -790,7 +790,7 @@ func TestTextAlignShiftsLineOrigin(t *testing.T) {
 	}
 	// Centre moves by half the slack, Right by all of it, so Right - Left is
 	// twice Centre - Left (modulo the per-glyph offset being constant).
-	if got := (rightX - leftX) - 2*(centreX - leftX); got > geometry.ScaledPixels(0.5) || got < geometry.ScaledPixels(-0.5) {
+	if got := (rightX - leftX) - 2*(centreX-leftX); got > geometry.ScaledPixels(0.5) || got < geometry.ScaledPixels(-0.5) {
 		t.Fatalf("Right-Left %v should be 2*(Centre-Left %v), diff %v", rightX-leftX, centreX-leftX, got)
 	}
 }
