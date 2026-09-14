@@ -54,6 +54,20 @@ type windowsPlatform struct {
 	// or cleared. Accessed only on the platform thread.
 	largeIcon w32.HICON
 	smallIcon w32.HICON
+
+	// trayHwnd is the hidden message-only window that receives tray
+	// callback messages from Shell_NotifyIcon. Created lazily on the
+	// first NewSystemTray call. Accessed only on the platform thread.
+	trayHwnd w32.HWND
+
+	// trays maps each tray ID to its *windowsSystemTray so the tray
+	// wndproc can recover the tray from the callback message's wParam.
+	// Accessed only on the platform thread.
+	trays map[uint32]*windowsSystemTray
+
+	// nextTrayID is the next tray ID to assign. Accessed only on the
+	// platform thread.
+	nextTrayID uint32
 }
 
 // New creates a Windows platform. It must be called on the goroutine that
@@ -238,11 +252,6 @@ func (p *windowsPlatform) dispatchMenuCommand(id uintptr) {
 	if fn, ok := p.menu.commands[id]; ok && fn != nil {
 		fn()
 	}
-}
-
-// NewSystemTray creates a system tray icon.
-func (p *windowsPlatform) NewSystemTray(opts SystemTrayOptions) (SystemTray, error) {
-	return nil, fmt.Errorf("system tray: not implemented")
 }
 
 // ShowMessageDialog shows a modal message dialog through MessageBoxW. It
