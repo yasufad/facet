@@ -229,7 +229,15 @@ func TestQuitHandlerVetoesSessionEnd(t *testing.T) {
 			}
 		})
 
-		w.Close()
+		// Close by posting WM_CLOSE rather than calling w.Close, which
+		// uses SendMessage. A sent message Win32 processes before posted
+		// messages, so under parallel test execution w.Close could
+		// destroy the window before the dispatch closure above runs —
+		// the same trap the visibility test documents. PostMessage
+		// queues WM_CLOSE after the closure, so the assertions run first.
+		p.Dispatch(func() {
+			postClose(hwnd)
+		})
 	}()
 
 	go func() {
