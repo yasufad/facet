@@ -464,6 +464,41 @@ func TestTextNewlinesProduceMultipleLines(t *testing.T) {
 	}
 }
 
+// TestTextWhiteSpaceNowrapSuppressesWrapping pins WhiteSpace's real consumer:
+// WhiteSpaceNowrap forces the text to a single line even at a narrow known
+// width that would otherwise wrap, where WhiteSpaceNormal (the default) wraps.
+// Removing the WhiteSpaceNowrap branch from wrapWidthFor collapses this test
+// to the wrapped case and the line count assertion fails.
+func TestTextWhiteSpaceNowrapSuppressesWrapping(t *testing.T) {
+	content := "The quick brown fox jumps over the lazy dog"
+
+	// Normal: wraps to multiple lines at a narrow known width.
+	frameNormal := newFakeFrame()
+	frameNormal.phase = phaseLayoutRequested
+	normal := NewText(content).FontSize(16).LineHeight(20)
+	normalID := normal.RequestLayout(frameNormal)
+	frameNormal.measureCallbacks[normalID](
+		layout.Size[layout.OptF32]{Width: layout.SomeOptF32(40)},
+		layout.Size[layout.AvailableSpace]{Width: layout.MaxContent(), Height: layout.MaxContent()},
+	)
+	if len(normal.shapedLines) <= 1 {
+		t.Fatalf("WhiteSpaceNormal: expected >1 line at width 40, got %d", len(normal.shapedLines))
+	}
+
+	// Nowrap: stays on one line at the same narrow known width.
+	frameNowrap := newFakeFrame()
+	frameNowrap.phase = phaseLayoutRequested
+	nowrap := NewText(content).FontSize(16).LineHeight(20).WhiteSpace(style.WhiteSpaceNowrap)
+	nowrapID := nowrap.RequestLayout(frameNowrap)
+	frameNowrap.measureCallbacks[nowrapID](
+		layout.Size[layout.OptF32]{Width: layout.SomeOptF32(40)},
+		layout.Size[layout.AvailableSpace]{Width: layout.MaxContent(), Height: layout.MaxContent()},
+	)
+	if len(nowrap.shapedLines) != 1 {
+		t.Fatalf("WhiteSpaceNowrap: expected 1 line at width 40, got %d", len(nowrap.shapedLines))
+	}
+}
+
 // TestTextReshapesWhenPaintTimeStyleChangesFontMetrics pins the paint-time
 // gap docs/audit.md names: f.TextStyle() carries whatever pseudo-state
 // refinements a container merges in between prepaint and paint, so the style

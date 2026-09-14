@@ -842,6 +842,12 @@ func (d *Div) ClearStrikethrough() *Div {
 	return d
 }
 
+// WhiteSpace sets whitespace wrapping behaviour.
+func (d *Div) WhiteSpace(w style.WhiteSpace) *Div {
+	d.refinement.SetWhiteSpace(w)
+	return d
+}
+
 // --- Lifecycle ---
 
 // RequestLayout requests layout for all children, converts the resolved style

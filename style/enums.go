@@ -150,6 +150,17 @@ const (
 	CursorResizeRow
 )
 
+// WhiteSpace controls how whitespace inside an element is handled.
+type WhiteSpace uint8
+
+const (
+	// WhiteSpaceNormal allows text to wrap normally at the available width.
+	WhiteSpaceNormal WhiteSpace = iota
+	// WhiteSpaceNowrap prevents text from wrapping; lines overflow rather
+	// than break at the available width.
+	WhiteSpaceNowrap
+)
+
 // Conversion helpers to layout enums
 
 func (d Display) toLayout() layout.Display {

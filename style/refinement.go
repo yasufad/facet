@@ -85,6 +85,7 @@ type Refinement struct {
 	textBackgroundColour colour.Rgba
 	underline            *UnderlineStyle
 	strikethrough        *StrikethroughStyle
+	whiteSpace           WhiteSpace
 }
 
 // IsEmpty reports whether no properties have been set in this refinement.
@@ -281,6 +282,9 @@ func (r *Refinement) MergeFrom(other *Refinement) {
 		}
 		if other.mask.has(propStrikethrough) {
 			r.strikethrough = other.strikethrough
+		}
+		if other.mask.has(propWhiteSpace) {
+			r.whiteSpace = other.whiteSpace
 		}
 	}
 }
@@ -749,4 +753,10 @@ func (r *Refinement) SetStrikethrough(s StrikethroughStyle) {
 func (r *Refinement) ClearStrikethrough() {
 	r.mask.set(propStrikethrough)
 	r.strikethrough = nil
+}
+
+// SetWhiteSpace sets whitespace wrapping behaviour.
+func (r *Refinement) SetWhiteSpace(w WhiteSpace) {
+	r.mask.set(propWhiteSpace)
+	r.whiteSpace = w
 }

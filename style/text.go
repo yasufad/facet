@@ -61,6 +61,9 @@ type TextStyle struct {
 
 	// Strikethrough configures strikethrough styling.
 	Strikethrough *StrikethroughStyle
+
+	// WhiteSpace controls line wrapping behaviour.
+	WhiteSpace WhiteSpace
 }
 
 // DefaultTextStyle returns the default text styling.
@@ -72,5 +75,6 @@ func DefaultTextStyle() TextStyle {
 		LineHeight: 20,
 		FontWeight: text.WeightNormal,
 		FontStyle:  text.StyleNormal,
+		WhiteSpace: WhiteSpaceNormal,
 	}
 }

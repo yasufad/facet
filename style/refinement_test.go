@@ -263,6 +263,7 @@ func TestTypographyRefinement(t *testing.T) {
 	r.SetFontWeight(text.WeightBold)
 	r.SetFontStyle(text.StyleItalic)
 	r.SetUnderline(UnderlineStyle{Thickness: 2, Wavy: true})
+	r.SetWhiteSpace(WhiteSpaceNowrap)
 
 	s := Default().Refined(r)
 
@@ -286,6 +287,9 @@ func TestTypographyRefinement(t *testing.T) {
 	}
 	if s.Text.Underline == nil || s.Text.Underline.Thickness != 2 || !s.Text.Underline.Wavy {
 		t.Errorf("Text.Underline = %v, want thickness 2 wavy", s.Text.Underline)
+	}
+	if s.Text.WhiteSpace != WhiteSpaceNowrap {
+		t.Errorf("Text.WhiteSpace = %v, want Nowrap", s.Text.WhiteSpace)
 	}
 }
 
@@ -354,6 +358,7 @@ func TestDistinctPropertyIndices(t *testing.T) {
 		{"propTextBackgroundColour", propTextBackgroundColour},
 		{"propUnderline", propUnderline},
 		{"propStrikethrough", propStrikethrough},
+		{"propWhiteSpace", propWhiteSpace},
 	}
 
 	seen := make(map[uint8]string)

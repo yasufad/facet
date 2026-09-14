@@ -166,6 +166,12 @@ func (t *Text) ClearStrikethrough() *Text {
 	return t
 }
 
+// WhiteSpace sets whitespace wrapping behaviour.
+func (t *Text) WhiteSpace(w style.WhiteSpace) *Text {
+	t.refinement.SetWhiteSpace(w)
+	return t
+}
+
 // textStyleRuns builds the single-run WrapText input for content shaped under
 // textStyle. Both RequestLayout and Paint need the exact same construction,
 // since Paint compares its result against what RequestLayout shaped from to
@@ -213,12 +219,17 @@ func styleRunsEqual(a, b []text.StyleRun) bool {
 	return true
 }
 
-// wrapWidthFromKnown returns the width to wrap text at for a given known-width
-// option: the definite width when one is set and positive, or noWrapMaxWidth
-// when the width is unconstrained (MaxContent). A non-positive definite width
-// is degenerate and would force one word per line, so it is treated as
-// unconstrained too.
-func wrapWidthFromKnown(knownWidth layout.OptF32) geometry.Pixels {
+// wrapWidthFor returns the width to wrap text at for a given known-width
+// option and whitespace mode: the definite width when one is set and
+// positive, or noWrapMaxWidth when the width is unconstrained (MaxContent).
+// WhiteSpaceNowrap overrides both — it forces noWrapMaxWidth so the text
+// overflows rather than breaking, regardless of the available width. A
+// non-positive definite width is degenerate and would force one word per
+// line, so it is treated as unconstrained too.
+func wrapWidthFor(knownWidth layout.OptF32, whiteSpace style.WhiteSpace) geometry.Pixels {
+	if whiteSpace == style.WhiteSpaceNowrap {
+		return noWrapMaxWidth
+	}
 	if knownWidth.IsSome() {
 		if w := geometry.Pixels(knownWidth.UnwrapOr(0)); w > 0 {
 			return w
@@ -256,7 +267,7 @@ func (t *Text) RequestLayout(f Frame) NodeID {
 	runs := textStyleRuns(t.content, textStyle)
 
 	measure := func(known layout.Size[layout.OptF32], avail layout.Size[layout.AvailableSpace]) geometry.Size[geometry.Pixels] {
-		wrapWidth := wrapWidthFromKnown(known.Width)
+		wrapWidth := wrapWidthFor(known.Width, textStyle.WhiteSpace)
 
 		// Wrap (or re-wrap) when the cache key changes. The width is part of
 		// the key, not just the runs: a re-layout at a different width must
@@ -343,7 +354,7 @@ func (t *Text) Paint(f Frame, bounds geometry.Bounds[geometry.Pixels]) {
 	// the constraint measure shaped under.
 	runs := textStyleRuns(t.content, textStyle)
 	wrapWidth := bounds.Size.Width
-	if wrapWidth <= 0 {
+	if textStyle.WhiteSpace == style.WhiteSpaceNowrap || wrapWidth <= 0 {
 		wrapWidth = noWrapMaxWidth
 	}
 	if t.shapedLines == nil || !styleRunsEqual(t.shapedFor, runs) || t.shapedForWidth != wrapWidth {
