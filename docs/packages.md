@@ -394,6 +394,19 @@ AUMID, and the toast simply never appears. `Options.Name` is not overloaded for 
 though its doc already claims the application ID role on Linux; the two are different
 strings with different registration requirements.
 
+A sent message jumps the posted queue, and this has broken two tests in this package. The
+platform thread's dispatch closures are *posted*; `Window.Close` uses
+`SendMessage(WM_CLOSE)`, which Win32 delivers before anything already posted. So a test
+that queues dispatched assertions and then calls `Close` can have its window destroyed
+before the assertions run — intermittently, because it depends on whether the thread
+pumped the queue first. Both times the fix was the same: close with `PostMessage` so
+`WM_CLOSE` keeps its place in FIFO order behind the closures.
+
+It is worth naming because the failure looks like flakiness rather than a race. It was
+first seen as an intermittent failure under parallel package execution, could not be
+reproduced in six attempts, and was found by reading the ordering rather than by chasing
+the reproduction.
+
 ## render
 
 The `Renderer` interface and the GPU side of the atlases, with a backend per
